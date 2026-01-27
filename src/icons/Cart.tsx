@@ -1,3 +1,9 @@
+import React from "react";
+
+interface CartProps {
+  color?: string;
+}
+
 const Cart: React.FC<CartProps> = ({ color = "black" }) => {
   return (
     <svg

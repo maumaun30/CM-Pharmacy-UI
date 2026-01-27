@@ -68,7 +68,7 @@ const POSPage = () => {
         return prev.map((item) =>
           item.product.id === product.id
             ? { ...item, quantity: item.quantity + 1 }
-            : item
+            : item,
         );
       }
       return [...prev, { product, quantity: 1 }];
@@ -81,8 +81,8 @@ const POSPage = () => {
   const updateQuantity = (id: number, qty: number) => {
     setCart((prev) =>
       prev.map((item) =>
-        item.product.id === id ? { ...item, quantity: qty } : item
-      )
+        item.product.id === id ? { ...item, quantity: qty } : item,
+      ),
     );
   };
 
@@ -93,7 +93,7 @@ const POSPage = () => {
 
   const total = cart.reduce(
     (sum, item) => sum + item.product.price * item.quantity,
-    0
+    0,
   );
 
   const handleCheckout = async () => {
@@ -188,7 +188,8 @@ const POSPage = () => {
                       <Cart />
                     </p>
                     <Button
-                      variant="icon"
+                      variant="outline"
+                      size="icon"
                       onClick={() => {
                         setMobileCartVisible(false);
                         setCartBtn(true);
@@ -226,7 +227,7 @@ const POSPage = () => {
                                   const val = parseInt(e.target.value);
                                   updateQuantity(
                                     item.product.id,
-                                    isNaN(val) || val < 1 ? 1 : val
+                                    isNaN(val) || val < 1 ? 1 : val,
                                   );
                                 }}
                               />
@@ -305,7 +306,7 @@ const POSPage = () => {
                                 const val = parseInt(e.target.value);
                                 updateQuantity(
                                   item.product.id,
-                                  isNaN(val) || val < 1 ? 1 : val
+                                  isNaN(val) || val < 1 ? 1 : val,
                                 );
                               }}
                             />

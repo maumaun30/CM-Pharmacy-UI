@@ -1,3 +1,9 @@
+import React from "react";
+
+interface AddProps {
+  color?: string;
+}
+
 const Add: React.FC<AddProps> = ({ color = "black" }) => {
   return (
     <svg

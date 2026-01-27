@@ -1,3 +1,9 @@
+import React from "react";
+
+interface EditProps {
+  color?: string;
+}
+
 const Edit: React.FC<EditProps> = ({ color = "black" }) => {
   return (
     <svg

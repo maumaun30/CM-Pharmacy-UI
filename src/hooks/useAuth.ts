@@ -1,9 +1,10 @@
 "use client";
 import { useEffect, useState } from "react";
 import axios from "@/lib/api";
+import type { User } from "@/middleware/auth";
 
 export function useAuth() {
-  const [user, setUser] = useState(null);
+  const [user, setUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {

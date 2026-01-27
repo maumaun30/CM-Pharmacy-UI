@@ -1,3 +1,9 @@
+import React from "react";
+
+interface TrashProps {
+  color?: string;
+}
+
 const Trash: React.FC<TrashProps> = ({ color = "black" }) => {
   return (
     <svg

@@ -1,5 +1,11 @@
 import axios from "axios";
 
+export interface User {
+  id: string;
+  username: string;
+  email?: string;
+}
+
 export async function verifyToken(): Promise<boolean> {
   const token =
     typeof window !== "undefined" ? localStorage.getItem("token") : null;
@@ -10,7 +16,7 @@ export async function verifyToken(): Promise<boolean> {
       `${process.env.NEXT_PUBLIC_API_BASE_URL}/auth/profile`,
       {
         headers: { Authorization: `Bearer ${token}` },
-      }
+      },
     );
     return !!res.data;
   } catch (err) {
