@@ -11,6 +11,14 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Badge } from "@/components/ui/badge";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import {
   Tooltip,
   TooltipContent,
@@ -30,83 +38,97 @@ import {
   TableRow,
 } from "@/components/ui/table";
 
-type Category = {
+type User = {
   id: number;
-  name: string;
-  description: string;
+  username: string;
+  email: string;
+  role: string;
+  isActive: boolean;
 };
 
-export default function CategoriesPage() {
-  const [categories, setCategories] = useState<Category[]>([]);
+export default function UsersPage() {
+  const [users, setUsers] = useState<User[]>([]);
   const [modalOpen, setModalOpen] = useState(false);
-  const [editingCategory, setEditingCategory] = useState<Category | null>(null);
-  const [formData, setFormData] = useState({ name: "", description: "" });
+  const [editingUser, setEditingUser] = useState<User | null>(null);
+  const [formData, setFormData] = useState({
+    username: "",
+    email: "",
+    role: "",
+    isActive: false,
+  });
   const [loading, setLoading] = useState(false);
 
   // --- Table UI states ---
   const [search, setSearch] = useState("");
-  const [sortBy, setSortBy] = useState<keyof Category>("id");
+  const [sortBy, setSortBy] = useState<keyof User>("id");
   const [sortDir, setSortDir] = useState<"asc" | "desc">("asc");
   const [page, setPage] = useState(1);
   const [perPage, setPerPage] = useState(20);
 
   const [deleteOpen, setDeleteOpen] = useState(false);
-  const [categoryToDelete, setCategoryToDelete] = useState<Category | null>(
-    null,
-  );
+  const [userToDelete, setUserToDelete] = useState<User | null>(null);
 
-  const fetchCategories = async () => {
+  const fetchUsers = async () => {
     try {
-      const res = await api.get("/categories");
-      setCategories(res.data);
+      const res = await api.get("/users");
+      setUsers(res.data);
     } catch (error: any) {
-      toast.error("Failed to fetch categories");
+      toast.error("Failed to fetch users");
     }
   };
 
   useEffect(() => {
-    fetchCategories();
+    fetchUsers();
   }, []);
 
-  const handleOpenModal = (category?: Category) => {
-    if (category) {
-      setEditingCategory(category);
-      setFormData({ name: category.name, description: category.description });
+  const handleOpenModal = (user?: User) => {
+    if (user) {
+      setEditingUser(user);
+      setFormData({
+        username: user.username,
+        email: user.email,
+        role: user.role,
+        isActive: user.isActive,
+      });
     } else {
-      setEditingCategory(null);
-      setFormData({ name: "", description: "" });
+      setEditingUser(null);
+      setFormData({ username: "", email: "", role: "", isActive: false });
     }
     setModalOpen(true);
   };
 
   const handleCloseModal = () => {
     setModalOpen(false);
-    setEditingCategory(null);
-    setFormData({ name: "", description: "" });
+    setEditingUser(null);
+    setFormData({ username: "", email: "", role: "", isActive: false });
   };
 
   const handleSubmit = async () => {
-    const { name, description } = formData;
-    if (!name.trim()) return toast.error("Category name is required");
+    const { username, email, role, isActive } = formData;
+    if (!username.trim()) return toast.error("Username is required");
     try {
       setLoading(true);
-      if (editingCategory) {
-        await api.put(`/categories/${editingCategory.id}`, {
-          name,
-          description,
+      if (editingUser) {
+        await api.put(`/users/${editingUser.id}`, {
+          username,
+          email,
+          role,
+          isActive,
         });
-        toast.success("Category updated");
+        toast.success("User updated");
       } else {
-        await api.post("/categories", {
-          name,
-          description,
+        await api.post("/users", {
+          username,
+          email,
+          role,
+          isActive,
         });
-        toast.success("Category created");
+        toast.success("User created");
       }
       handleCloseModal();
-      fetchCategories();
+      fetchUsers();
     } catch (error: any) {
-      toast.error(error.response?.data?.message || "Error saving category");
+      toast.error(error.response?.data?.message || "Error saving user");
     } finally {
       setLoading(false);
     }
@@ -114,33 +136,33 @@ export default function CategoriesPage() {
 
   const handleDelete = async (id: number) => {
     try {
-      await api.delete(`/categories/${id}`);
-      toast.success("Category deleted");
-      fetchCategories();
+      await api.delete(`/users/${id}`);
+      toast.success("User deleted");
+      fetchUsers();
     } catch (error: any) {
-      toast.error(error.response?.data?.message || "Error deleting category");
+      toast.error(error.response?.data?.message || "Error deleting user");
     }
   };
 
   const confirmDelete = async () => {
-    if (!categoryToDelete) return;
+    if (!userToDelete) return;
 
     try {
-      await api.delete(`/categories/${categoryToDelete.id}`);
-      toast.success("Category deleted");
-      fetchCategories();
+      await api.delete(`/users/${userToDelete.id}`);
+      toast.success("User deleted");
+      fetchUsers();
     } catch (err: any) {
-      toast.error(err.response?.data?.message || "Error deleting category");
+      toast.error(err.response?.data?.message || "Error deleting user");
     } finally {
       setDeleteOpen(false);
-      setCategoryToDelete(null);
+      setUserToDelete(null);
     }
   };
 
   // --- Derived Data: search, sort, paginate ---
   const filtered = useMemo(() => {
-    let data = categories.filter((c) =>
-      c.name.toLowerCase().includes(search.toLowerCase()),
+    let data = users.filter((c) =>
+      c.username.toLowerCase().includes(search.toLowerCase()),
     );
     data = data.sort((a, b) => {
       const aVal = a[sortBy];
@@ -153,7 +175,7 @@ export default function CategoriesPage() {
         : String(bVal).localeCompare(String(aVal));
     });
     return data;
-  }, [categories, search, sortBy, sortDir]);
+  }, [users, search, sortBy, sortDir]);
 
   const paginated = useMemo(() => {
     const start = (page - 1) * perPage;
@@ -162,7 +184,7 @@ export default function CategoriesPage() {
 
   const totalPages = Math.ceil(filtered.length / perPage);
 
-  const handleSort = (key: keyof Category) => {
+  const handleSort = (key: keyof User) => {
     if (sortBy === key) {
       setSortDir(sortDir === "asc" ? "desc" : "asc");
     } else {
@@ -175,7 +197,7 @@ export default function CategoriesPage() {
     <ProtectedRoute>
       <div className="p-6">
         <div className="flex justify-between items-center mb-4">
-          <h1 className="text-2xl font-semibold">Categories</h1>
+          <h1 className="text-2xl font-semibold">Users</h1>
           <Button
             className="cursor-pointer"
             variant="outline"
@@ -188,7 +210,7 @@ export default function CategoriesPage() {
         {/* Search + Per Page Controls */}
         <div className="flex justify-between items-center mb-3">
           <Input
-            placeholder="Search categories..."
+            placeholder="Search users..."
             className="max-w-sm"
             value={search}
             onChange={(e) => {
@@ -221,13 +243,15 @@ export default function CategoriesPage() {
               <TableRow>
                 {[
                   { key: "id", label: "ID" },
-                  { key: "name", label: "Name" },
-                  { key: "description", label: "Description" },
+                  { key: "username", label: "Username" },
+                  { key: "email", label: "Email" },
+                  { key: "role", label: "Role" },
+                  { key: "isActive", label: "Status" },
                 ].map((col) => (
                   <TableHead
                     key={col.key}
                     className="cursor-pointer select-none"
-                    onClick={() => handleSort(col.key as keyof Category)}
+                    onClick={() => handleSort(col.key as keyof User)}
                   >
                     {col.label}{" "}
                     {sortBy === col.key && (sortDir === "asc" ? "↑" : "↓")}
@@ -237,13 +261,27 @@ export default function CategoriesPage() {
               </TableRow>
             </TableHeader>
             <TableBody>
-              {paginated.map((cat) => (
-                <TableRow key={cat.id}>
-                  <TableCell className="text-center">{cat.id}</TableCell>
-                  <TableCell>{cat.name}</TableCell>
-                  <TableCell className="max-md:hidden">
-                    {cat.description}
+              {paginated.map((user) => (
+                <TableRow key={user.id}>
+                  <TableCell className="text-center">{user.id}</TableCell>
+                  <TableCell>{user.username}</TableCell>
+                  <TableCell>{user.email}</TableCell>
+                  <TableCell>{user.role}</TableCell>
+                  <TableCell>
+                    {user.isActive ? (
+                      <Badge className="bg-green-100 text-green-700 hover:bg-green-100">
+                        Active
+                      </Badge>
+                    ) : (
+                      <Badge
+                        variant="secondary"
+                        className="bg-red-100 text-red-700 hover:bg-red-100"
+                      >
+                        Inactive
+                      </Badge>
+                    )}
                   </TableCell>
+
                   <TableCell>
                     <div className="text-center space-x-2">
                       <Tooltip>
@@ -252,7 +290,7 @@ export default function CategoriesPage() {
                             className="cursor-pointer"
                             variant="outline"
                             size="icon"
-                            onClick={() => handleOpenModal(cat)}
+                            onClick={() => handleOpenModal(user)}
                           >
                             <Pencil />
                           </Button>
@@ -269,7 +307,7 @@ export default function CategoriesPage() {
                             variant="outline"
                             size="icon"
                             onClick={() => {
-                              setCategoryToDelete(cat);
+                              setUserToDelete(user);
                               setDeleteOpen(true);
                             }}
                           >
@@ -317,31 +355,65 @@ export default function CategoriesPage() {
         <Dialog open={modalOpen} onOpenChange={setModalOpen}>
           <DialogContent className="sm:max-w-md">
             <DialogHeader>
-              <DialogTitle>
-                {editingCategory ? "Edit" : "Add"} Category
-              </DialogTitle>
+              <DialogTitle>{editingUser ? "Edit" : "Add"} User</DialogTitle>
             </DialogHeader>
 
             <div className="space-y-4">
               <div>
                 <Label className="mb-2">Name</Label>
                 <Input
-                  value={formData.name}
+                  value={formData.username}
                   onChange={(e) =>
-                    setFormData({ ...formData, name: e.target.value })
+                    setFormData({ ...formData, username: e.target.value })
                   }
-                  placeholder="Category name"
+                  placeholder="Username"
                 />
               </div>
               <div>
-                <Label className="mb-2">Description</Label>
+                <Label className="mb-2">Email</Label>
                 <Input
-                  value={formData.description}
+                  value={formData.email}
+                  type="email"
                   onChange={(e) =>
-                    setFormData({ ...formData, description: e.target.value })
+                    setFormData({ ...formData, email: e.target.value })
                   }
-                  placeholder="Description (optional)"
+                  placeholder="Email Address"
                 />
+              </div>
+              <div>
+                <Label className="mb-2">Role</Label>
+                <Select
+                  value={formData.role}
+                  onValueChange={(value) =>
+                    setFormData({ ...formData, role: value })
+                  }
+                >
+                  <SelectTrigger>
+                    <SelectValue placeholder="Select role" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="staff">Staff</SelectItem>
+                    <SelectItem value="manager">Manager</SelectItem>
+                    <SelectItem value="admin">Administrator</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div>
+                <Label className="mb-2">Status</Label>
+                <Select
+                  value={String(formData.isActive)}
+                  onValueChange={(value) =>
+                    setFormData({ ...formData, isActive: value === "true" })
+                  }
+                >
+                  <SelectTrigger>
+                    <SelectValue placeholder="Active?" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="true">Active</SelectItem>
+                    <SelectItem value="false">Inactive</SelectItem>
+                  </SelectContent>
+                </Select>
               </div>
               <div className="flex justify-end space-x-2">
                 <Button
@@ -367,14 +439,12 @@ export default function CategoriesPage() {
         <Dialog open={deleteOpen} onOpenChange={setDeleteOpen}>
           <DialogContent className="sm:max-w-md bg-white">
             <DialogHeader>
-              <DialogTitle className="text-red-600">
-                Delete Category
-              </DialogTitle>
+              <DialogTitle className="text-red-600">Delete User</DialogTitle>
             </DialogHeader>
 
             <p className="text-sm text-gray-600">
               Are you sure you want to delete{" "}
-              <span className="font-semibold">{categoryToDelete?.name}</span>?
+              <span className="font-semibold">{userToDelete?.username}</span>?
               This action cannot be undone.
             </p>
 
@@ -383,7 +453,7 @@ export default function CategoriesPage() {
                 variant="ghost"
                 onClick={() => {
                   setDeleteOpen(false);
-                  setCategoryToDelete(null);
+                  setUserToDelete(null);
                 }}
               >
                 Cancel

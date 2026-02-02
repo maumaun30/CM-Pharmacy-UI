@@ -9,8 +9,7 @@ import api from "@/lib/api";
 import { Loader2 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { useMediaQuery } from "@/hooks/useMediaQuery";
-import Cart from "@/icons/Cart";
-import Trash from "@/icons/Trash";
+import { ShoppingCart, Trash } from "lucide-react";
 
 interface Product {
   id: number;
@@ -115,7 +114,7 @@ const POSPage = () => {
     <ProtectedRoute>
       <div className="grid grid-cols-1 md:grid-cols-3 gap-5 p-5 h-full">
         {/* Product List */}
-        <div className="md:col-span-2 space-y-5 overflow-auto">
+        <div className="md:col-span-2 space-y-5 overflow-auto h-[calc(100vh-104px)]">
           <ul className="grid grid-cols-1 gap-0">
             {products.map((product) => (
               <li
@@ -132,7 +131,6 @@ const POSPage = () => {
                     <p className="text-sm">Qty: {product.quantity}</p>
                   </div>
                   <p className="text-sm">
-                    ₱
                     {product.price.toLocaleString(undefined, {
                       minimumFractionDigits: 2,
                       maximumFractionDigits: 2,
@@ -153,7 +151,7 @@ const POSPage = () => {
               }}
               className="cursor-pointer rounded-full h-14 w-14 p-0"
             >
-              <Cart color="white" />
+              <ShoppingCart />
             </Button>
           </div>
         )}
@@ -185,7 +183,7 @@ const POSPage = () => {
                 >
                   <div className="flex justify-between items-center p-5 border-b-[1px] border-gray-200">
                     <p className="font-semibold text-lg">
-                      <Cart />
+                      <ShoppingCart />
                     </p>
                     <Button
                       variant="outline"
@@ -211,7 +209,6 @@ const POSPage = () => {
                           <div>
                             <p className="font-medium">{item.product.name}</p>
                             <p className="text-sm">
-                              ₱
                               {item.product.price.toLocaleString(undefined, {
                                 minimumFractionDigits: 2,
                                 maximumFractionDigits: 2,
@@ -247,7 +244,7 @@ const POSPage = () => {
 
                   <div className="absolute bottom-0 left-0 w-full p-4 border-t-[1px] border-gray-200 bg-white">
                     <p className="font-semibold mb-2">
-                      Total: ₱
+                      Total:
                       {total.toLocaleString(undefined, {
                         minimumFractionDigits: 2,
                         maximumFractionDigits: 2,
@@ -273,7 +270,7 @@ const POSPage = () => {
           <div className="p-0 md:p-5 border-0 md:border-l-[1px] border-gray-200">
             <div className="relative h-auto md:h-[100vh-120px]]">
               <div className="h-18 absolute top-0 left-0 w-full bg-white pb-5 border-b-[1px] border-gray-200">
-                <Cart />
+                <ShoppingCart />
               </div>
               {cart.length === 0 ? (
                 <div className="pt-21 pb-16 h-full overflow-auto">
@@ -290,7 +287,6 @@ const POSPage = () => {
                         <div>
                           <p className="font-medium">{item.product.name}</p>
                           <p className="text-sm">
-                            ₱
                             {item.product.price.toLocaleString(undefined, {
                               minimumFractionDigits: 2,
                               maximumFractionDigits: 2,
@@ -324,7 +320,7 @@ const POSPage = () => {
                   </div>
                   <div className="absolute bottom-0 left-0 w-full h-26 pt-5 space-y-5 bg-white border-t-[1px] border-gray-200">
                     <p className="font-semibold">
-                      Total: ₱
+                      Total:
                       {total.toLocaleString(undefined, {
                         minimumFractionDigits: 2,
                         maximumFractionDigits: 2,

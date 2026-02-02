@@ -3,6 +3,8 @@ import { useAuth } from "@/hooks/useAuth";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
+
+import { User, List, Percent, ShoppingCart } from "lucide-react";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -30,15 +32,47 @@ export default function Navbar() {
       {user && (
         <div className="flex items-center gap-4">
           <div className="flex items-center gap-4">
-            <Link href="/pos">POS</Link>
-            <Link href="/sales">Sales</Link>
-            <Link href="/categories">Categories</Link>
-            <Link href="/products">Products</Link>
+            <Link href="/pos">
+              <Button className="cursor-pointer" variant="outline" size="sm">
+                <ShoppingCart />
+                POS
+              </Button>
+            </Link>
+            <Link href="/sales">
+              <Button className="cursor-pointer" variant="outline" size="sm">
+                <Percent />
+                Sales
+              </Button>
+            </Link>
           </div>
+
+          {user.role === "admin" && (
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button className="cursor-pointer" variant="outline" size="sm">
+                  <List />
+                  CMS
+                </Button>
+              </DropdownMenuTrigger>
+
+              <DropdownMenuContent side="top" align="end" className="mb-2">
+                <DropdownMenuItem asChild>
+                  <Link href="/categories">Categories</Link>
+                </DropdownMenuItem>
+                <DropdownMenuItem asChild>
+                  <Link href="/products">Products</Link>
+                </DropdownMenuItem>
+                <DropdownMenuItem asChild>
+                  <Link href="/users">Users</Link>
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+          )}
 
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
-              <Button variant="outline" size="sm">
+              <Button className="cursor-pointer" variant="outline" size="sm">
+                <User />
                 {user.username}
               </Button>
             </DropdownMenuTrigger>

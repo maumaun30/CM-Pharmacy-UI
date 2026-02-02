@@ -27,9 +27,7 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
-import Add from "@/icons/Add";
-import Trash from "@/icons/Trash";
-import Edit from "@/icons/Edit";
+import { Plus, Pencil, Trash } from "lucide-react";
 
 interface Category {
   id: number;
@@ -243,7 +241,8 @@ export default function ProductList() {
             variant="outline"
             onClick={() => handleOpenModal()}
           >
-            <Add color="white" /> Add Product
+            <Plus />
+            Add
           </Button>
         </div>
 
@@ -308,18 +307,8 @@ export default function ProductList() {
                   <TableCell>{prod.id}</TableCell>
                   <TableCell>{prod.name}</TableCell>
                   <TableCell>{prod.sku}</TableCell>
-                  <TableCell>
-                    ${" "}
-                    {typeof prod.cost === "number"
-                      ? prod.cost.toFixed(2)
-                      : "0.00"}
-                  </TableCell>
-                  <TableCell>
-                    ${" "}
-                    {typeof prod.price === "number"
-                      ? prod.price.toFixed(2)
-                      : "0.00"}
-                  </TableCell>
+                  <TableCell>{prod.cost}</TableCell>
+                  <TableCell>{prod.price}</TableCell>
                   <TableCell>{prod.quantity}</TableCell>
                   <TableCell>{prod.category?.name || "-"}</TableCell>
                   <TableCell className="text-center space-x-2">
@@ -331,7 +320,7 @@ export default function ProductList() {
                           size="icon"
                           onClick={() => handleOpenModal(prod)}
                         >
-                          <Edit />
+                          <Pencil />
                         </Button>
                       </TooltipTrigger>
                       <TooltipContent className="pointer-events-none">
