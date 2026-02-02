@@ -3,12 +3,18 @@ import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import axios from "@/lib/api";
 import { verifyToken } from "@/middleware/auth";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 
 export default function LoginPage() {
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
   const router = useRouter();
+
+  const brand = process.env.NEXT_PUBLIC_SITE_NAME
+    ? process.env.NEXT_PUBLIC_SITE_NAME
+    : "Brand Logo";
 
   useEffect(() => {
     verifyToken().then((valid) => {
@@ -29,29 +35,30 @@ export default function LoginPage() {
 
   return (
     <div className="max-w-md mx-auto mt-20 p-6 border rounded shadow">
-      <h1 className="text-2xl font-bold mb-4">Login</h1>
+      <h1 className="text-2xl font-bold mb-4 text-center">{brand}</h1>
       {error && <p className="text-red-500 mb-2">{error}</p>}
       <form onSubmit={handleLogin} className="space-y-4">
-        <input
+        <Input
           type="text"
           placeholder="Username"
           className="w-full p-2 border rounded"
           value={username}
           onChange={(e) => setUsername(e.target.value)}
         />
-        <input
+        <Input
           type="password"
           placeholder="Password"
           className="w-full p-2 border rounded"
           value={password}
           onChange={(e) => setPassword(e.target.value)}
         />
-        <button
+        <Button
           type="submit"
-          className="w-full bg-blue-600 text-white py-2 rounded hover:bg-blue-700"
+          variant="outline"
+          className="uppercase font-bold w-full cursor-pointer"
         >
           Login
-        </button>
+        </Button>
       </form>
     </div>
   );
