@@ -4,6 +4,7 @@ export interface User {
   id: string;
   username: string;
   email?: string;
+  role: string;
 }
 
 export async function verifyToken(): Promise<boolean> {

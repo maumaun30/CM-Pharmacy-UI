@@ -9,9 +9,11 @@ import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
 import { toast } from "sonner";
 import { useState, useEffect } from "react";
+import { useRouter } from "next/navigation";
 
 const AccountPage = () => {
-  const { user, setUser } = useAuth();
+  const { user } = useAuth();
+  const router = useRouter();
   
   const [username, setUsername] = useState("");
   const [email, setEmail] = useState("");
@@ -72,16 +74,17 @@ const AccountPage = () => {
 
       const res = await api.put("/auth/profile", updateData);
       
-      // Update user context with new data
-      if (setUser && res.data.user) {
-        setUser(res.data.user);
-      }
-
-      toast.success("Profile updated successfully");
+      toast.success("Profile updated successfully. Please log in again.");
       
       // Clear password fields
       setPassword("");
       setConfirmPassword("");
+      
+      // Optionally redirect to login or refresh the page
+      // router.push("/login");
+      // OR
+      window.location.reload();
+      
     } catch (error: any) {
       toast.error(error.response?.data?.message || "Failed to update profile");
     } finally {
