@@ -27,7 +27,8 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
-import { Plus, Pencil, Trash } from "lucide-react";
+import { Plus, Pencil, Trash, ToggleLeft, ToggleRight } from "lucide-react";
+import { Badge } from "@/components/ui/badge";
 
 interface Category {
   id: number;
@@ -41,8 +42,11 @@ interface Product {
   cost: number;
   price: number;
   quantity: number;
+  status: "ACTIVE" | "INACTIVE";
   categoryId: number;
   category: Category;
+  marginPercentage?: number;
+  marginAmount?: number;
 }
 
 export default function ProductList() {
@@ -56,6 +60,7 @@ export default function ProductList() {
     cost: "",
     price: "",
     quantity: "",
+    status: "ACTIVE" as "ACTIVE" | "INACTIVE",
     categoryId: "",
   });
   const [loading, setLoading] = useState(false);
@@ -102,6 +107,7 @@ export default function ProductList() {
         cost: product.cost.toString(),
         price: product.price.toString(),
         quantity: product.quantity.toString(),
+        status: product.status,
         categoryId: product.categoryId.toString(),
       });
     } else {
@@ -112,6 +118,7 @@ export default function ProductList() {
         cost: "",
         price: "",
         quantity: "",
+        status: "ACTIVE",
         categoryId: "",
       });
     }
@@ -127,12 +134,13 @@ export default function ProductList() {
       cost: "",
       price: "",
       quantity: "",
+      status: "ACTIVE",
       categoryId: "",
     });
   };
 
   const handleSubmit = async () => {
-    const { name, sku, cost, price, quantity, categoryId } = formData;
+    const { name, sku, cost, price, quantity, status, categoryId } = formData;
     if (!name || !sku || !cost || !price || !categoryId) {
       return toast.error("Name, SKU, Price and Category are required");
     }
@@ -146,6 +154,7 @@ export default function ProductList() {
           cost: parseFloat(cost),
           price: parseFloat(price),
           quantity: parseInt(quantity),
+          status,
           categoryId: parseInt(categoryId),
         });
         toast.success("Product updated");
@@ -156,6 +165,7 @@ export default function ProductList() {
           cost: parseFloat(cost),
           price: parseFloat(price),
           quantity: parseInt(quantity),
+          status,
           categoryId: parseInt(categoryId),
         });
         toast.success("Product created");
@@ -166,16 +176,6 @@ export default function ProductList() {
       toast.error(err.response?.data?.message || "Error saving product");
     } finally {
       setLoading(false);
-    }
-  };
-
-  const handleDelete = async (id: number) => {
-    try {
-      await api.delete(`/products/${id}`);
-      toast.success("Product deleted");
-      fetchProducts();
-    } catch (err: any) {
-      toast.error(err.response?.data?.message || "Error deleting product");
     }
   };
 
@@ -192,6 +192,22 @@ export default function ProductList() {
       setDeleteOpen(false);
       setProductToDelete(null);
     }
+  };
+
+  const toggleProductStatus = async (product: Product) => {
+    try {
+      await api.patch(`/products/${product.id}/toggle-status`);
+      toast.success(`Product ${product.status === "ACTIVE" ? "deactivated" : "activated"}`);
+      fetchProducts();
+    } catch (err: any) {
+      toast.error(err.response?.data?.message || "Error toggling product status");
+    }
+  };
+
+  // Calculate margin percentage
+  const calculateMargin = (price: number, cost: number) => {
+    if (cost === 0) return 0;
+    return ((price - cost) / cost) * 100;
   };
 
   // --- Derived Data: search, sort, paginate ---
@@ -286,7 +302,9 @@ export default function ProductList() {
                   { key: "sku", label: "SKU" },
                   { key: "cost", label: "Cost" },
                   { key: "price", label: "Price" },
+                  { key: "margin", label: "Margin %" },
                   { key: "quantity", label: "Qty" },
+                  { key: "status", label: "Status" },
                   { key: "category", label: "Category" },
                 ].map((col) => (
                   <TableHead
@@ -302,52 +320,86 @@ export default function ProductList() {
               </TableRow>
             </TableHeader>
             <TableBody>
-              {paginated.map((prod) => (
-                <TableRow key={prod.id}>
-                  <TableCell>{prod.id}</TableCell>
-                  <TableCell>{prod.name}</TableCell>
-                  <TableCell>{prod.sku}</TableCell>
-                  <TableCell>{prod.cost}</TableCell>
-                  <TableCell>{prod.price}</TableCell>
-                  <TableCell>{prod.quantity}</TableCell>
-                  <TableCell>{prod.category?.name || "-"}</TableCell>
-                  <TableCell className="text-center space-x-2">
-                    <Tooltip>
-                      <TooltipTrigger asChild>
-                        <Button
-                          className="cursor-pointer"
-                          variant="outline"
-                          size="icon"
-                          onClick={() => handleOpenModal(prod)}
-                        >
-                          <Pencil />
-                        </Button>
-                      </TooltipTrigger>
-                      <TooltipContent className="pointer-events-none">
-                        <p>Edit</p>
-                      </TooltipContent>
-                    </Tooltip>
-                    <Tooltip>
-                      <TooltipTrigger asChild>
-                        <Button
-                          className="cursor-pointer"
-                          variant="outline"
-                          size="icon"
-                          onClick={() => {
-                            setProductToDelete(prod);
-                            setDeleteOpen(true);
-                          }}
-                        >
-                          <Trash color="red" />
-                        </Button>
-                      </TooltipTrigger>
-                      <TooltipContent className="pointer-events-none">
-                        <p>Delete</p>
-                      </TooltipContent>
-                    </Tooltip>
-                  </TableCell>
-                </TableRow>
-              ))}
+              {paginated.map((prod) => {
+                const margin = calculateMargin(prod.price, prod.cost);
+                const marginColor = margin < 20 ? "text-red-600" : margin < 40 ? "text-yellow-600" : "text-green-600";
+                
+                return (
+                  <TableRow key={prod.id}>
+                    <TableCell>{prod.id}</TableCell>
+                    <TableCell>{prod.name}</TableCell>
+                    <TableCell>{prod.sku}</TableCell>
+                    <TableCell>{prod.cost}</TableCell>
+                    <TableCell>{prod.price}</TableCell>
+                    <TableCell className={marginColor}>
+                      {margin.toFixed(2)}%
+                    </TableCell>
+                    <TableCell>{prod.quantity}</TableCell>
+                    <TableCell>
+                      {prod.status === "ACTIVE" ? (
+                        <Badge className="bg-green-100 text-green-800">Active</Badge>
+                      ) : (
+                        <Badge className="bg-red-100 text-red-800">Inactive</Badge>
+                      )}
+                    </TableCell>
+                    <TableCell>{prod.category?.name || "-"}</TableCell>
+                    <TableCell className="text-center space-x-2">
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <Button
+                            className="cursor-pointer"
+                            variant="outline"
+                            size="icon"
+                            onClick={() => toggleProductStatus(prod)}
+                          >
+                            {prod.status === "ACTIVE" ? (
+                              <ToggleRight className="text-green-600" />
+                            ) : (
+                              <ToggleLeft className="text-gray-400" />
+                            )}
+                          </Button>
+                        </TooltipTrigger>
+                        <TooltipContent className="pointer-events-none">
+                          <p>{prod.status === "ACTIVE" ? "Deactivate" : "Activate"}</p>
+                        </TooltipContent>
+                      </Tooltip>
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <Button
+                            className="cursor-pointer"
+                            variant="outline"
+                            size="icon"
+                            onClick={() => handleOpenModal(prod)}
+                          >
+                            <Pencil />
+                          </Button>
+                        </TooltipTrigger>
+                        <TooltipContent className="pointer-events-none">
+                          <p>Edit</p>
+                        </TooltipContent>
+                      </Tooltip>
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <Button
+                            className="cursor-pointer"
+                            variant="outline"
+                            size="icon"
+                            onClick={() => {
+                              setProductToDelete(prod);
+                              setDeleteOpen(true);
+                            }}
+                          >
+                            <Trash color="red" />
+                          </Button>
+                        </TooltipTrigger>
+                        <TooltipContent className="pointer-events-none">
+                          <p>Delete</p>
+                        </TooltipContent>
+                      </Tooltip>
+                    </TableCell>
+                  </TableRow>
+                );
+              })}
             </TableBody>
           </Table>
         </Card>
@@ -410,6 +462,7 @@ export default function ProductList() {
                 <Label>Cost</Label>
                 <Input
                   type="number"
+                  step="0.01"
                   value={formData.cost}
                   onChange={(e) =>
                     setFormData({ ...formData, cost: e.target.value })
@@ -420,12 +473,18 @@ export default function ProductList() {
                 <Label>Price</Label>
                 <Input
                   type="number"
+                  step="0.01"
                   value={formData.price}
                   onChange={(e) =>
                     setFormData({ ...formData, price: e.target.value })
                   }
                 />
               </div>
+              {formData.cost && formData.price && (
+                <div className="text-sm text-gray-600">
+                  Margin: {calculateMargin(parseFloat(formData.price), parseFloat(formData.cost)).toFixed(2)}%
+                </div>
+              )}
               <div>
                 <Label>Quantity</Label>
                 <Input
@@ -435,6 +494,19 @@ export default function ProductList() {
                     setFormData({ ...formData, quantity: e.target.value })
                   }
                 />
+              </div>
+              <div>
+                <Label>Status</Label>
+                <select
+                  className="w-full border rounded px-3 py-2"
+                  value={formData.status}
+                  onChange={(e) =>
+                    setFormData({ ...formData, status: e.target.value as "ACTIVE" | "INACTIVE" })
+                  }
+                >
+                  <option value="ACTIVE">Active</option>
+                  <option value="INACTIVE">Inactive</option>
+                </select>
               </div>
               <div>
                 <Label>Category</Label>
