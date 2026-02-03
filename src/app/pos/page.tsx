@@ -37,9 +37,15 @@ interface Discount {
   description: string;
   discountType: "PERCENTAGE" | "FIXED_AMOUNT";
   discountValue: number;
-  discountCategory: "PWD" | "SENIOR_CITIZEN" | "PROMOTIONAL" | "SEASONAL" | "OTHER";
+  discountCategory:
+    | "PWD"
+    | "SENIOR_CITIZEN"
+    | "PROMOTIONAL"
+    | "SEASONAL"
+    | "OTHER";
   requiresVerification: boolean;
   isEnabled: boolean;
+  maximumDiscountAmount: number;
 }
 
 interface CartItem {
@@ -72,14 +78,20 @@ const POSPage = () => {
 
   // Discount dialog states
   const [showDiscountDialog, setShowDiscountDialog] = useState(false);
-  const [selectedCartItem, setSelectedCartItem] = useState<CartItem | null>(null);
-  const [applicableDiscounts, setApplicableDiscounts] = useState<Discount[]>([]);
+  const [selectedCartItem, setSelectedCartItem] = useState<CartItem | null>(
+    null,
+  );
+  const [applicableDiscounts, setApplicableDiscounts] = useState<Discount[]>(
+    [],
+  );
 
   // Checkout dialog states
   const [showCheckoutDialog, setShowCheckoutDialog] = useState(false);
   const [cashAmount, setCashAmount] = useState("");
   const [showReceiptDialog, setShowReceiptDialog] = useState(false);
-  const [currentReceipt, setCurrentReceipt] = useState<SaleReceipt | null>(null);
+  const [currentReceipt, setCurrentReceipt] = useState<SaleReceipt | null>(
+    null,
+  );
 
   const receiptRef = useRef<HTMLDivElement>(null);
 
@@ -89,7 +101,7 @@ const POSPage = () => {
   const filteredProducts = products.filter(
     (product) =>
       product.name.toLowerCase().includes(searchQuery.toLowerCase()) &&
-      product.status === "ACTIVE"
+      product.status === "ACTIVE",
   );
 
   useEffect(() => {
@@ -144,7 +156,7 @@ const POSPage = () => {
         return prev.map((item) =>
           item.product.id === product.id
             ? { ...item, quantity: item.quantity + 1 }
-            : item
+            : item,
         );
       }
       return [...prev, { product, quantity: 1, appliedDiscount: null }];
@@ -157,8 +169,8 @@ const POSPage = () => {
   const updateQuantity = (id: number, qty: number) => {
     setCart((prev) =>
       prev.map((item) =>
-        item.product.id === id ? { ...item, quantity: qty } : item
-      )
+        item.product.id === id ? { ...item, quantity: qty } : item,
+      ),
     );
   };
 
@@ -169,10 +181,12 @@ const POSPage = () => {
 
   const handleOpenDiscountDialog = async (cartItem: CartItem) => {
     setSelectedCartItem(cartItem);
-    
+
     try {
       // Fetch applicable discounts for this product
-      const res = await api.get(`/discounts/product/${cartItem.product.id}/applicable`);
+      const res = await api.get(
+        `/discounts/product/${cartItem.product.id}/applicable`,
+      );
       setApplicableDiscounts(res.data);
       setShowDiscountDialog(true);
     } catch (err) {
@@ -187,7 +201,10 @@ const POSPage = () => {
       prev.map((item) => {
         if (item.product.id === selectedCartItem.product.id) {
           if (discount) {
-            const discountedPrice = calculateDiscountedPrice(item.product.price, discount);
+            const discountedPrice = calculateDiscountedPrice(
+              item.product.price,
+              discount,
+            );
             return {
               ...item,
               appliedDiscount: discount,
@@ -203,12 +220,12 @@ const POSPage = () => {
           }
         }
         return item;
-      })
+      }),
     );
 
     setShowDiscountDialog(false);
     setSelectedCartItem(null);
-    
+
     if (discount) {
       toast.success(`${discount.name} applied`);
     } else {
@@ -223,7 +240,7 @@ const POSPage = () => {
 
   const subtotal = cart.reduce(
     (sum, item) => sum + item.product.price * item.quantity,
-    0
+    0,
   );
 
   const totalDiscount = cart.reduce((sum, item) => {
@@ -262,7 +279,7 @@ const POSPage = () => {
     try {
       // Send cart with discount information to backend
       const saleData = {
-        cart: cart.map(item => ({
+        cart: cart.map((item) => ({
           productId: item.product.id,
           quantity: item.quantity,
           price: item.product.price,
@@ -362,16 +379,19 @@ const POSPage = () => {
             <Trash className="h-4 w-4" />
           </Button>
         </div>
-        
+
         {item.appliedDiscount && (
           <div className="flex items-center gap-2 mb-1">
-            <Badge variant="outline" className="text-xs bg-green-50 text-green-700">
+            <Badge
+              variant="outline"
+              className="text-xs bg-green-50 text-green-700"
+            >
               <Tag className="h-3 w-3 mr-1" />
               {item.appliedDiscount.name}
             </Badge>
           </div>
         )}
-        
+
         <div className="flex items-center gap-2 text-sm">
           {item.appliedDiscount && item.discountedPrice ? (
             <>
@@ -401,7 +421,7 @@ const POSPage = () => {
             {getItemTotal(item).toFixed(2)}
           </span>
         </div>
-        
+
         <Button
           variant="ghost"
           size="sm"
@@ -524,7 +544,9 @@ const POSPage = () => {
                     {cart.length === 0 ? (
                       <p className="text-sm">No items in cart.</p>
                     ) : (
-                      cart.map((item) => <CartItemDisplay key={item.product.id} item={item} />)
+                      cart.map((item) => (
+                        <CartItemDisplay key={item.product.id} item={item} />
+                      ))
                     )}
                   </div>
 
@@ -610,10 +632,11 @@ const POSPage = () => {
           <DialogHeader>
             <DialogTitle>Apply Discount</DialogTitle>
             <DialogDescription>
-              {selectedCartItem && `Select a discount for ${selectedCartItem.product.name}`}
+              {selectedCartItem &&
+                `Select a discount for ${selectedCartItem.product.name}`}
             </DialogDescription>
           </DialogHeader>
-          
+
           <div className="space-y-3 py-4 max-h-[400px] overflow-y-auto">
             {selectedCartItem?.appliedDiscount && (
               <Button
@@ -625,16 +648,20 @@ const POSPage = () => {
                 Remove Current Discount
               </Button>
             )}
-            
+
             {applicableDiscounts.length === 0 ? (
               <p className="text-sm text-gray-500 text-center py-4">
                 No applicable discounts available
               </p>
             ) : (
               applicableDiscounts.map((discount) => {
-                const isApplied = selectedCartItem?.appliedDiscount?.id === discount.id;
+                const isApplied =
+                  selectedCartItem?.appliedDiscount?.id === discount.id;
                 const discountedPrice = selectedCartItem
-                  ? calculateDiscountedPrice(selectedCartItem.product.price, discount)
+                  ? calculateDiscountedPrice(
+                      selectedCartItem.product.price,
+                      discount,
+                    )
                   : 0;
                 const savings = selectedCartItem
                   ? selectedCartItem.product.price - discountedPrice
@@ -653,7 +680,9 @@ const POSPage = () => {
                       <div className="flex items-start justify-between mb-1">
                         <div>
                           <p className="font-semibold">{discount.name}</p>
-                          <p className="text-xs text-gray-500">{discount.description}</p>
+                          <p className="text-xs text-gray-500">
+                            {discount.description}
+                          </p>
                         </div>
                         <Badge variant="outline" className="ml-2">
                           {discount.discountType === "PERCENTAGE"
@@ -810,7 +839,9 @@ const POSPage = () => {
                           <td className="py-2">{item.product.name}</td>
                           <td className="text-right">{item.quantity}</td>
                           <td className="text-right">
-                            {(item.discountedPrice ?? item.product.price).toFixed(2)}
+                            {(
+                              item.discountedPrice ?? item.product.price
+                            ).toFixed(2)}
                           </td>
                           <td className="text-right">
                             {getItemTotal(item).toFixed(2)}
