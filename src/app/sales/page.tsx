@@ -37,7 +37,14 @@ import { toast } from "sonner";
 import api from "@/lib/api";
 import ProtectedRoute from "@/components/ProtectedRoute";
 import dayjs from "dayjs";
-import { ChevronRight, Package } from "lucide-react";
+import { ChevronRight, Package, Tag } from "lucide-react";
+
+interface Discount {
+  id: number;
+  name: string;
+  type: string;
+  value: number;
+}
 
 interface SaleItem {
   product: {
@@ -46,13 +53,27 @@ interface SaleItem {
   };
   quantity: number;
   price: number;
+  discountedPrice?: number | null;
+  discountAmount?: number;
+  discount?: Discount | null;
+}
+
+interface Seller {
+  id: number;
+  name: string;
+  email: string;
 }
 
 interface Sale {
   id: number;
+  subtotal?: number;
+  totalDiscount?: number;
   totalAmount: number;
+  cashAmount?: number;
+  changeAmount?: number;
   soldAt: string;
   soldBy: string | number;
+  seller?: Seller | null;
   items: SaleItem[];
 }
 
@@ -64,25 +85,37 @@ const SalesReportPage = () => {
   const [dateTo, setDateTo] = useState<Date | undefined>();
   const [selectedSale, setSelectedSale] = useState<Sale | null>(null);
   const [dialogOpen, setDialogOpen] = useState(false);
+  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     const fetchSales = async () => {
       try {
+        setLoading(true);
         const res = await api.get("/sales");
+        
         // Transform data to ensure numbers
         const transformedSales = res.data.map((sale: any) => ({
           ...sale,
+          subtotal: sale.subtotal ? Number(sale.subtotal) : null,
+          totalDiscount: sale.totalDiscount ? Number(sale.totalDiscount) : 0,
           totalAmount: Number(sale.totalAmount),
+          cashAmount: sale.cashAmount ? Number(sale.cashAmount) : null,
+          changeAmount: sale.changeAmount ? Number(sale.changeAmount) : null,
           items: sale.items.map((item: any) => ({
             ...item,
             price: Number(item.price),
             quantity: Number(item.quantity),
+            discountedPrice: item.discountedPrice ? Number(item.discountedPrice) : null,
+            discountAmount: item.discountAmount ? Number(item.discountAmount) : 0,
           })),
         }));
+        
         setSales(transformedSales);
       } catch (error) {
         console.error("Fetch sales error:", error);
         toast.error("Failed to fetch sales");
+      } finally {
+        setLoading(false);
       }
     };
 
@@ -99,7 +132,8 @@ const SalesReportPage = () => {
           sale.id.toString().includes(search) ||
           sale.items.some((item) =>
             item.product?.name?.toLowerCase().includes(search.toLowerCase()),
-          ),
+          ) ||
+          sale.seller?.name?.toLowerCase().includes(search.toLowerCase()),
       );
     }
 
@@ -151,14 +185,23 @@ const SalesReportPage = () => {
     return items.reduce((sum, item) => sum + (item.quantity || 0), 0);
   };
 
-  const getSubtotal = (item: SaleItem) => {
-    return (item.price || 0) * (item.quantity || 0);
+  const getItemSubtotal = (item: SaleItem) => {
+    const price = item.discountedPrice ?? item.price ?? 0;
+    return price * (item.quantity || 0);
+  };
+
+  const hasDiscounts = (sale: Sale) => {
+    return sale.items.some(item => item.discount || item.discountedPrice);
   };
 
   // Calculate summary stats
   const summaryStats = useMemo(() => {
     const totalRevenue = filteredSales.reduce(
       (sum, sale) => sum + (sale.totalAmount || 0),
+      0,
+    );
+    const totalDiscount = filteredSales.reduce(
+      (sum, sale) => sum + (sale.totalDiscount || 0),
       0,
     );
     const totalTransactions = filteredSales.length;
@@ -169,8 +212,18 @@ const SalesReportPage = () => {
     const avgTransaction =
       totalTransactions > 0 ? totalRevenue / totalTransactions : 0;
 
-    return { totalRevenue, totalTransactions, totalItems, avgTransaction };
+    return { totalRevenue, totalDiscount, totalTransactions, totalItems, avgTransaction };
   }, [filteredSales]);
+
+  if (loading) {
+    return (
+      <ProtectedRoute>
+        <div className="p-6">
+          <p>Loading sales data...</p>
+        </div>
+      </ProtectedRoute>
+    );
+  }
 
   return (
     <ProtectedRoute>
@@ -178,11 +231,20 @@ const SalesReportPage = () => {
         <h1 className="text-2xl font-bold">Sales Report</h1>
 
         {/* Summary Cards */}
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+        <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
           <Card className="p-4">
             <p className="text-sm text-muted-foreground">Total Revenue</p>
             <p className="text-2xl font-bold">
-              {summaryStats.totalRevenue.toLocaleString(undefined, {
+              ₱{summaryStats.totalRevenue.toLocaleString(undefined, {
+                minimumFractionDigits: 2,
+                maximumFractionDigits: 2,
+              })}
+            </p>
+          </Card>
+          <Card className="p-4">
+            <p className="text-sm text-muted-foreground">Total Discounts</p>
+            <p className="text-2xl font-bold text-green-600">
+              ₱{summaryStats.totalDiscount.toLocaleString(undefined, {
                 minimumFractionDigits: 2,
                 maximumFractionDigits: 2,
               })}
@@ -201,7 +263,7 @@ const SalesReportPage = () => {
           <Card className="p-4">
             <p className="text-sm text-muted-foreground">Avg Transaction</p>
             <p className="text-2xl font-bold">
-              {summaryStats.avgTransaction.toLocaleString(undefined, {
+              ₱{summaryStats.avgTransaction.toLocaleString(undefined, {
                 minimumFractionDigits: 2,
                 maximumFractionDigits: 2,
               })}
@@ -212,7 +274,7 @@ const SalesReportPage = () => {
         {/* Filter + Sort Controls */}
         <div className="flex flex-wrap items-center gap-2">
           <Input
-            placeholder="Search by ID or product..."
+            placeholder="Search by ID, product, or seller..."
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             className="max-w-xs"
@@ -316,16 +378,22 @@ const SalesReportPage = () => {
                             {sale.items.length} items
                           </Badge>
                         )}
+                        {hasDiscounts(sale) && (
+                          <Badge variant="outline" className="bg-green-50 text-green-700">
+                            <Tag className="h-3 w-3 mr-1" />
+                            Discount
+                          </Badge>
+                        )}
                       </div>
                     </TableCell>
                     <TableCell>{getTotalItems(sale.items)}</TableCell>
                     <TableCell className="font-semibold">
-                      {(sale.totalAmount || 0).toLocaleString(undefined, {
+                      ₱{(sale.totalAmount || 0).toLocaleString(undefined, {
                         minimumFractionDigits: 2,
                         maximumFractionDigits: 2,
                       })}
                     </TableCell>
-                    <TableCell>{sale.soldBy}</TableCell>
+                    <TableCell>{sale.seller?.name || sale.soldBy}</TableCell>
                     <TableCell>
                       <ChevronRight className="h-4 w-4 text-muted-foreground" />
                     </TableCell>
@@ -354,7 +422,9 @@ const SalesReportPage = () => {
                 <div className="grid grid-cols-2 gap-4 p-4 bg-muted rounded-lg">
                   <div>
                     <p className="text-sm text-muted-foreground">Sold By</p>
-                    <p className="font-medium">{selectedSale.soldBy}</p>
+                    <p className="font-medium">
+                      {selectedSale.seller?.name || selectedSale.soldBy}
+                    </p>
                   </div>
                   <div>
                     <p className="text-sm text-muted-foreground">Total Items</p>
@@ -378,40 +448,92 @@ const SalesReportPage = () => {
                     </TableHeader>
                     <TableBody>
                       {selectedSale.items.map((item, idx) => (
-                        <TableRow key={idx}>
-                          <TableCell>
-                            {item.product?.name || "Unknown product"}
-                          </TableCell>
-                          <TableCell className="text-right">
-                            {item.quantity || 0}
-                          </TableCell>
-                          <TableCell className="text-right">
-                            {(item.price || 0).toLocaleString(undefined, {
-                              minimumFractionDigits: 2,
-                              maximumFractionDigits: 2,
-                            })}
-                          </TableCell>
-                          <TableCell className="text-right">
-                            {getSubtotal(item).toLocaleString(undefined, {
-                              minimumFractionDigits: 2,
-                              maximumFractionDigits: 2,
-                            })}
-                          </TableCell>
-                        </TableRow>
+                        <React.Fragment key={idx}>
+                          <TableRow>
+                            <TableCell>
+                              {item.product?.name || "Unknown product"}
+                            </TableCell>
+                            <TableCell className="text-right">
+                              {item.quantity || 0}
+                            </TableCell>
+                            <TableCell className="text-right">
+                              {item.discountedPrice ? (
+                                <div>
+                                  <span className="line-through text-muted-foreground text-sm">
+                                    ₱{(item.price || 0).toFixed(2)}
+                                  </span>
+                                  <br />
+                                  <span className="text-green-600 font-semibold">
+                                    ₱{item.discountedPrice.toFixed(2)}
+                                  </span>
+                                </div>
+                              ) : (
+                                `₱${(item.price || 0).toFixed(2)}`
+                              )}
+                            </TableCell>
+                            <TableCell className="text-right">
+                              ₱{getItemSubtotal(item).toLocaleString(undefined, {
+                                minimumFractionDigits: 2,
+                                maximumFractionDigits: 2,
+                              })}
+                            </TableCell>
+                          </TableRow>
+                          {item.discount && (
+                            <TableRow className="bg-green-50/50">
+                              <TableCell colSpan={4} className="text-xs text-green-700 py-1">
+                                <Tag className="h-3 w-3 inline mr-1" />
+                                {item.discount.name} applied
+                                {item.discountAmount && item.discountAmount > 0 && (
+                                  <span className="ml-2">
+                                    (Saved: ₱{item.discountAmount.toFixed(2)})
+                                  </span>
+                                )}
+                              </TableCell>
+                            </TableRow>
+                          )}
+                        </React.Fragment>
                       ))}
                     </TableBody>
                   </Table>
                 </div>
 
-                {/* Total */}
-                <div className="flex justify-between items-center p-4 bg-muted rounded-lg">
-                  <p className="font-semibold text-lg">Total Amount</p>
-                  <p className="font-bold text-2xl">
-                    {(selectedSale.totalAmount || 0).toLocaleString(undefined, {
-                      minimumFractionDigits: 2,
-                      maximumFractionDigits: 2,
-                    })}
-                  </p>
+                {/* Total Summary */}
+                <div className="space-y-2">
+                  {selectedSale.subtotal && selectedSale.subtotal > 0 && (
+                    <div className="flex justify-between items-center text-sm">
+                      <span className="text-muted-foreground">Subtotal:</span>
+                      <span>₱{selectedSale.subtotal.toFixed(2)}</span>
+                    </div>
+                  )}
+                  {selectedSale.totalDiscount && selectedSale.totalDiscount > 0 && (
+                    <div className="flex justify-between items-center text-sm text-green-600">
+                      <span>Total Discount:</span>
+                      <span>-₱{selectedSale.totalDiscount.toFixed(2)}</span>
+                    </div>
+                  )}
+                  <div className="flex justify-between items-center p-4 bg-muted rounded-lg">
+                    <p className="font-semibold text-lg">Total Amount</p>
+                    <p className="font-bold text-2xl">
+                      ₱{(selectedSale.totalAmount || 0).toLocaleString(undefined, {
+                        minimumFractionDigits: 2,
+                        maximumFractionDigits: 2,
+                      })}
+                    </p>
+                  </div>
+                  {selectedSale.cashAmount && (
+                    <>
+                      <div className="flex justify-between items-center text-sm">
+                        <span className="text-muted-foreground">Cash:</span>
+                        <span>₱{selectedSale.cashAmount.toFixed(2)}</span>
+                      </div>
+                      {selectedSale.changeAmount !== null && selectedSale.changeAmount !== undefined && (
+                        <div className="flex justify-between items-center text-sm">
+                          <span className="text-muted-foreground">Change:</span>
+                          <span>₱{selectedSale.changeAmount.toFixed(2)}</span>
+                        </div>
+                      )}
+                    </>
+                  )}
                 </div>
               </div>
             )}

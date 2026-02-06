@@ -104,20 +104,21 @@ const POSPage = () => {
       product.status === "ACTIVE",
   );
 
-  useEffect(() => {
-    const fetchProducts = async () => {
-      try {
-        const res = await api.get("/products");
-        const parsed = res.data.map((p: any) => ({
-          ...p,
-          price: parseFloat(p.price),
-        }));
-        setProducts(parsed);
-      } catch (err) {
-        toast.error("Failed to fetch products");
-      }
-    };
+  const fetchProducts = async () => {
+    try {
+      const res = await api.get("/products");
+      const parsed = res.data.map((p: any) => ({
+        ...p,
+        price: parseFloat(p.price),
+      }));
+      setProducts(parsed);
+    } catch (err) {
+      toast.error("Failed to fetch products");
+    }
+  };
 
+  // Update the useEffect to use the named function
+  useEffect(() => {
     const fetchDiscounts = async () => {
       try {
         const res = await api.get("/discounts?activeOnly=true");
@@ -308,6 +309,9 @@ const POSPage = () => {
       setCurrentReceipt(receipt);
       setShowCheckoutDialog(false);
       setShowReceiptDialog(true);
+
+      // REFETCH PRODUCTS TO UPDATE QUANTITIES
+      await fetchProducts();
 
       toast.success("Sale completed successfully");
     } catch (error: any) {
@@ -740,6 +744,7 @@ const POSPage = () => {
             <div className="space-y-2">
               <Label htmlFor="total">Total Amount</Label>
               <div className="text-2xl font-bold">
+                ₱
                 {total.toLocaleString(undefined, {
                   minimumFractionDigits: 2,
                   maximumFractionDigits: 2,
@@ -747,10 +752,11 @@ const POSPage = () => {
               </div>
               {totalDiscount > 0 && (
                 <div className="text-sm text-green-600">
-                  Total Savings: {totalDiscount.toFixed(2)}
+                  Total Savings: ₱{totalDiscount.toFixed(2)}
                 </div>
               )}
             </div>
+
             <div className="space-y-2">
               <Label htmlFor="cash">Cash Amount</Label>
               <Input
@@ -764,12 +770,44 @@ const POSPage = () => {
                 autoFocus
               />
             </div>
+
+            {/* Quick Cash Buttons */}
+            <div className="space-y-2">
+              <Label className="text-sm text-muted-foreground">
+                Quick Cash
+              </Label>
+              <div className="flex flex-wrap gap-2">
+                {[20, 50, 100, 200, 500, 1000].map((amount) => (
+                  <Button
+                    key={amount}
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    className="flex-1 min-w-[70px]"
+                    onClick={() => setCashAmount(amount.toString())}
+                  >
+                    ₱{amount}
+                  </Button>
+                ))}
+              </div>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                className="w-full"
+                onClick={() => setCashAmount(total.toFixed(2))}
+              >
+                Exact Amount (₱{total.toFixed(2)})
+              </Button>
+            </div>
+
             {cashAmount && (
               <div className="space-y-2">
                 <Label>Change</Label>
                 <div
                   className={`text-2xl font-bold ${calculateChange() < 0 ? "text-red-500" : "text-green-600"}`}
                 >
+                  ₱
                   {calculateChange().toLocaleString(undefined, {
                     minimumFractionDigits: 2,
                     maximumFractionDigits: 2,
