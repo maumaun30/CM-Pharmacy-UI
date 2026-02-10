@@ -27,8 +27,18 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
-import { Plus, Pencil, Trash, ToggleLeft, ToggleRight } from "lucide-react";
+import {
+  Plus,
+  Pencil,
+  Trash,
+  ToggleLeft,
+  ToggleRight,
+  Package,
+  History,
+  AlertTriangle,
+} from "lucide-react";
 import { Badge } from "@/components/ui/badge";
+import Link from "next/link";
 
 interface Category {
   id: number;
@@ -38,15 +48,19 @@ interface Category {
 interface Product {
   id: number;
   name: string;
+  brandName: string;
   sku: string;
   cost: number;
   price: number;
-  quantity: number;
+  currentStock: number;
+  minimumStock: number;
+  reorderPoint: number;
   status: "ACTIVE" | "INACTIVE";
   categoryId: number;
   category: Category;
   marginPercentage?: number;
   marginAmount?: number;
+  stockStatus?: string;
 }
 
 export default function ProductList() {
@@ -56,10 +70,12 @@ export default function ProductList() {
   const [editingProduct, setEditingProduct] = useState<Product | null>(null);
   const [formData, setFormData] = useState({
     name: "",
+    brandName: "",
     sku: "",
     cost: "",
     price: "",
-    quantity: "",
+    minimumStock: "10",
+    reorderPoint: "20",
     status: "ACTIVE" as "ACTIVE" | "INACTIVE",
     categoryId: "",
   });
@@ -103,10 +119,12 @@ export default function ProductList() {
       setEditingProduct(product);
       setFormData({
         name: product.name,
+        brandName: product.brandName,
         sku: product.sku,
         cost: product.cost.toString(),
         price: product.price.toString(),
-        quantity: product.quantity.toString(),
+        minimumStock: product.minimumStock?.toString() || "10",
+        reorderPoint: product.reorderPoint?.toString() || "20",
         status: product.status,
         categoryId: product.categoryId.toString(),
       });
@@ -114,10 +132,12 @@ export default function ProductList() {
       setEditingProduct(null);
       setFormData({
         name: "",
+        brandName: "",
         sku: "",
         cost: "",
         price: "",
-        quantity: "",
+        minimumStock: "10",
+        reorderPoint: "20",
         status: "ACTIVE",
         categoryId: "",
       });
@@ -130,19 +150,33 @@ export default function ProductList() {
     setEditingProduct(null);
     setFormData({
       name: "",
+      brandName: "",
       sku: "",
       cost: "",
       price: "",
-      quantity: "",
+      minimumStock: "10",
+      reorderPoint: "20",
       status: "ACTIVE",
       categoryId: "",
     });
   };
 
   const handleSubmit = async () => {
-    const { name, sku, cost, price, quantity, status, categoryId } = formData;
-    if (!name || !sku || !cost || !price || !categoryId) {
-      return toast.error("Name, SKU, Price and Category are required");
+    const {
+      name,
+      brandName,
+      sku,
+      cost,
+      price,
+      minimumStock,
+      reorderPoint,
+      status,
+      categoryId,
+    } = formData;
+    if (!name || !brandName || !sku || !cost || !price || !categoryId) {
+      return toast.error(
+        "Name, Brand Name, SKU, Price and Category are required",
+      );
     }
 
     try {
@@ -150,10 +184,12 @@ export default function ProductList() {
       if (editingProduct) {
         await api.put(`/products/${editingProduct.id}`, {
           name,
+          brandName,
           sku,
           cost: parseFloat(cost),
           price: parseFloat(price),
-          quantity: parseInt(quantity),
+          minimumStock: parseInt(minimumStock),
+          reorderPoint: parseInt(reorderPoint),
           status,
           categoryId: parseInt(categoryId),
         });
@@ -161,10 +197,12 @@ export default function ProductList() {
       } else {
         await api.post("/products", {
           name,
+          brandName,
           sku,
           cost: parseFloat(cost),
           price: parseFloat(price),
-          quantity: parseInt(quantity),
+          minimumStock: parseInt(minimumStock),
+          reorderPoint: parseInt(reorderPoint),
           status,
           categoryId: parseInt(categoryId),
         });
@@ -197,10 +235,14 @@ export default function ProductList() {
   const toggleProductStatus = async (product: Product) => {
     try {
       await api.patch(`/products/${product.id}/toggle-status`);
-      toast.success(`Product ${product.status === "ACTIVE" ? "deactivated" : "activated"}`);
+      toast.success(
+        `Product ${product.status === "ACTIVE" ? "deactivated" : "activated"}`,
+      );
       fetchProducts();
     } catch (err: any) {
-      toast.error(err.response?.data?.message || "Error toggling product status");
+      toast.error(
+        err.response?.data?.message || "Error toggling product status",
+      );
     }
   };
 
@@ -210,11 +252,30 @@ export default function ProductList() {
     return ((price - cost) / cost) * 100;
   };
 
+  // Get stock status
+  const getStockStatus = (product: Product) => {
+    const stock = product.currentStock || 0;
+    const reorder = product.reorderPoint || 20;
+    const minimum = product.minimumStock || 10;
+
+    if (stock === 0) {
+      return { label: "Out of Stock", color: "bg-red-100 text-red-800" };
+    }
+    if (stock <= minimum) {
+      return { label: "Critical", color: "bg-orange-100 text-orange-800" };
+    }
+    if (stock <= reorder) {
+      return { label: "Low Stock", color: "bg-yellow-100 text-yellow-800" };
+    }
+    return { label: "In Stock", color: "bg-green-100 text-green-800" };
+  };
+
   // --- Derived Data: search, sort, paginate ---
   const filtered = useMemo(() => {
     let data = products.filter(
       (p) =>
         p.name.toLowerCase().includes(search.toLowerCase()) ||
+        p.brandName.toLowerCase().includes(search.toLowerCase()) ||
         p.sku.toLowerCase().includes(search.toLowerCase()) ||
         p.category?.name.toLowerCase().includes(search.toLowerCase()),
     );
@@ -252,14 +313,22 @@ export default function ProductList() {
       <div className="p-6">
         <div className="flex justify-between items-center mb-4">
           <h1 className="text-2xl font-semibold">Products</h1>
-          <Button
-            className="cursor-pointer"
-            variant="outline"
-            onClick={() => handleOpenModal()}
-          >
-            <Plus />
-            Add
-          </Button>
+          <div className="flex gap-2">
+            <Link href="/stock">
+              <Button variant="outline">
+                <Package className="h-4 w-4 mr-2" />
+                Stock Management
+              </Button>
+            </Link>
+            <Button
+              className="cursor-pointer"
+              variant="outline"
+              onClick={() => handleOpenModal()}
+            >
+              <Plus className="h-4 w-4 mr-2" />
+              Add Product
+            </Button>
+          </div>
         </div>
 
         {/* Search + Per Page Controls */}
@@ -303,7 +372,8 @@ export default function ProductList() {
                   { key: "cost", label: "Cost" },
                   { key: "price", label: "Price" },
                   { key: "margin", label: "Margin %" },
-                  { key: "quantity", label: "Qty" },
+                  { key: "currentStock", label: "Stock" },
+                  { key: "stockStatus", label: "Stock Status" },
                   { key: "status", label: "Status" },
                   { key: "category", label: "Category" },
                 ].map((col) => (
@@ -321,29 +391,73 @@ export default function ProductList() {
             </TableHeader>
             <TableBody>
               {paginated.map((prod) => {
-                const margin = calculateMargin(prod.price, prod.cost);
-                const marginColor = margin < 20 ? "text-red-600" : margin < 40 ? "text-yellow-600" : "text-green-600";
-                
+                const cost = parseFloat(prod.cost.toString());
+                const price = parseFloat(prod.price.toString());
+                const margin = calculateMargin(price, cost);
+                const marginColor =
+                  margin < 20
+                    ? "text-red-600"
+                    : margin < 40
+                      ? "text-yellow-600"
+                      : "text-green-600";
+
+                const stockStatus = getStockStatus(prod);
+
                 return (
                   <TableRow key={prod.id}>
                     <TableCell>{prod.id}</TableCell>
                     <TableCell>{prod.name}</TableCell>
                     <TableCell>{prod.sku}</TableCell>
-                    <TableCell>{prod.cost}</TableCell>
-                    <TableCell>{prod.price}</TableCell>
+                    <TableCell>₱{cost.toFixed(2)}</TableCell>
+                    <TableCell>₱{price.toFixed(2)}</TableCell>
                     <TableCell className={marginColor}>
                       {margin.toFixed(2)}%
                     </TableCell>
-                    <TableCell>{prod.quantity}</TableCell>
+                    <TableCell>
+                      <div className="flex items-center gap-2">
+                        <span className="font-semibold">
+                          {prod.currentStock || 0}
+                        </span>
+                        {prod.currentStock <= (prod.minimumStock || 10) && (
+                          <AlertTriangle className="h-4 w-4 text-orange-500" />
+                        )}
+                      </div>
+                    </TableCell>
+                    <TableCell>
+                      <Badge className={stockStatus.color}>
+                        {stockStatus.label}
+                      </Badge>
+                    </TableCell>
                     <TableCell>
                       {prod.status === "ACTIVE" ? (
-                        <Badge className="bg-green-100 text-green-800">Active</Badge>
+                        <Badge className="bg-green-100 text-green-800">
+                          Active
+                        </Badge>
                       ) : (
-                        <Badge className="bg-red-100 text-red-800">Inactive</Badge>
+                        <Badge className="bg-red-100 text-red-800">
+                          Inactive
+                        </Badge>
                       )}
                     </TableCell>
                     <TableCell>{prod.category?.name || "-"}</TableCell>
                     <TableCell className="text-center space-x-2">
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <Link href={`/stock/add?productId=${prod.id}`}>
+                            <Button
+                              className="cursor-pointer"
+                              variant="outline"
+                              size="icon"
+                            >
+                              <Package className="h-4 w-4" />
+                            </Button>
+                          </Link>
+                        </TooltipTrigger>
+                        <TooltipContent className="pointer-events-none">
+                          <p>Manage Stock</p>
+                        </TooltipContent>
+                      </Tooltip>
+
                       <Tooltip>
                         <TooltipTrigger asChild>
                           <Button
@@ -360,9 +474,14 @@ export default function ProductList() {
                           </Button>
                         </TooltipTrigger>
                         <TooltipContent className="pointer-events-none">
-                          <p>{prod.status === "ACTIVE" ? "Deactivate" : "Activate"}</p>
+                          <p>
+                            {prod.status === "ACTIVE"
+                              ? "Deactivate"
+                              : "Activate"}
+                          </p>
                         </TooltipContent>
                       </Tooltip>
+
                       <Tooltip>
                         <TooltipTrigger asChild>
                           <Button
@@ -371,13 +490,14 @@ export default function ProductList() {
                             size="icon"
                             onClick={() => handleOpenModal(prod)}
                           >
-                            <Pencil />
+                            <Pencil className="h-4 w-4" />
                           </Button>
                         </TooltipTrigger>
                         <TooltipContent className="pointer-events-none">
                           <p>Edit</p>
                         </TooltipContent>
                       </Tooltip>
+
                       <Tooltip>
                         <TooltipTrigger asChild>
                           <Button
@@ -389,7 +509,7 @@ export default function ProductList() {
                               setDeleteOpen(true);
                             }}
                           >
-                            <Trash color="red" />
+                            <Trash className="h-4 w-4 text-red-600" />
                           </Button>
                         </TooltipTrigger>
                         <TooltipContent className="pointer-events-none">
@@ -449,51 +569,81 @@ export default function ProductList() {
                   }
                 />
               </div>
-              <div>
-                <Label>SKU</Label>
-                <Input
-                  value={formData.sku}
-                  onChange={(e) =>
-                    setFormData({ ...formData, sku: e.target.value })
-                  }
-                />
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <Label>Brand Name</Label>
+                  <Input
+                    value={formData.brandName}
+                    onChange={(e) =>
+                      setFormData({ ...formData, brandName: e.target.value })
+                    }
+                  />
+                </div>
+                <div>
+                  <Label>SKU</Label>
+                  <Input
+                    value={formData.sku}
+                    onChange={(e) =>
+                      setFormData({ ...formData, sku: e.target.value })
+                    }
+                  />
+                </div>
               </div>
-              <div>
-                <Label>Cost</Label>
-                <Input
-                  type="number"
-                  step="0.01"
-                  value={formData.cost}
-                  onChange={(e) =>
-                    setFormData({ ...formData, cost: e.target.value })
-                  }
-                />
-              </div>
-              <div>
-                <Label>Price</Label>
-                <Input
-                  type="number"
-                  step="0.01"
-                  value={formData.price}
-                  onChange={(e) =>
-                    setFormData({ ...formData, price: e.target.value })
-                  }
-                />
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <Label>Cost</Label>
+                  <Input
+                    type="number"
+                    step="0.01"
+                    value={formData.cost}
+                    onChange={(e) =>
+                      setFormData({ ...formData, cost: e.target.value })
+                    }
+                  />
+                </div>
+                <div>
+                  <Label>Price</Label>
+                  <Input
+                    type="number"
+                    step="0.01"
+                    value={formData.price}
+                    onChange={(e) =>
+                      setFormData({ ...formData, price: e.target.value })
+                    }
+                  />
+                </div>
               </div>
               {formData.cost && formData.price && (
                 <div className="text-sm text-gray-600">
-                  Margin: {calculateMargin(parseFloat(formData.price), parseFloat(formData.cost)).toFixed(2)}%
+                  Margin:{" "}
+                  {calculateMargin(
+                    parseFloat(formData.price),
+                    parseFloat(formData.cost),
+                  ).toFixed(2)}
+                  %
                 </div>
               )}
-              <div>
-                <Label>Quantity</Label>
-                <Input
-                  type="number"
-                  value={formData.quantity}
-                  onChange={(e) =>
-                    setFormData({ ...formData, quantity: e.target.value })
-                  }
-                />
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <Label>Minimum Stock</Label>
+                  <Input
+                    type="number"
+                    value={formData.minimumStock}
+                    onChange={(e) =>
+                      setFormData({ ...formData, minimumStock: e.target.value })
+                    }
+                  />
+                </div>
+                <div>
+                  <Label>Reorder Point</Label>
+                  <Input
+                    type="number"
+                    value={formData.reorderPoint}
+                    onChange={(e) =>
+                      setFormData({ ...formData, reorderPoint: e.target.value })
+                    }
+                  />
+                </div>
               </div>
               <div>
                 <Label>Status</Label>
@@ -501,7 +651,10 @@ export default function ProductList() {
                   className="w-full border rounded px-3 py-2"
                   value={formData.status}
                   onChange={(e) =>
-                    setFormData({ ...formData, status: e.target.value as "ACTIVE" | "INACTIVE" })
+                    setFormData({
+                      ...formData,
+                      status: e.target.value as "ACTIVE" | "INACTIVE",
+                    })
                   }
                 >
                   <option value="ACTIVE">Active</option>
