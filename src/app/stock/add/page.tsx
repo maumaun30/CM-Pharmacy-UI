@@ -1,7 +1,7 @@
 // app/stock/add/page.tsx
 "use client";
 
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, Suspense } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -28,7 +28,8 @@ interface Product {
   currentStock: number;
 }
 
-const AddStockPage = () => {
+// Extract the component that uses useSearchParams
+const AddStockForm = () => {
   const router = useRouter();
   const searchParams = useSearchParams();
   const preselectedProductId = searchParams.get("productId");
@@ -92,160 +93,169 @@ const AddStockPage = () => {
   );
 
   return (
-    <ProtectedRoute>
-      <div className="p-6 max-w-2xl mx-auto space-y-6">
-        {/* Header */}
-        <div className="flex items-center gap-4">
-          <Link href="/stock">
-            <Button variant="ghost" size="icon">
-              <ArrowLeft className="h-5 w-5" />
-            </Button>
-          </Link>
-          <div>
-            <h1 className="text-2xl font-bold">Add Stock</h1>
-            <p className="text-sm text-muted-foreground">
-              Record new stock purchases or returns
-            </p>
-          </div>
+    <div className="p-6 max-w-2xl mx-auto space-y-6">
+      {/* Header */}
+      <div className="flex items-center gap-4">
+        <Link href="/stock">
+          <Button variant="ghost" size="icon">
+            <ArrowLeft className="h-5 w-5" />
+          </Button>
+        </Link>
+        <div>
+          <h1 className="text-2xl font-bold">Add Stock</h1>
+          <p className="text-sm text-muted-foreground">
+            Record new stock purchases or returns
+          </p>
         </div>
-
-        {/* Form */}
-        <Card className="p-6">
-          <form onSubmit={handleSubmit} className="space-y-4">
-            {/* Transaction Type */}
-            <div className="space-y-2">
-              <Label>Transaction Type</Label>
-              <Select
-                value={formData.transactionType}
-                onValueChange={(value) =>
-                  setFormData({ ...formData, transactionType: value })
-                }
-              >
-                <SelectTrigger>
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="PURCHASE">Purchase</SelectItem>
-                  <SelectItem value="RETURN">Return</SelectItem>
-                  <SelectItem value="INITIAL_STOCK">Initial Stock</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-
-            {/* Product Selection */}
-            <div className="space-y-2">
-              <Label>Product *</Label>
-              <Select
-                value={formData.productId}
-                onValueChange={(value) =>
-                  setFormData({ ...formData, productId: value })
-                }
-              >
-                <SelectTrigger>
-                  <SelectValue placeholder="Select product" />
-                </SelectTrigger>
-                <SelectContent>
-                  {products.map((product) => (
-                    <SelectItem key={product.id} value={product.id.toString()}>
-                      {product.name} ({product.sku}) - Current: {product.currentStock}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-
-            {/* Current Stock Display */}
-            {selectedProduct && (
-              <div className="p-3 bg-muted rounded-lg">
-                <p className="text-sm text-muted-foreground">Current Stock</p>
-                <p className="text-2xl font-bold">{selectedProduct.currentStock}</p>
-              </div>
-            )}
-
-            {/* Quantity */}
-            <div className="space-y-2">
-              <Label>Quantity *</Label>
-              <Input
-                type="number"
-                min="1"
-                value={formData.quantity}
-                onChange={(e) =>
-                  setFormData({ ...formData, quantity: e.target.value })
-                }
-                placeholder="Enter quantity"
-              />
-            </div>
-
-            {/* Unit Cost */}
-            <div className="space-y-2">
-              <Label>Unit Cost (₱)</Label>
-              <Input
-                type="number"
-                step="0.01"
-                value={formData.unitCost}
-                onChange={(e) =>
-                  setFormData({ ...formData, unitCost: e.target.value })
-                }
-                placeholder="0.00"
-              />
-              {formData.unitCost && formData.quantity && (
-                <p className="text-sm text-muted-foreground">
-                  Total Cost: ₱
-                  {(parseFloat(formData.unitCost) * parseInt(formData.quantity)).toFixed(2)}
-                </p>
-              )}
-            </div>
-
-            {/* Batch Number */}
-            <div className="space-y-2">
-              <Label>Batch Number</Label>
-              <Input
-                value={formData.batchNumber}
-                onChange={(e) =>
-                  setFormData({ ...formData, batchNumber: e.target.value })
-                }
-                placeholder="Enter batch number"
-              />
-            </div>
-
-            {/* Expiry Date */}
-            <div className="space-y-2">
-              <Label>Expiry Date</Label>
-              <Input
-                type="date"
-                value={formData.expiryDate}
-                onChange={(e) =>
-                  setFormData({ ...formData, expiryDate: e.target.value })
-                }
-              />
-            </div>
-
-            {/* Supplier */}
-            <div className="space-y-2">
-              <Label>Supplier</Label>
-              <Input
-                value={formData.supplier}
-                onChange={(e) =>
-                  setFormData({ ...formData, supplier: e.target.value })
-                }
-                placeholder="Enter supplier name"
-              />
-            </div>
-
-            {/* Buttons */}
-            <div className="flex gap-2 pt-4">
-              <Button type="submit" disabled={loading} className="flex-1">
-                {loading ? "Adding..." : "Add Stock"}
-              </Button>
-              <Link href="/stock">
-                <Button type="button" variant="outline">
-                  Cancel
-                </Button>
-              </Link>
-            </div>
-          </form>
-        </Card>
       </div>
+
+      {/* Form */}
+      <Card className="p-6">
+        <form onSubmit={handleSubmit} className="space-y-4">
+          {/* Transaction Type */}
+          <div className="space-y-2">
+            <Label>Transaction Type</Label>
+            <Select
+              value={formData.transactionType}
+              onValueChange={(value) =>
+                setFormData({ ...formData, transactionType: value })
+              }
+            >
+              <SelectTrigger>
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="PURCHASE">Purchase</SelectItem>
+                <SelectItem value="RETURN">Return</SelectItem>
+                <SelectItem value="INITIAL_STOCK">Initial Stock</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+
+          {/* Product Selection */}
+          <div className="space-y-2">
+            <Label>Product *</Label>
+            <Select
+              value={formData.productId}
+              onValueChange={(value) =>
+                setFormData({ ...formData, productId: value })
+              }
+            >
+              <SelectTrigger>
+                <SelectValue placeholder="Select product" />
+              </SelectTrigger>
+              <SelectContent>
+                {products.map((product) => (
+                  <SelectItem key={product.id} value={product.id.toString()}>
+                    {product.name} ({product.sku}) - Current: {product.currentStock}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+
+          {/* Current Stock Display */}
+          {selectedProduct && (
+            <div className="p-3 bg-muted rounded-lg">
+              <p className="text-sm text-muted-foreground">Current Stock</p>
+              <p className="text-2xl font-bold">{selectedProduct.currentStock}</p>
+            </div>
+          )}
+
+          {/* Quantity */}
+          <div className="space-y-2">
+            <Label>Quantity *</Label>
+            <Input
+              type="number"
+              min="1"
+              value={formData.quantity}
+              onChange={(e) =>
+                setFormData({ ...formData, quantity: e.target.value })
+              }
+              placeholder="Enter quantity"
+            />
+          </div>
+
+          {/* Unit Cost */}
+          <div className="space-y-2">
+            <Label>Unit Cost (₱)</Label>
+            <Input
+              type="number"
+              step="0.01"
+              value={formData.unitCost}
+              onChange={(e) =>
+                setFormData({ ...formData, unitCost: e.target.value })
+              }
+              placeholder="0.00"
+            />
+            {formData.unitCost && formData.quantity && (
+              <p className="text-sm text-muted-foreground">
+                Total Cost: ₱
+                {(parseFloat(formData.unitCost) * parseInt(formData.quantity)).toFixed(2)}
+              </p>
+            )}
+          </div>
+
+          {/* Batch Number */}
+          <div className="space-y-2">
+            <Label>Batch Number</Label>
+            <Input
+              value={formData.batchNumber}
+              onChange={(e) =>
+                setFormData({ ...formData, batchNumber: e.target.value })
+              }
+              placeholder="Enter batch number"
+            />
+          </div>
+
+          {/* Expiry Date */}
+          <div className="space-y-2">
+            <Label>Expiry Date</Label>
+            <Input
+              type="date"
+              value={formData.expiryDate}
+              onChange={(e) =>
+                setFormData({ ...formData, expiryDate: e.target.value })
+              }
+            />
+          </div>
+
+          {/* Supplier */}
+          <div className="space-y-2">
+            <Label>Supplier</Label>
+            <Input
+              value={formData.supplier}
+              onChange={(e) =>
+                setFormData({ ...formData, supplier: e.target.value })
+              }
+              placeholder="Enter supplier name"
+            />
+          </div>
+
+          {/* Buttons */}
+          <div className="flex gap-2 pt-4">
+            <Button type="submit" disabled={loading} className="flex-1">
+              {loading ? "Adding..." : "Add Stock"}
+            </Button>
+            <Link href="/stock">
+              <Button type="button" variant="outline">
+                Cancel
+              </Button>
+            </Link>
+          </div>
+        </form>
+      </Card>
+    </div>
+  );
+};
+
+// Main page component with Suspense boundary
+const AddStockPage = () => {
+  return (
+    <ProtectedRoute>
+      <Suspense fallback={<div className="p-6 max-w-2xl mx-auto">Loading...</div>}>
+        <AddStockForm />
+      </Suspense>
     </ProtectedRoute>
   );
 };
