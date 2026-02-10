@@ -27,7 +27,7 @@ interface Product {
   id: number;
   name: string;
   price: number;
-  quantity: number;
+  currentStock: number;
   status: string;
 }
 
@@ -414,7 +414,7 @@ const POSPage = () => {
             type="number"
             className="w-16 inline-block p-2 outline-0 border-b-[1px] border-gray-200"
             min={1}
-            max={item.product.quantity}
+            max={item.product.currentStock}
             value={item.quantity}
             onChange={(e) => {
               const val = parseInt(e.target.value);
@@ -474,7 +474,7 @@ const POSPage = () => {
                   <div className="p-5 flex justify-between">
                     <div>
                       <p className="font-medium text-md">{product.name}</p>
-                      <p className="text-sm">Qty: {product.quantity}</p>
+                      <p className="text-sm">Stock: {product.currentStock}</p>
                     </div>
                     <p className="text-sm">
                       {product.price.toLocaleString(undefined, {
@@ -865,7 +865,7 @@ const POSPage = () => {
                   <thead>
                     <tr className="border-b border-gray-300">
                       <th className="text-left py-2">Item</th>
-                      <th className="text-right py-2">Qty</th>
+                      <th className="text-right py-2">Stock</th>
                       <th className="text-right py-2">Price</th>
                       <th className="text-right py-2">Total</th>
                     </tr>
