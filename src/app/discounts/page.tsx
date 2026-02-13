@@ -561,7 +561,7 @@ export default function DiscountList() {
               {/* Basic Info */}
               <div className="grid grid-cols-2 gap-4">
                 <div className="col-span-2">
-                  <Label>Name *</Label>
+                  <Label className="mb-1">Name *</Label>
                   <Input
                     value={formData.name}
                     onChange={(e) =>
@@ -572,7 +572,7 @@ export default function DiscountList() {
                 </div>
 
                 <div className="col-span-2">
-                  <Label>Description</Label>
+                  <Label className="mb-1">Description</Label>
                   <Input
                     value={formData.description}
                     onChange={(e) =>
@@ -583,7 +583,7 @@ export default function DiscountList() {
                 </div>
 
                 <div>
-                  <Label>Category *</Label>
+                  <Label className="mb-1">Category *</Label>
                   <select
                     className="w-full border rounded px-3 py-2"
                     value={formData.discountCategory}
@@ -603,7 +603,7 @@ export default function DiscountList() {
                 </div>
 
                 <div>
-                  <Label>Type *</Label>
+                  <Label className="mb-1">Type *</Label>
                   <select
                     className="w-full border rounded px-3 py-2"
                     value={formData.discountType}
@@ -620,7 +620,7 @@ export default function DiscountList() {
                 </div>
 
                 <div>
-                  <Label>Value *</Label>
+                  <Label className="mb-1">Value *</Label>
                   <Input
                     type="number"
                     step="0.01"
@@ -633,7 +633,7 @@ export default function DiscountList() {
                 </div>
 
                 <div>
-                  <Label>Priority</Label>
+                  <Label className="mb-1">Priority</Label>
                   <Input
                     type="number"
                     value={formData.priority}
@@ -648,7 +648,7 @@ export default function DiscountList() {
               {/* Date Range */}
               <div className="grid grid-cols-2 gap-4">
                 <div>
-                  <Label>Start Date (Optional)</Label>
+                  <Label className="mb-1">Start Date (Optional)</Label>
                   <Input
                     type="date"
                     value={formData.startDate}
@@ -659,7 +659,7 @@ export default function DiscountList() {
                 </div>
 
                 <div>
-                  <Label>End Date (Optional)</Label>
+                  <Label className="mb-1">End Date (Optional)</Label>
                   <Input
                     type="date"
                     value={formData.endDate}
@@ -673,7 +673,7 @@ export default function DiscountList() {
               {/* Constraints */}
               <div className="grid grid-cols-2 gap-4">
                 <div>
-                  <Label>Min Purchase Amount (Optional)</Label>
+                  <Label className="mb-1">Min Purchase Amount (Optional)</Label>
                   <Input
                     type="number"
                     step="0.01"
@@ -689,7 +689,7 @@ export default function DiscountList() {
                 </div>
 
                 <div>
-                  <Label>Max Discount Amount (Optional)</Label>
+                  <Label className="mb-1">Max Discount Amount (Optional)</Label>
                   <Input
                     type="number"
                     step="0.01"
@@ -707,7 +707,7 @@ export default function DiscountList() {
 
               {/* Applicability */}
               <div>
-                <Label>Applicable To</Label>
+                <Label className="mb-1">Applicable To</Label>
                 <select
                   className="w-full border rounded px-3 py-2"
                   value={formData.applicableTo}

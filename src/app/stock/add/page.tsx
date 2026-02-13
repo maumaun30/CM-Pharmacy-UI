@@ -7,7 +7,6 @@ import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Textarea } from "@/components/ui/textarea";
 import {
   Select,
   SelectContent,
@@ -18,7 +17,7 @@ import {
 import { toast } from "sonner";
 import api from "@/lib/api";
 import ProtectedRoute from "@/components/ProtectedRoute";
-import { ArrowLeft, Package, Plus } from "lucide-react";
+import { ArrowLeft, Building2, Package } from "lucide-react";
 import Link from "next/link";
 
 interface Product {
@@ -28,6 +27,21 @@ interface Product {
   currentStock: number;
 }
 
+interface Branch {
+  id: number;
+  name: string;
+  code: string;
+}
+
+interface User {
+  id: number;
+  role: string;
+  branchId: number;
+  currentBranchId: number | null;
+  branch?: Branch;
+  currentBranch?: Branch;
+}
+
 // Extract the component that uses useSearchParams
 const AddStockForm = () => {
   const router = useRouter();
@@ -35,6 +49,8 @@ const AddStockForm = () => {
   const preselectedProductId = searchParams.get("productId");
 
   const [products, setProducts] = useState<Product[]>([]);
+  const [currentUser, setCurrentUser] = useState<User | null>(null);
+  const [activeBranch, setActiveBranch] = useState<Branch | null>(null);
   const [loading, setLoading] = useState(false);
   const [formData, setFormData] = useState({
     productId: preselectedProductId || "",
@@ -47,23 +63,43 @@ const AddStockForm = () => {
   });
 
   useEffect(() => {
-    const fetchProducts = async () => {
-      try {
-        const res = await api.get("/products");
-        setProducts(res.data);
-      } catch (error) {
-        toast.error("Failed to fetch products");
-      }
-    };
-
+    fetchCurrentUser();
     fetchProducts();
   }, []);
+
+  const fetchCurrentUser = async () => {
+    try {
+      const res = await api.get("/auth/me");
+      setCurrentUser(res.data);
+      
+      // Determine active branch
+      const branch = res.data.currentBranch || res.data.branch;
+      setActiveBranch(branch);
+    } catch (error) {
+      console.error("Error fetching user:", error);
+      toast.error("Failed to fetch user information");
+    }
+  };
+
+  const fetchProducts = async () => {
+    try {
+      const res = await api.get("/products");
+      setProducts(res.data);
+    } catch (error) {
+      toast.error("Failed to fetch products");
+    }
+  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
 
     if (!formData.productId || !formData.quantity) {
       toast.error("Product and quantity are required");
+      return;
+    }
+
+    if (!activeBranch) {
+      toast.error("No active branch. Please contact administrator.");
       return;
     }
 
@@ -79,7 +115,7 @@ const AddStockForm = () => {
         transactionType: formData.transactionType,
       });
 
-      toast.success("Stock added successfully");
+      toast.success(`Stock added successfully to ${activeBranch.name}`);
       router.push("/stock");
     } catch (error: any) {
       toast.error(error.response?.data?.message || "Error adding stock");
@@ -101,13 +137,30 @@ const AddStockForm = () => {
             <ArrowLeft className="h-5 w-5" />
           </Button>
         </Link>
-        <div>
+        <div className="flex-1">
           <h1 className="text-2xl font-bold">Add Stock</h1>
           <p className="text-sm text-muted-foreground">
             Record new stock purchases or returns
           </p>
         </div>
       </div>
+
+      {/* Branch Info Card */}
+      {activeBranch && (
+        <Card className="p-4 bg-blue-50 border-blue-200">
+          <div className="flex items-center gap-2">
+            <Building2 className="h-5 w-5 text-blue-600" />
+            <div>
+              <p className="text-sm font-medium text-blue-900">
+                Adding stock to: <strong>{activeBranch.name}</strong>
+              </p>
+              <p className="text-xs text-blue-700">
+                Branch Code: {activeBranch.code}
+              </p>
+            </div>
+          </div>
+        </Card>
+      )}
 
       {/* Form */}
       <Card className="p-6">
@@ -147,7 +200,7 @@ const AddStockForm = () => {
               <SelectContent>
                 {products.map((product) => (
                   <SelectItem key={product.id} value={product.id.toString()}>
-                    {product.name} ({product.sku}) - Current: {product.currentStock}
+                    {product.name} ({product.sku}) - Current Stock: {product.currentStock}
                   </SelectItem>
                 ))}
               </SelectContent>
@@ -156,9 +209,21 @@ const AddStockForm = () => {
 
           {/* Current Stock Display */}
           {selectedProduct && (
-            <div className="p-3 bg-muted rounded-lg">
-              <p className="text-sm text-muted-foreground">Current Stock</p>
-              <p className="text-2xl font-bold">{selectedProduct.currentStock}</p>
+            <div className="p-4 bg-muted rounded-lg">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-sm text-muted-foreground">Current Stock</p>
+                  <p className="text-2xl font-bold">{selectedProduct.currentStock}</p>
+                </div>
+                {formData.quantity && (
+                  <div className="text-right">
+                    <p className="text-sm text-muted-foreground">After Addition</p>
+                    <p className="text-2xl font-bold text-green-600">
+                      {selectedProduct.currentStock + parseInt(formData.quantity)}
+                    </p>
+                  </div>
+                )}
+              </div>
             </div>
           )}
 
@@ -182,6 +247,7 @@ const AddStockForm = () => {
             <Input
               type="number"
               step="0.01"
+              min="0"
               value={formData.unitCost}
               onChange={(e) =>
                 setFormData({ ...formData, unitCost: e.target.value })
@@ -204,7 +270,7 @@ const AddStockForm = () => {
               onChange={(e) =>
                 setFormData({ ...formData, batchNumber: e.target.value })
               }
-              placeholder="Enter batch number"
+              placeholder="Enter batch number (optional)"
             />
           </div>
 
@@ -217,6 +283,7 @@ const AddStockForm = () => {
               onChange={(e) =>
                 setFormData({ ...formData, expiryDate: e.target.value })
               }
+              min={new Date().toISOString().split('T')[0]}
             />
           </div>
 
@@ -228,13 +295,43 @@ const AddStockForm = () => {
               onChange={(e) =>
                 setFormData({ ...formData, supplier: e.target.value })
               }
-              placeholder="Enter supplier name"
+              placeholder="Enter supplier name (optional)"
             />
           </div>
 
+          {/* Summary Box */}
+          {formData.productId && formData.quantity && (
+            <div className="p-4 bg-green-50 border border-green-200 rounded-lg">
+              <p className="text-sm font-medium text-green-900 mb-2">
+                Transaction Summary
+              </p>
+              <div className="space-y-1 text-sm text-green-800">
+                <p>
+                  <strong>{formData.transactionType}:</strong> {formData.quantity} units
+                </p>
+                <p>
+                  <strong>Product:</strong> {selectedProduct?.name}
+                </p>
+                <p>
+                  <strong>Branch:</strong> {activeBranch?.name}
+                </p>
+                {formData.unitCost && (
+                  <p>
+                    <strong>Total Cost:</strong> ₱
+                    {(parseFloat(formData.unitCost) * parseInt(formData.quantity)).toFixed(2)}
+                  </p>
+                )}
+              </div>
+            </div>
+          )}
+
           {/* Buttons */}
           <div className="flex gap-2 pt-4">
-            <Button type="submit" disabled={loading} className="flex-1">
+            <Button 
+              type="submit" 
+              disabled={loading || !activeBranch} 
+              className="flex-1"
+            >
               {loading ? "Adding..." : "Add Stock"}
             </Button>
             <Link href="/stock">

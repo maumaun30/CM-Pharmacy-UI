@@ -37,7 +37,7 @@ import { toast } from "sonner";
 import api from "@/lib/api";
 import ProtectedRoute from "@/components/ProtectedRoute";
 import dayjs from "dayjs";
-import { ChevronRight, Package, Tag } from "lucide-react";
+import { ChevronRight, Package, Tag, Building2 } from "lucide-react";
 
 interface Discount {
   id: number;
@@ -64,6 +64,12 @@ interface Seller {
   email: string;
 }
 
+interface Branch {
+  id: number;
+  name: string;
+  code: string;
+}
+
 interface Sale {
   id: number;
   subtotal?: number;
@@ -74,10 +80,22 @@ interface Sale {
   soldAt: string;
   soldBy: string | number;
   seller?: Seller | null;
+  branch?: Branch | null;
   items: SaleItem[];
 }
 
+interface User {
+  id: number;
+  branchId: number;
+  currentBranchId: number | null;
+  role: string;
+  branch?: Branch;
+  currentBranch?: Branch;
+}
+
 const SalesReportPage = () => {
+  const [currentUser, setCurrentUser] = useState<User | null>(null);
+  const [activeBranch, setActiveBranch] = useState<Branch | null>(null);
   const [sales, setSales] = useState<Sale[]>([]);
   const [search, setSearch] = useState("");
   const [sortBy, setSortBy] = useState("date_desc");
@@ -88,39 +106,66 @@ const SalesReportPage = () => {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    const fetchSales = async () => {
-      try {
-        setLoading(true);
-        const res = await api.get("/sales");
-        
-        // Transform data to ensure numbers
-        const transformedSales = res.data.map((sale: any) => ({
-          ...sale,
-          subtotal: sale.subtotal ? Number(sale.subtotal) : null,
-          totalDiscount: sale.totalDiscount ? Number(sale.totalDiscount) : 0,
-          totalAmount: Number(sale.totalAmount),
-          cashAmount: sale.cashAmount ? Number(sale.cashAmount) : null,
-          changeAmount: sale.changeAmount ? Number(sale.changeAmount) : null,
-          items: sale.items.map((item: any) => ({
-            ...item,
-            price: Number(item.price),
-            quantity: Number(item.quantity),
-            discountedPrice: item.discountedPrice ? Number(item.discountedPrice) : null,
-            discountAmount: item.discountAmount ? Number(item.discountAmount) : 0,
-          })),
-        }));
-        
-        setSales(transformedSales);
-      } catch (error) {
-        console.error("Fetch sales error:", error);
-        toast.error("Failed to fetch sales");
-      } finally {
-        setLoading(false);
-      }
-    };
-
-    fetchSales();
+    fetchCurrentUser();
   }, []);
+
+  useEffect(() => {
+    if (currentUser) {
+      fetchSales();
+    }
+  }, [currentUser]);
+
+  const fetchCurrentUser = async () => {
+    try {
+      setLoading(true);
+      const res = await api.get("/auth/me");
+      setCurrentUser(res.data);
+      
+      // Determine active branch
+      const branch = res.data.currentBranch || res.data.branch;
+      setActiveBranch(branch);
+    } catch (error) {
+      console.error("Error fetching user:", error);
+      toast.error("Failed to fetch user information");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const fetchSales = async () => {
+    try {
+      setLoading(true);
+      const res = await api.get("/sales");
+
+      // Transform data to ensure numbers
+      const transformedSales = res.data.map((sale: any) => ({
+        ...sale,
+        subtotal: sale.subtotal ? Number(sale.subtotal) : null,
+        totalDiscount: sale.totalDiscount ? Number(sale.totalDiscount) : 0,
+        totalAmount: Number(sale.totalAmount),
+        cashAmount: sale.cashAmount ? Number(sale.cashAmount) : null,
+        changeAmount: sale.changeAmount ? Number(sale.changeAmount) : null,
+        items: sale.items.map((item: any) => ({
+          ...item,
+          price: Number(item.price),
+          quantity: Number(item.quantity),
+          discountedPrice: item.discountedPrice
+            ? Number(item.discountedPrice)
+            : null,
+          discountAmount: item.discountAmount
+            ? Number(item.discountAmount)
+            : 0,
+        })),
+      }));
+
+      setSales(transformedSales);
+    } catch (error) {
+      console.error("Fetch sales error:", error);
+      toast.error("Failed to fetch sales");
+    } finally {
+      setLoading(false);
+    }
+  };
 
   // Filter + sort logic
   const filteredSales = useMemo(() => {
@@ -133,7 +178,9 @@ const SalesReportPage = () => {
           sale.items.some((item) =>
             item.product?.name?.toLowerCase().includes(search.toLowerCase()),
           ) ||
-          sale.seller?.name?.toLowerCase().includes(search.toLowerCase()),
+          sale.seller?.name?.toLowerCase().includes(search.toLowerCase()) ||
+          sale.branch?.name?.toLowerCase().includes(search.toLowerCase()) ||
+          sale.branch?.code?.toLowerCase().includes(search.toLowerCase()),
       );
     }
 
@@ -191,7 +238,7 @@ const SalesReportPage = () => {
   };
 
   const hasDiscounts = (sale: Sale) => {
-    return sale.items.some(item => item.discount || item.discountedPrice);
+    return sale.items.some((item) => item.discount || item.discountedPrice);
   };
 
   // Calculate summary stats
@@ -212,8 +259,16 @@ const SalesReportPage = () => {
     const avgTransaction =
       totalTransactions > 0 ? totalRevenue / totalTransactions : 0;
 
-    return { totalRevenue, totalDiscount, totalTransactions, totalItems, avgTransaction };
+    return {
+      totalRevenue,
+      totalDiscount,
+      totalTransactions,
+      totalItems,
+      avgTransaction,
+    };
   }, [filteredSales]);
+
+  const isViewingAllBranches = currentUser?.role === "admin" && !currentUser?.currentBranchId;
 
   if (loading) {
     return (
@@ -228,14 +283,38 @@ const SalesReportPage = () => {
   return (
     <ProtectedRoute>
       <div className="p-6 space-y-4">
-        <h1 className="text-2xl font-bold">Sales Report</h1>
+        {/* Header */}
+        <div>
+          <h1 className="text-2xl font-bold">Sales Report</h1>
+          {activeBranch && (
+            <div className="flex items-center gap-2 mt-1 text-sm text-muted-foreground">
+              <Building2 className="h-4 w-4" />
+              <span>
+                {isViewingAllBranches ? "All Branches" : `${activeBranch.name} (${activeBranch.code})`}
+              </span>
+            </div>
+          )}
+        </div>
+
+        {/* Branch Info Alert */}
+        {!isViewingAllBranches && activeBranch && (
+          <Card className="p-4 bg-blue-50 border-blue-200">
+            <div className="flex items-center gap-2 text-sm text-blue-800">
+              <Building2 className="h-4 w-4" />
+              <p>
+                Showing sales for <strong>{activeBranch.name}</strong> branch only.
+              </p>
+            </div>
+          </Card>
+        )}
 
         {/* Summary Cards */}
         <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
           <Card className="p-4">
             <p className="text-sm text-muted-foreground">Total Revenue</p>
             <p className="text-2xl font-bold">
-              ₱{summaryStats.totalRevenue.toLocaleString(undefined, {
+              ₱
+              {summaryStats.totalRevenue.toLocaleString(undefined, {
                 minimumFractionDigits: 2,
                 maximumFractionDigits: 2,
               })}
@@ -244,7 +323,8 @@ const SalesReportPage = () => {
           <Card className="p-4">
             <p className="text-sm text-muted-foreground">Total Discounts</p>
             <p className="text-2xl font-bold text-green-600">
-              ₱{summaryStats.totalDiscount.toLocaleString(undefined, {
+              ₱
+              {summaryStats.totalDiscount.toLocaleString(undefined, {
                 minimumFractionDigits: 2,
                 maximumFractionDigits: 2,
               })}
@@ -263,7 +343,8 @@ const SalesReportPage = () => {
           <Card className="p-4">
             <p className="text-sm text-muted-foreground">Avg Transaction</p>
             <p className="text-2xl font-bold">
-              ₱{summaryStats.avgTransaction.toLocaleString(undefined, {
+              ₱
+              {summaryStats.avgTransaction.toLocaleString(undefined, {
                 minimumFractionDigits: 2,
                 maximumFractionDigits: 2,
               })}
@@ -274,7 +355,7 @@ const SalesReportPage = () => {
         {/* Filter + Sort Controls */}
         <div className="flex flex-wrap items-center gap-2">
           <Input
-            placeholder="Search by ID, product, or seller..."
+            placeholder="Search by ID, product, seller, or branch..."
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             className="max-w-xs"
@@ -347,60 +428,80 @@ const SalesReportPage = () => {
           </Card>
         ) : (
           <Card className="p-4">
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Transaction ID</TableHead>
-                  <TableHead>Date & Time</TableHead>
-                  <TableHead>Products</TableHead>
-                  <TableHead>Items</TableHead>
-                  <TableHead>Total Amount</TableHead>
-                  <TableHead>Sold By</TableHead>
-                  <TableHead className="w-[50px]"></TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {filteredSales.map((sale) => (
-                  <TableRow
-                    key={sale.id}
-                    className="cursor-pointer hover:bg-muted/50"
-                    onClick={() => handleRowClick(sale)}
-                  >
-                    <TableCell className="font-medium">#{sale.id}</TableCell>
-                    <TableCell>
-                      {dayjs(sale.soldAt).format("MMM D, YYYY h:mm A")}
-                    </TableCell>
-                    <TableCell>
-                      <div className="flex items-center gap-2">
-                        {getProductSummary(sale.items)}
-                        {sale.items.length > 1 && (
-                          <Badge variant="secondary">
-                            {sale.items.length} items
-                          </Badge>
-                        )}
-                        {hasDiscounts(sale) && (
-                          <Badge variant="outline" className="bg-green-50 text-green-700">
-                            <Tag className="h-3 w-3 mr-1" />
-                            Discount
-                          </Badge>
-                        )}
-                      </div>
-                    </TableCell>
-                    <TableCell>{getTotalItems(sale.items)}</TableCell>
-                    <TableCell className="font-semibold">
-                      ₱{(sale.totalAmount || 0).toLocaleString(undefined, {
-                        minimumFractionDigits: 2,
-                        maximumFractionDigits: 2,
-                      })}
-                    </TableCell>
-                    <TableCell>{sale.seller?.name || sale.soldBy}</TableCell>
-                    <TableCell>
-                      <ChevronRight className="h-4 w-4 text-muted-foreground" />
-                    </TableCell>
+            <div className="overflow-x-auto">
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Transaction ID</TableHead>
+                    <TableHead>Date & Time</TableHead>
+                    {isViewingAllBranches && <TableHead>Branch</TableHead>}
+                    <TableHead>Products</TableHead>
+                    <TableHead>Items</TableHead>
+                    <TableHead>Total Amount</TableHead>
+                    <TableHead>Sold By</TableHead>
+                    <TableHead className="w-[50px]"></TableHead>
                   </TableRow>
-                ))}
-              </TableBody>
-            </Table>
+                </TableHeader>
+                <TableBody>
+                  {filteredSales.map((sale) => (
+                    <TableRow
+                      key={sale.id}
+                      className="cursor-pointer hover:bg-muted/50"
+                      onClick={() => handleRowClick(sale)}
+                    >
+                      <TableCell className="font-medium">#{sale.id}</TableCell>
+                      <TableCell className="whitespace-nowrap">
+                        {dayjs(sale.soldAt).format("MMM D, YYYY h:mm A")}
+                      </TableCell>
+                      {isViewingAllBranches && (
+                        <TableCell>
+                          {sale.branch ? (
+                            <Badge variant="outline">
+                              {sale.branch.code}
+                            </Badge>
+                          ) : (
+                            <span className="text-xs text-muted-foreground">-</span>
+                          )}
+                        </TableCell>
+                      )}
+                      <TableCell>
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <span className="truncate max-w-[200px]">
+                            {getProductSummary(sale.items)}
+                          </span>
+                          {sale.items.length > 1 && (
+                            <Badge variant="secondary">
+                              {sale.items.length} items
+                            </Badge>
+                          )}
+                          {hasDiscounts(sale) && (
+                            <Badge
+                              variant="outline"
+                              className="bg-green-50 text-green-700"
+                            >
+                              <Tag className="h-3 w-3 mr-1" />
+                              Discount
+                            </Badge>
+                          )}
+                        </div>
+                      </TableCell>
+                      <TableCell>{getTotalItems(sale.items)}</TableCell>
+                      <TableCell className="font-semibold">
+                        ₱
+                        {(sale.totalAmount || 0).toLocaleString(undefined, {
+                          minimumFractionDigits: 2,
+                          maximumFractionDigits: 2,
+                        })}
+                      </TableCell>
+                      <TableCell>{sale.seller?.name || sale.soldBy}</TableCell>
+                      <TableCell>
+                        <ChevronRight className="h-4 w-4 text-muted-foreground" />
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </div>
           </Card>
         )}
 
@@ -420,6 +521,15 @@ const SalesReportPage = () => {
               <div className="space-y-4">
                 {/* Transaction Info */}
                 <div className="grid grid-cols-2 gap-4 p-4 bg-muted rounded-lg">
+                  {selectedSale.branch && (
+                    <div>
+                      <p className="text-sm text-muted-foreground">Branch</p>
+                      <div className="flex items-center gap-2">
+                        <Building2 className="h-4 w-4" />
+                        <p className="font-medium">{selectedSale.branch.name}</p>
+                      </div>
+                    </div>
+                  )}
                   <div>
                     <p className="text-sm text-muted-foreground">Sold By</p>
                     <p className="font-medium">
@@ -472,7 +582,8 @@ const SalesReportPage = () => {
                               )}
                             </TableCell>
                             <TableCell className="text-right">
-                              ₱{getItemSubtotal(item).toLocaleString(undefined, {
+                              ₱
+                              {getItemSubtotal(item).toLocaleString(undefined, {
                                 minimumFractionDigits: 2,
                                 maximumFractionDigits: 2,
                               })}
@@ -480,14 +591,18 @@ const SalesReportPage = () => {
                           </TableRow>
                           {item.discount && (
                             <TableRow className="bg-green-50/50">
-                              <TableCell colSpan={4} className="text-xs text-green-700 py-1">
+                              <TableCell
+                                colSpan={4}
+                                className="text-xs text-green-700 py-1"
+                              >
                                 <Tag className="h-3 w-3 inline mr-1" />
                                 {item.discount.name} applied
-                                {item.discountAmount && item.discountAmount > 0 && (
-                                  <span className="ml-2">
-                                    (Saved: ₱{item.discountAmount.toFixed(2)})
-                                  </span>
-                                )}
+                                {item.discountAmount &&
+                                  item.discountAmount > 0 && (
+                                    <span className="ml-2">
+                                      (Saved: ₱{item.discountAmount.toFixed(2)})
+                                    </span>
+                                  )}
                               </TableCell>
                             </TableRow>
                           )}
@@ -505,19 +620,24 @@ const SalesReportPage = () => {
                       <span>₱{selectedSale.subtotal.toFixed(2)}</span>
                     </div>
                   )}
-                  {selectedSale.totalDiscount && selectedSale.totalDiscount > 0 && (
-                    <div className="flex justify-between items-center text-sm text-green-600">
-                      <span>Total Discount:</span>
-                      <span>-₱{selectedSale.totalDiscount.toFixed(2)}</span>
-                    </div>
-                  )}
+                  {selectedSale.totalDiscount &&
+                    selectedSale.totalDiscount > 0 && (
+                      <div className="flex justify-between items-center text-sm text-green-600">
+                        <span>Total Discount:</span>
+                        <span>-₱{selectedSale.totalDiscount.toFixed(2)}</span>
+                      </div>
+                    )}
                   <div className="flex justify-between items-center p-4 bg-muted rounded-lg">
                     <p className="font-semibold text-lg">Total Amount</p>
                     <p className="font-bold text-2xl">
-                      ₱{(selectedSale.totalAmount || 0).toLocaleString(undefined, {
-                        minimumFractionDigits: 2,
-                        maximumFractionDigits: 2,
-                      })}
+                      ₱
+                      {(selectedSale.totalAmount || 0).toLocaleString(
+                        undefined,
+                        {
+                          minimumFractionDigits: 2,
+                          maximumFractionDigits: 2,
+                        },
+                      )}
                     </p>
                   </div>
                   {selectedSale.cashAmount && (
@@ -526,12 +646,15 @@ const SalesReportPage = () => {
                         <span className="text-muted-foreground">Cash:</span>
                         <span>₱{selectedSale.cashAmount.toFixed(2)}</span>
                       </div>
-                      {selectedSale.changeAmount !== null && selectedSale.changeAmount !== undefined && (
-                        <div className="flex justify-between items-center text-sm">
-                          <span className="text-muted-foreground">Change:</span>
-                          <span>₱{selectedSale.changeAmount.toFixed(2)}</span>
-                        </div>
-                      )}
+                      {selectedSale.changeAmount !== null &&
+                        selectedSale.changeAmount !== undefined && (
+                          <div className="flex justify-between items-center text-sm">
+                            <span className="text-muted-foreground">
+                              Change:
+                            </span>
+                            <span>₱{selectedSale.changeAmount.toFixed(2)}</span>
+                          </div>
+                        )}
                     </>
                   )}
                 </div>

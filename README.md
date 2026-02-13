@@ -41,4 +41,4 @@ Todo:
 <!-- Sales Adjustment -->
 <!-- Print Receipt -->
 Barcode scanner
-Store branches
+<!-- Store branches -->

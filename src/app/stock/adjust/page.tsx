@@ -19,7 +19,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { toast } from "sonner";
 import api from "@/lib/api";
 import ProtectedRoute from "@/components/ProtectedRoute";
-import { ArrowLeft } from "lucide-react";
+import { ArrowLeft, Building2, AlertTriangle } from "lucide-react";
 import Link from "next/link";
 
 interface Product {
@@ -29,9 +29,26 @@ interface Product {
   currentStock: number;
 }
 
+interface Branch {
+  id: number;
+  name: string;
+  code: string;
+}
+
+interface User {
+  id: number;
+  role: string;
+  branchId: number;
+  currentBranchId: number | null;
+  branch?: Branch;
+  currentBranch?: Branch;
+}
+
 const StockAdjustPage = () => {
   const router = useRouter();
   const [products, setProducts] = useState<Product[]>([]);
+  const [currentUser, setCurrentUser] = useState<User | null>(null);
+  const [activeBranch, setActiveBranch] = useState<Branch | null>(null);
   const [loading, setLoading] = useState(false);
   const [activeTab, setActiveTab] = useState("adjust");
 
@@ -50,23 +67,43 @@ const StockAdjustPage = () => {
   });
 
   useEffect(() => {
-    const fetchProducts = async () => {
-      try {
-        const res = await api.get("/products");
-        setProducts(res.data);
-      } catch (error) {
-        toast.error("Failed to fetch products");
-      }
-    };
-
+    fetchCurrentUser();
     fetchProducts();
   }, []);
+
+  const fetchCurrentUser = async () => {
+    try {
+      const res = await api.get("/auth/me");
+      setCurrentUser(res.data);
+      
+      // Determine active branch
+      const branch = res.data.currentBranch || res.data.branch;
+      setActiveBranch(branch);
+    } catch (error) {
+      console.error("Error fetching user:", error);
+      toast.error("Failed to fetch user information");
+    }
+  };
+
+  const fetchProducts = async () => {
+    try {
+      const res = await api.get("/products");
+      setProducts(res.data);
+    } catch (error) {
+      toast.error("Failed to fetch products");
+    }
+  };
 
   const handleAdjustSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
 
     if (!adjustFormData.productId || !adjustFormData.quantity || !adjustFormData.reason) {
       toast.error("All fields are required");
+      return;
+    }
+
+    if (!activeBranch) {
+      toast.error("No active branch. Please contact administrator.");
       return;
     }
 
@@ -78,7 +115,7 @@ const StockAdjustPage = () => {
         reason: adjustFormData.reason,
       });
 
-      toast.success("Stock adjusted successfully");
+      toast.success(`Stock adjusted successfully at ${activeBranch.name}`);
       router.push("/stock");
     } catch (error: any) {
       toast.error(error.response?.data?.message || "Error adjusting stock");
@@ -95,6 +132,11 @@ const StockAdjustPage = () => {
       return;
     }
 
+    if (!activeBranch) {
+      toast.error("No active branch. Please contact administrator.");
+      return;
+    }
+
     setLoading(true);
     try {
       await api.post("/stock/loss", {
@@ -105,7 +147,7 @@ const StockAdjustPage = () => {
         batchNumber: lossFormData.batchNumber || null,
       });
 
-      toast.success("Stock loss recorded successfully");
+      toast.success(`Stock loss recorded successfully at ${activeBranch.name}`);
       router.push("/stock");
     } catch (error: any) {
       toast.error(error.response?.data?.message || "Error recording stock loss");
@@ -132,13 +174,30 @@ const StockAdjustPage = () => {
               <ArrowLeft className="h-5 w-5" />
             </Button>
           </Link>
-          <div>
+          <div className="flex-1">
             <h1 className="text-2xl font-bold">Stock Adjustment & Loss</h1>
             <p className="text-sm text-muted-foreground">
               Manually adjust stock or record damaged/expired items
             </p>
           </div>
         </div>
+
+        {/* Branch Info Card */}
+        {activeBranch && (
+          <Card className="p-4 bg-blue-50 border-blue-200">
+            <div className="flex items-center gap-2">
+              <Building2 className="h-5 w-5 text-blue-600" />
+              <div>
+                <p className="text-sm font-medium text-blue-900">
+                  Adjusting stock at: <strong>{activeBranch.name}</strong>
+                </p>
+                <p className="text-xs text-blue-700">
+                  Branch Code: {activeBranch.code}
+                </p>
+              </div>
+            </div>
+          </Card>
+        )}
 
         {/* Tabs */}
         <Tabs value={activeTab} onValueChange={setActiveTab}>
@@ -151,9 +210,13 @@ const StockAdjustPage = () => {
           <TabsContent value="adjust">
             <Card className="p-6">
               <form onSubmit={handleAdjustSubmit} className="space-y-4">
-                <p className="text-sm text-muted-foreground">
-                  Use this to manually adjust stock levels (positive or negative)
-                </p>
+                <div className="p-3 bg-yellow-50 border border-yellow-200 rounded-lg">
+                  <p className="text-sm text-yellow-800">
+                    <AlertTriangle className="h-4 w-4 inline mr-1" />
+                    Use this to manually adjust stock levels (positive or negative). 
+                    All adjustments are tracked and require a reason.
+                  </p>
+                </div>
 
                 {/* Product Selection */}
                 <div className="space-y-2">
@@ -170,7 +233,7 @@ const StockAdjustPage = () => {
                     <SelectContent>
                       {products.map((product) => (
                         <SelectItem key={product.id} value={product.id.toString()}>
-                          {product.name} ({product.sku}) - Current: {product.currentStock}
+                          {product.name} ({product.sku}) - Current Stock: {product.currentStock}
                         </SelectItem>
                       ))}
                     </SelectContent>
@@ -179,7 +242,7 @@ const StockAdjustPage = () => {
 
                 {/* Current Stock Display */}
                 {selectedAdjustProduct && (
-                  <div className="p-3 bg-muted rounded-lg">
+                  <div className="p-4 bg-muted rounded-lg">
                     <p className="text-sm text-muted-foreground">Current Stock</p>
                     <p className="text-2xl font-bold">
                       {selectedAdjustProduct.currentStock}
@@ -196,7 +259,7 @@ const StockAdjustPage = () => {
                     onChange={(e) =>
                       setAdjustFormData({ ...adjustFormData, quantity: e.target.value })
                     }
-                    placeholder="Use + for add, - for subtract (e.g., +10 or -5)"
+                    placeholder="e.g., +10 or -5"
                   />
                   <p className="text-xs text-muted-foreground">
                     Enter a positive number to add stock, or a negative number to remove
@@ -205,11 +268,24 @@ const StockAdjustPage = () => {
 
                 {/* New Stock Preview */}
                 {selectedAdjustProduct && adjustFormData.quantity && (
-                  <div className="p-3 bg-blue-50 rounded-lg">
-                    <p className="text-sm text-muted-foreground">New Stock Level</p>
-                    <p className="text-2xl font-bold text-blue-600">
-                      {selectedAdjustProduct.currentStock + parseInt(adjustFormData.quantity)}
-                    </p>
+                  <div className="p-4 bg-blue-50 border border-blue-200 rounded-lg">
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <p className="text-sm text-blue-700">New Stock Level</p>
+                        <p className="text-2xl font-bold text-blue-900">
+                          {selectedAdjustProduct.currentStock + parseInt(adjustFormData.quantity)}
+                        </p>
+                      </div>
+                      <div className="text-right">
+                        <p className="text-sm text-blue-700">Change</p>
+                        <p className={`text-xl font-semibold ${
+                          parseInt(adjustFormData.quantity) > 0 ? 'text-green-600' : 'text-red-600'
+                        }`}>
+                          {parseInt(adjustFormData.quantity) > 0 ? '+' : ''}
+                          {adjustFormData.quantity}
+                        </p>
+                      </div>
+                    </div>
                   </div>
                 )}
 
@@ -221,14 +297,33 @@ const StockAdjustPage = () => {
                     onChange={(e) =>
                       setAdjustFormData({ ...adjustFormData, reason: e.target.value })
                     }
-                    placeholder="Enter reason for adjustment"
+                    placeholder="Enter detailed reason for this adjustment (e.g., 'Physical count correction', 'System error fix')"
                     rows={3}
                   />
                 </div>
 
+                {/* Summary */}
+                {adjustFormData.productId && adjustFormData.quantity && adjustFormData.reason && (
+                  <div className="p-4 bg-orange-50 border border-orange-200 rounded-lg">
+                    <p className="text-sm font-medium text-orange-900 mb-2">
+                      Adjustment Summary
+                    </p>
+                    <div className="space-y-1 text-sm text-orange-800">
+                      <p><strong>Product:</strong> {selectedAdjustProduct?.name}</p>
+                      <p><strong>Branch:</strong> {activeBranch?.name}</p>
+                      <p><strong>Adjustment:</strong> {adjustFormData.quantity} units</p>
+                      <p><strong>Reason:</strong> {adjustFormData.reason}</p>
+                    </div>
+                  </div>
+                )}
+
                 {/* Buttons */}
                 <div className="flex gap-2 pt-4">
-                  <Button type="submit" disabled={loading} className="flex-1">
+                  <Button 
+                    type="submit" 
+                    disabled={loading || !activeBranch} 
+                    className="flex-1"
+                  >
                     {loading ? "Adjusting..." : "Adjust Stock"}
                   </Button>
                   <Link href="/stock">
@@ -245,9 +340,12 @@ const StockAdjustPage = () => {
           <TabsContent value="loss">
             <Card className="p-6">
               <form onSubmit={handleLossSubmit} className="space-y-4">
-                <p className="text-sm text-muted-foreground">
-                  Record damaged or expired items to reduce stock
-                </p>
+                <div className="p-3 bg-red-50 border border-red-200 rounded-lg">
+                  <p className="text-sm text-red-800">
+                    <AlertTriangle className="h-4 w-4 inline mr-1" />
+                    Record damaged or expired items to reduce stock. This cannot be undone.
+                  </p>
+                </div>
 
                 {/* Type Selection */}
                 <div className="space-y-2">
@@ -283,7 +381,7 @@ const StockAdjustPage = () => {
                     <SelectContent>
                       {products.map((product) => (
                         <SelectItem key={product.id} value={product.id.toString()}>
-                          {product.name} ({product.sku}) - Current: {product.currentStock}
+                          {product.name} ({product.sku}) - Current Stock: {product.currentStock}
                         </SelectItem>
                       ))}
                     </SelectContent>
@@ -292,11 +390,23 @@ const StockAdjustPage = () => {
 
                 {/* Current Stock Display */}
                 {selectedLossProduct && (
-                  <div className="p-3 bg-muted rounded-lg">
-                    <p className="text-sm text-muted-foreground">Current Stock</p>
-                    <p className="text-2xl font-bold">
-                      {selectedLossProduct.currentStock}
-                    </p>
+                  <div className="p-4 bg-muted rounded-lg">
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <p className="text-sm text-muted-foreground">Current Stock</p>
+                        <p className="text-2xl font-bold">
+                          {selectedLossProduct.currentStock}
+                        </p>
+                      </div>
+                      {lossFormData.quantity && (
+                        <div className="text-right">
+                          <p className="text-sm text-muted-foreground">After Loss</p>
+                          <p className="text-2xl font-bold text-red-600">
+                            {Math.max(0, selectedLossProduct.currentStock - parseInt(lossFormData.quantity))}
+                          </p>
+                        </div>
+                      )}
+                    </div>
                   </div>
                 )}
 
@@ -306,11 +416,12 @@ const StockAdjustPage = () => {
                   <Input
                     type="number"
                     min="1"
+                    max={selectedLossProduct?.currentStock}
                     value={lossFormData.quantity}
                     onChange={(e) =>
                       setLossFormData({ ...lossFormData, quantity: e.target.value })
                     }
-                    placeholder="Enter quantity"
+                    placeholder="Enter quantity to remove"
                   />
                 </div>
 
@@ -322,7 +433,7 @@ const StockAdjustPage = () => {
                     onChange={(e) =>
                       setLossFormData({ ...lossFormData, batchNumber: e.target.value })
                     }
-                    placeholder="Enter batch number if applicable"
+                    placeholder="Enter batch number if applicable (optional)"
                   />
                 </div>
 
@@ -334,14 +445,37 @@ const StockAdjustPage = () => {
                     onChange={(e) =>
                       setLossFormData({ ...lossFormData, reason: e.target.value })
                     }
-                    placeholder="Enter reason or additional notes"
+                    placeholder="Enter reason or additional notes (optional)"
                     rows={3}
                   />
                 </div>
 
+                {/* Summary */}
+                {lossFormData.productId && lossFormData.quantity && (
+                  <div className="p-4 bg-red-50 border border-red-200 rounded-lg">
+                    <p className="text-sm font-medium text-red-900 mb-2">
+                      Loss Summary
+                    </p>
+                    <div className="space-y-1 text-sm text-red-800">
+                      <p><strong>Type:</strong> {lossFormData.transactionType === 'DAMAGE' ? 'Damaged' : 'Expired'}</p>
+                      <p><strong>Product:</strong> {selectedLossProduct?.name}</p>
+                      <p><strong>Branch:</strong> {activeBranch?.name}</p>
+                      <p><strong>Quantity to Remove:</strong> {lossFormData.quantity} units</p>
+                      {lossFormData.batchNumber && (
+                        <p><strong>Batch:</strong> {lossFormData.batchNumber}</p>
+                      )}
+                    </div>
+                  </div>
+                )}
+
                 {/* Buttons */}
                 <div className="flex gap-2 pt-4">
-                  <Button type="submit" disabled={loading} className="flex-1">
+                  <Button 
+                    type="submit" 
+                    disabled={loading || !activeBranch}
+                    variant="destructive"
+                    className="flex-1"
+                  >
                     {loading ? "Recording..." : "Record Loss"}
                   </Button>
                   <Link href="/stock">

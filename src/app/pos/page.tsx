@@ -1,12 +1,20 @@
 "use client";
 
 import React, { useEffect, useState, useRef } from "react";
-import { Card, CardContent } from "@/components/ui/card";
+import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import ProtectedRoute from "@/components/ProtectedRoute";
 import { toast } from "sonner";
 import api from "@/lib/api";
-import { Loader2, Search, Printer, Tag, X } from "lucide-react";
+import {
+  Loader2,
+  Search,
+  Printer,
+  Tag,
+  X,
+  Building2,
+  Scan,
+} from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { useMediaQuery } from "@/hooks/useMediaQuery";
 import { ShoppingCart, Trash } from "lucide-react";
@@ -21,11 +29,11 @@ import {
 } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
-import { Checkbox } from "@/components/ui/checkbox";
 
 interface Product {
   id: number;
   name: string;
+  sku: string;
   price: number;
   currentStock: number;
   status: string;
@@ -63,9 +71,35 @@ interface SaleReceipt {
   cashAmount: number;
   change: number;
   date: Date;
+  branchName: string;
+  branchPhone: string;
+  branchEmail: string;
+  soldBy: string;
+}
+
+interface Branch {
+  id: number;
+  name: string;
+  code: string;
+  phone?: string;
+  email?: string;
+}
+
+interface User {
+  id: number;
+  username: string;
+  branchId: number;
+  currentBranchId: number | null;
+  role: string;
+  branch?: Branch;
+  currentBranch?: Branch;
 }
 
 const POSPage = () => {
+  const [currentUser, setCurrentUser] = useState<User | null>(null);
+  const [activeBranch, setActiveBranch] = useState<Branch | null>(null);
+  const [loading, setLoading] = useState(true);
+
   const [products, setProducts] = useState<Product[]>([]);
   const [discounts, setDiscounts] = useState<Discount[]>([]);
   const [cart, setCart] = useState<CartItem[]>([]);
@@ -75,6 +109,10 @@ const POSPage = () => {
   const [mobileCartVisible, setMobileCartVisible] = useState(false);
   const [cartBtn, setCartBtn] = useState(true);
   const [searchQuery, setSearchQuery] = useState("");
+
+  // Barcode scanner state
+  const [barcodeInput, setBarcodeInput] = useState("");
+  const barcodeTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
   // Discount dialog states
   const [showDiscountDialog, setShowDiscountDialog] = useState(false);
@@ -94,15 +132,111 @@ const POSPage = () => {
   );
 
   const receiptRef = useRef<HTMLDivElement>(null);
-
   const isMobile = useMediaQuery("(max-width: 767px)");
 
   // Filter products based on search query and active status
   const filteredProducts = products.filter(
     (product) =>
-      product.name.toLowerCase().includes(searchQuery.toLowerCase()) &&
+      (product.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        product.sku.toLowerCase().includes(searchQuery.toLowerCase())) &&
       product.status === "ACTIVE",
   );
+
+  useEffect(() => {
+    fetchCurrentUser();
+  }, []);
+
+  useEffect(() => {
+    if (currentUser) {
+      fetchProducts();
+      fetchDiscounts();
+    }
+  }, [currentUser]);
+
+  // Barcode scanner listener
+  useEffect(() => {
+    const handleKeyPress = (e: KeyboardEvent) => {
+      // Ignore if user is typing in an input field
+      if (
+        e.target instanceof HTMLInputElement ||
+        e.target instanceof HTMLTextAreaElement ||
+        showCheckoutDialog ||
+        showDiscountDialog ||
+        showReceiptDialog
+      ) {
+        return;
+      }
+
+      // Clear timeout on each keypress
+      if (barcodeTimeoutRef.current) {
+        clearTimeout(barcodeTimeoutRef.current);
+      }
+
+      // Enter key means barcode scan is complete
+      if (e.key === "Enter" && barcodeInput.length > 0) {
+        handleBarcodeScanned(barcodeInput.trim());
+        setBarcodeInput("");
+        return;
+      }
+
+      // Build up the barcode string
+      if (e.key.length === 1) {
+        setBarcodeInput((prev) => prev + e.key);
+
+        // Auto-clear barcode input after 100ms of inactivity
+        barcodeTimeoutRef.current = setTimeout(() => {
+          setBarcodeInput("");
+        }, 100);
+      }
+    };
+
+    window.addEventListener("keypress", handleKeyPress);
+
+    return () => {
+      window.removeEventListener("keypress", handleKeyPress);
+      if (barcodeTimeoutRef.current) {
+        clearTimeout(barcodeTimeoutRef.current);
+      }
+    };
+  }, [barcodeInput, showCheckoutDialog, showDiscountDialog, showReceiptDialog]);
+
+  const handleBarcodeScanned = (barcode: string) => {
+    // Find product by SKU
+    const product = products.find(
+      (p) =>
+        p.sku.toLowerCase() === barcode.toLowerCase() && p.status === "ACTIVE",
+    );
+
+    if (product) {
+      addToCart(product);
+      toast.success(`Added: ${product.name}`, {
+        icon: <Scan className="h-4 w-4" />,
+      });
+    } else {
+      toast.error(`Product not found: ${barcode}`);
+    }
+  };
+
+  const fetchCurrentUser = async () => {
+    try {
+      setLoading(true);
+      const res = await api.get("/auth/me");
+      setCurrentUser(res.data);
+
+      // Determine active branch
+      const branch = res.data.currentBranch || res.data.branch;
+      setActiveBranch(branch);
+
+      if (!branch) {
+        toast.error("No branch assigned. Please contact administrator.");
+      }
+    } catch (error) {
+      console.error("Error fetching user:", error);
+      toast.error("Failed to fetch user information");
+    } finally {
+      setLoading(false);
+    }
+  };
 
   const fetchProducts = async () => {
     try {
@@ -110,6 +244,7 @@ const POSPage = () => {
       const parsed = res.data.map((p: any) => ({
         ...p,
         price: parseFloat(p.price),
+        currentStock: parseInt(p.currentStock) || 0,
       }));
       setProducts(parsed);
     } catch (err) {
@@ -117,20 +252,14 @@ const POSPage = () => {
     }
   };
 
-  // Update the useEffect to use the named function
-  useEffect(() => {
-    const fetchDiscounts = async () => {
-      try {
-        const res = await api.get("/discounts?activeOnly=true");
-        setDiscounts(res.data);
-      } catch (err) {
-        toast.error("Failed to fetch discounts");
-      }
-    };
-
-    fetchProducts();
-    fetchDiscounts();
-  }, []);
+  const fetchDiscounts = async () => {
+    try {
+      const res = await api.get("/discounts?activeOnly=true");
+      setDiscounts(res.data);
+    } catch (err) {
+      toast.error("Failed to fetch discounts");
+    }
+  };
 
   const calculateDiscountedPrice = (price: number, discount: Discount) => {
     if (discount.discountType === "PERCENTAGE") {
@@ -146,6 +275,11 @@ const POSPage = () => {
   };
 
   const addToCart = async (product: Product) => {
+    if (product.currentStock <= 0) {
+      toast.error(`${product.name} is out of stock`);
+      return;
+    }
+
     setLoadingProductId(product.id);
 
     // Simulate loading delay
@@ -154,6 +288,11 @@ const POSPage = () => {
     setCart((prev) => {
       const existing = prev.find((item) => item.product.id === product.id);
       if (existing) {
+        // Check if we have enough stock
+        if (existing.quantity >= product.currentStock) {
+          toast.error(`Maximum stock reached for ${product.name}`);
+          return prev;
+        }
         return prev.map((item) =>
           item.product.id === product.id
             ? { ...item, quantity: item.quantity + 1 }
@@ -264,6 +403,12 @@ const POSPage = () => {
       toast.error("Cart is empty");
       return;
     }
+
+    if (!activeBranch) {
+      toast.error("No active branch. Cannot process sale.");
+      return;
+    }
+
     setShowCheckoutDialog(true);
     setCashAmount(total.toFixed(2));
   };
@@ -273,6 +418,11 @@ const POSPage = () => {
 
     if (cash < total) {
       toast.error("Cash amount is insufficient");
+      return;
+    }
+
+    if (!activeBranch) {
+      toast.error("No active branch. Cannot complete sale.");
       return;
     }
 
@@ -293,7 +443,7 @@ const POSPage = () => {
         cashAmount: cash,
       };
 
-      const res = await api.post("/sales", saleData);
+      await api.post("/sales", saleData);
 
       // Create receipt data
       const receipt: SaleReceipt = {
@@ -304,13 +454,17 @@ const POSPage = () => {
         cashAmount: cash,
         change: cash - total,
         date: new Date(),
+        branchName: activeBranch.name,
+        branchPhone: activeBranch.phone || "",
+        branchEmail: activeBranch.email || "",
+        soldBy: currentUser?.username || "Unknown",
       };
 
       setCurrentReceipt(receipt);
       setShowCheckoutDialog(false);
       setShowReceiptDialog(true);
 
-      // REFETCH PRODUCTS TO UPDATE QUANTITIES
+      // Refetch products to update quantities
       await fetchProducts();
 
       toast.success("Sale completed successfully");
@@ -338,7 +492,7 @@ const POSPage = () => {
                   margin: 0 auto;
                 }
                 h2 { text-align: center; margin-bottom: 20px; }
-                .receipt-info { margin-bottom: 10px; }
+                .receipt-info { margin-bottom: 10px; text-align: center; }
                 table { width: 100%; border-collapse: collapse; margin: 20px 0; }
                 th, td { padding: 8px; text-align: left; }
                 th { border-bottom: 2px solid #000; }
@@ -370,10 +524,15 @@ const POSPage = () => {
   };
 
   const CartItemDisplay = ({ item }: { item: CartItem }) => (
-    <div className="flex-grow flex justify-between items-start [&:not(:last-of-type)]:border-b-1 border-gray-200 p-5">
+    <div className="flex-grow flex justify-between items-start [&:not(:last-of-type)]:border-b border-gray-200 p-5">
       <div className="flex-1">
         <div className="flex items-start justify-between mb-2">
-          <p className="font-medium">{item.product.name}</p>
+          <div className="flex-1">
+            <p className="font-medium">{item.product.name}</p>
+            <p className="text-xs text-muted-foreground">
+              SKU: {item.product.sku}
+            </p>
+          </div>
           <Button
             variant="ghost"
             size="sm"
@@ -400,29 +559,33 @@ const POSPage = () => {
           {item.appliedDiscount && item.discountedPrice ? (
             <>
               <span className="line-through text-gray-400">
-                {item.product.price.toFixed(2)}
+                ₱{item.product.price.toFixed(2)}
               </span>
               <span className="text-green-600 font-semibold">
-                {item.discountedPrice.toFixed(2)}
+                ₱{item.discountedPrice.toFixed(2)}
               </span>
             </>
           ) : (
-            <span>{item.product.price.toFixed(2)}</span>
+            <span>₱{item.product.price.toFixed(2)}</span>
           )}
           <span>×</span>
           <input
             type="number"
-            className="w-16 inline-block p-2 outline-0 border-b-[1px] border-gray-200"
+            className="w-16 inline-block p-2 outline-0 border-b border-gray-200"
             min={1}
             max={item.product.currentStock}
             value={item.quantity}
             onChange={(e) => {
               const val = parseInt(e.target.value);
-              updateQuantity(item.product.id, isNaN(val) || val < 1 ? 1 : val);
+              const newQty =
+                isNaN(val) || val < 1
+                  ? 1
+                  : Math.min(val, item.product.currentStock);
+              updateQuantity(item.product.id, newQty);
             }}
           />
           <span className="ml-auto font-semibold">
-            {getItemTotal(item).toFixed(2)}
+            ₱{getItemTotal(item).toFixed(2)}
           </span>
         </div>
 
@@ -439,18 +602,51 @@ const POSPage = () => {
     </div>
   );
 
+  if (loading) {
+    return (
+      <ProtectedRoute>
+        <div className="flex items-center justify-center h-screen">
+          <Loader2 className="h-8 w-8 animate-spin" />
+        </div>
+      </ProtectedRoute>
+    );
+  }
+
   return (
     <ProtectedRoute>
       <div className="grid grid-cols-1 md:grid-cols-3 gap-5 p-5 h-full">
         {/* Product List */}
         <div className="md:col-span-2 overflow-auto h-[calc(100vh-104px)]">
-          {/* Search Bar */}
-          <div className="sticky top-0 bg-white z-10 py-5">
+          {/* Branch Info & Search Bar */}
+          <div className="sticky top-0 bg-white z-10 py-5 space-y-3">
+            {/* Branch Info */}
+            {activeBranch && (
+              <Card className="p-3 bg-blue-50 border-blue-200">
+                <div className="flex items-center gap-2 text-sm">
+                  <Building2 className="h-4 w-4 text-blue-600" />
+                  <span className="text-blue-900">
+                    <strong>{activeBranch.name}</strong> ({activeBranch.code})
+                  </span>
+                </div>
+              </Card>
+            )}
+
+            {/* Barcode Indicator */}
+            {barcodeInput && (
+              <Card className="p-2 bg-yellow-50 border-yellow-200">
+                <div className="flex items-center gap-2 text-sm text-yellow-900">
+                  <Scan className="h-4 w-4 animate-pulse" />
+                  <span>Scanning: {barcodeInput}</span>
+                </div>
+              </Card>
+            )}
+
+            {/* Search Bar */}
             <div className="relative">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
               <Input
                 type="text"
-                placeholder="Search items..."
+                placeholder="Search by name or SKU..."
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
                 className="pl-10 w-full border-0 rounded-none border-b-2 shadow-none focus-visible:ring-0"
@@ -468,15 +664,28 @@ const POSPage = () => {
                   className={`${
                     cart.find((item) => item.product.id === product.id) &&
                     "bg-gray-200"
-                  } border-b-[1px] border-gray-200 hover:bg-gray-50 ease-in-out duration-300 cursor-pointer`}
+                  } border-b border-gray-200 hover:bg-gray-50 ease-in-out duration-300 cursor-pointer`}
                   onClick={() => addToCart(product)}
                 >
                   <div className="p-5 flex justify-between">
-                    <div>
+                    <div className="flex-1">
                       <p className="font-medium text-md">{product.name}</p>
-                      <p className="text-sm">Stock: {product.currentStock}</p>
+                      <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                        <span>SKU: {product.sku}</span>
+                        <span>•</span>
+                        <span
+                          className={
+                            product.currentStock <= 10
+                              ? "text-orange-600 font-semibold"
+                              : ""
+                          }
+                        >
+                          Stock: {product.currentStock}
+                        </span>
+                      </div>
                     </div>
-                    <p className="text-sm">
+                    <p className="text-sm font-semibold">
+                      ₱
                       {product.price.toLocaleString(undefined, {
                         minimumFractionDigits: 2,
                         maximumFractionDigits: 2,
@@ -528,7 +737,7 @@ const POSPage = () => {
                   transition={{ duration: 0.3 }}
                   className="fixed top-0 right-0 h-full w-[80%] bg-white shadow-lg z-40 md:hidden"
                 >
-                  <div className="flex justify-between items-center p-5 border-b-[1px] border-gray-200">
+                  <div className="flex justify-between items-center p-5 border-b border-gray-200">
                     <p className="font-semibold text-lg">
                       <ShoppingCart />
                     </p>
@@ -554,27 +763,27 @@ const POSPage = () => {
                     )}
                   </div>
 
-                  <div className="absolute bottom-0 left-0 w-full p-4 border-t-[1px] border-gray-200 bg-white">
+                  <div className="absolute bottom-0 left-0 w-full p-4 border-t border-gray-200 bg-white">
                     {totalDiscount > 0 && (
                       <div className="flex justify-between text-sm mb-1">
                         <span>Subtotal:</span>
-                        <span>{subtotal.toFixed(2)}</span>
+                        <span>₱{subtotal.toFixed(2)}</span>
                       </div>
                     )}
                     {totalDiscount > 0 && (
                       <div className="flex justify-between text-sm text-green-600 mb-2">
                         <span>Discount:</span>
-                        <span>-{totalDiscount.toFixed(2)}</span>
+                        <span>-₱{totalDiscount.toFixed(2)}</span>
                       </div>
                     )}
                     <p className="font-semibold mb-2">
-                      Total: {total.toFixed(2)}
+                      Total: ₱{total.toFixed(2)}
                     </p>
                     <Button
                       onClick={handleCheckoutClick}
                       variant="outline"
                       className="cursor-pointer w-full px-5 py-2"
-                      disabled={cart.length === 0}
+                      disabled={cart.length === 0 || !activeBranch}
                     >
                       Checkout
                     </Button>
@@ -584,14 +793,16 @@ const POSPage = () => {
             )}
           </AnimatePresence>
         ) : (
-          <div className="p-0 md:p-5 border-0 md:border-l-[1px] border-gray-200">
-            <div className="relative h-auto md:h-[100vh-120px]]">
-              <div className="h-18 absolute top-0 left-0 w-full bg-white pb-5 border-b-[1px] border-gray-200">
+          <div className="p-0 md:p-5 border-0 md:border-l border-gray-200">
+            <div className="relative h-auto md:h-[100vh-120px]">
+              <div className="h-18 absolute top-0 left-0 w-full bg-white pb-5 border-b border-gray-200">
                 <ShoppingCart />
               </div>
               {cart.length === 0 ? (
                 <div className="pt-21 pb-16 h-full overflow-auto">
-                  <p className="text-sm">No items in cart.</p>
+                  <p className="text-sm text-center text-muted-foreground mt-8">
+                    Scan barcode or click products to add
+                  </p>
                 </div>
               ) : (
                 <div className="pt-21 pb-35 h-full max-h-[calc(100vh-9rem)] overflow-auto">
@@ -600,25 +811,25 @@ const POSPage = () => {
                       <CartItemDisplay key={item.product.id} item={item} />
                     ))}
                   </div>
-                  <div className="absolute bottom-0 left-0 w-full h-32 pt-5 space-y-2 bg-white border-t-[1px] border-gray-200">
+                  <div className="absolute bottom-0 left-0 w-full h-32 pt-5 space-y-2 bg-white border-t border-gray-200">
                     {totalDiscount > 0 && (
                       <div className="flex justify-between text-sm">
                         <span>Subtotal:</span>
-                        <span>{subtotal.toFixed(2)}</span>
+                        <span>₱{subtotal.toFixed(2)}</span>
                       </div>
                     )}
                     {totalDiscount > 0 && (
                       <div className="flex justify-between text-sm text-green-600">
                         <span>Discount:</span>
-                        <span>-{totalDiscount.toFixed(2)}</span>
+                        <span>-₱{totalDiscount.toFixed(2)}</span>
                       </div>
                     )}
-                    <p className="font-semibold">Total: {total.toFixed(2)}</p>
+                    <p className="font-semibold">Total: ₱{total.toFixed(2)}</p>
                     <Button
                       onClick={handleCheckoutClick}
                       variant="outline"
                       className="w-full px-5 py-2 cursor-pointer"
-                      disabled={cart.length === 0}
+                      disabled={cart.length === 0 || !activeBranch}
                     >
                       Checkout
                     </Button>
@@ -855,9 +1066,17 @@ const POSPage = () => {
             <div ref={receiptRef} className="py-4">
               <div className="text-center mb-4">
                 <h2 className="text-xl font-bold">RECEIPT</h2>
-                <p className="text-sm text-gray-500">
-                  {currentReceipt.date.toLocaleString()}
-                </p>
+                <p className="font-semibold">{currentReceipt.branchName}</p>
+                {currentReceipt.branchPhone && (
+                  <p className="text-sm text-gray-500">
+                    {currentReceipt.branchPhone}
+                  </p>
+                )}
+                {currentReceipt.branchEmail && (
+                  <p className="text-sm text-gray-500">
+                    {currentReceipt.branchEmail}
+                  </p>
+                )}
               </div>
 
               <div className="border-t border-b border-gray-300 py-4 mb-4">
@@ -865,7 +1084,7 @@ const POSPage = () => {
                   <thead>
                     <tr className="border-b border-gray-300">
                       <th className="text-left py-2">Item</th>
-                      <th className="text-right py-2">Stock</th>
+                      <th className="text-right py-2">Qty</th>
                       <th className="text-right py-2">Price</th>
                       <th className="text-right py-2">Total</th>
                     </tr>
@@ -877,12 +1096,13 @@ const POSPage = () => {
                           <td className="py-2">{item.product.name}</td>
                           <td className="text-right">{item.quantity}</td>
                           <td className="text-right">
+                            ₱
                             {(
                               item.discountedPrice ?? item.product.price
                             ).toFixed(2)}
                           </td>
                           <td className="text-right">
-                            {getItemTotal(item).toFixed(2)}
+                            ₱{getItemTotal(item).toFixed(2)}
                           </td>
                         </tr>
                         {item.appliedDiscount && (
@@ -902,32 +1122,34 @@ const POSPage = () => {
               <div className="space-y-2">
                 <div className="flex justify-between text-lg">
                   <span>Subtotal:</span>
-                  <span>{currentReceipt.subtotal.toFixed(2)}</span>
+                  <span>₱{currentReceipt.subtotal.toFixed(2)}</span>
                 </div>
                 {currentReceipt.totalDiscount > 0 && (
                   <div className="flex justify-between text-lg text-green-600">
                     <span>Total Discount:</span>
-                    <span>-{currentReceipt.totalDiscount.toFixed(2)}</span>
+                    <span>-₱{currentReceipt.totalDiscount.toFixed(2)}</span>
                   </div>
                 )}
                 <div className="flex justify-between text-xl font-bold border-t border-gray-300 pt-2">
                   <span>Total:</span>
-                  <span>{currentReceipt.total.toFixed(2)}</span>
+                  <span>₱{currentReceipt.total.toFixed(2)}</span>
                 </div>
                 <div className="flex justify-between text-lg">
                   <span>Cash:</span>
-                  <span>{currentReceipt.cashAmount.toFixed(2)}</span>
+                  <span>₱{currentReceipt.cashAmount.toFixed(2)}</span>
                 </div>
                 <div className="flex justify-between text-xl font-bold border-t-2 border-gray-300 pt-2">
                   <span>Change:</span>
                   <span className="text-green-600">
-                    {currentReceipt.change.toFixed(2)}
+                    ₱{currentReceipt.change.toFixed(2)}
                   </span>
                 </div>
               </div>
 
               <div className="text-center mt-6 text-sm text-gray-500">
-                <p>Thank you for your purchase!</p>
+                <p>Sold by: {currentReceipt.soldBy}</p>
+                <p>Date & Time: {currentReceipt.date.toLocaleString()}</p>
+                <p className="mt-2">Thank you for your purchase!</p>
                 {currentReceipt.totalDiscount > 0 && (
                   <p className="text-green-600 font-semibold">
                     You saved ₱{currentReceipt.totalDiscount.toFixed(2)}!

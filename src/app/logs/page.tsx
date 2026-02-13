@@ -37,6 +37,7 @@ interface User {
   username: string;
   email: string;
   role: string;
+  fullName: string;
 }
 
 interface Log {
@@ -227,6 +228,7 @@ const LogsPage = () => {
                 <TableRow>
                   <TableHead>Timestamp</TableHead>
                   <TableHead>User</TableHead>
+                  <TableHead>Role</TableHead>
                   <TableHead>Action</TableHead>
                   <TableHead>Module</TableHead>
                   <TableHead>Description</TableHead>
@@ -242,13 +244,24 @@ const LogsPage = () => {
                     <TableCell>
                       {log.user ? (
                         <div>
-                          <div className="font-medium">{log.user.username}</div>
+                          <div className="font-medium">{log.user.fullName}</div>
                           <div className="text-xs text-muted-foreground">
-                            {log.user.role}
+                            {log.user.username}
                           </div>
                         </div>
                       ) : (
                         <span className="text-muted-foreground">System</span>
+                      )}
+                    </TableCell>
+                    <TableCell>
+                      {log.user ? (
+                        <div>
+                          <div className="font-medium">{log.user.role}</div>
+                        </div>
+                      ) : (
+                        <div>
+                          <span>-</span>
+                        </div>
                       )}
                     </TableCell>
                     <TableCell>

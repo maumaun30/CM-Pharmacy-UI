@@ -1,7 +1,7 @@
 // app/stock/transactions/page.tsx
 "use client";
 
-import React, { useEffect, useState, useMemo } from "react";
+import React, { useEffect, useState } from "react";
 import { Card } from "@/components/ui/card";
 import {
   Table,
@@ -31,18 +31,31 @@ import { toast } from "sonner";
 import api from "@/lib/api";
 import ProtectedRoute from "@/components/ProtectedRoute";
 import dayjs from "dayjs";
-import { ArrowLeft, History, TrendingUp, TrendingDown } from "lucide-react";
+import {
+  ArrowLeft,
+  History,
+  TrendingUp,
+  TrendingDown,
+  Building2,
+} from "lucide-react";
 import Link from "next/link";
 
 interface User {
   id: number;
   username: string;
+  fullName: string;
 }
 
 interface Product {
   id: number;
   name: string;
   sku: string;
+}
+
+interface Branch {
+  id: number;
+  name: string;
+  code: string;
 }
 
 interface StockTransaction {
@@ -61,6 +74,7 @@ interface StockTransaction {
   createdAt: string;
   product: Product;
   user: User;
+  branch?: Branch;
 }
 
 interface Pagination {
@@ -68,6 +82,15 @@ interface Pagination {
   page: number;
   limit: number;
   totalPages: number;
+}
+
+interface CurrentUser {
+  id: number;
+  role: string;
+  branchId: number;
+  currentBranchId: number | null;
+  branch?: Branch;
+  currentBranch?: Branch;
 }
 
 const StockTransactionsPage = () => {
@@ -78,6 +101,8 @@ const StockTransactionsPage = () => {
     limit: 50,
     totalPages: 0,
   });
+  const [currentUser, setCurrentUser] = useState<CurrentUser | null>(null);
+  const [activeBranch, setActiveBranch] = useState<Branch | null>(null);
   const [loading, setLoading] = useState(false);
 
   // Filters
@@ -85,6 +110,30 @@ const StockTransactionsPage = () => {
   const [typeFilter, setTypeFilter] = useState("all");
   const [dateFrom, setDateFrom] = useState<Date | undefined>();
   const [dateTo, setDateTo] = useState<Date | undefined>();
+
+  useEffect(() => {
+    fetchCurrentUser();
+  }, []);
+
+  useEffect(() => {
+    if (currentUser) {
+      fetchTransactions();
+    }
+  }, [search, typeFilter, dateFrom, dateTo, currentUser]);
+
+  const fetchCurrentUser = async () => {
+    try {
+      const res = await api.get("/auth/me");
+      setCurrentUser(res.data);
+
+      // Determine active branch
+      const branch = res.data.currentBranch || res.data.branch;
+      setActiveBranch(branch);
+    } catch (error) {
+      console.error("Error fetching user:", error);
+      toast.error("Failed to fetch user information");
+    }
+  };
 
   const fetchTransactions = async (page = 1) => {
     try {
@@ -110,10 +159,6 @@ const StockTransactionsPage = () => {
     }
   };
 
-  useEffect(() => {
-    fetchTransactions();
-  }, [search, typeFilter, dateFrom, dateTo]);
-
   const getTransactionColor = (type: string) => {
     const colors: Record<string, string> = {
       PURCHASE: "bg-green-100 text-green-800",
@@ -131,6 +176,9 @@ const StockTransactionsPage = () => {
     fetchTransactions(newPage);
   };
 
+  const isViewingAllBranches =
+    currentUser?.role === "admin" && !currentUser?.currentBranchId;
+
   return (
     <ProtectedRoute>
       <div className="p-6 space-y-4">
@@ -141,16 +189,44 @@ const StockTransactionsPage = () => {
               <ArrowLeft className="h-5 w-5" />
             </Button>
           </Link>
-          <div>
+          <div className="flex-1">
             <h1 className="text-2xl font-bold flex items-center gap-2">
               <History className="h-6 w-6" />
               Stock Transactions
             </h1>
-            <p className="text-sm text-muted-foreground">
-              View all stock movements and transactions
-            </p>
+            <div className="flex items-center gap-2 mt-1">
+              <p className="text-sm text-muted-foreground">
+                View all stock movements and transactions
+              </p>
+              {activeBranch && (
+                <>
+                  <span className="text-muted-foreground">•</span>
+                  <div className="flex items-center gap-1 text-sm text-muted-foreground">
+                    <Building2 className="h-3 w-3" />
+                    <span>
+                      {isViewingAllBranches
+                        ? "All Branches"
+                        : `${activeBranch.name}`}
+                    </span>
+                  </div>
+                </>
+              )}
+            </div>
           </div>
         </div>
+
+        {/* Branch Info Alert */}
+        {!isViewingAllBranches && activeBranch && (
+          <Card className="p-4 bg-blue-50 border-blue-200">
+            <div className="flex items-center gap-2 text-sm text-blue-800">
+              <Building2 className="h-4 w-4" />
+              <p>
+                Showing transactions for <strong>{activeBranch.name}</strong>{" "}
+                branch only.
+              </p>
+            </div>
+          </Card>
+        )}
 
         {/* Filters */}
         <Card className="p-4">
@@ -202,7 +278,11 @@ const StockTransactionsPage = () => {
                 </Button>
               </PopoverTrigger>
               <PopoverContent className="w-auto p-0">
-                <Calendar mode="single" selected={dateTo} onSelect={setDateTo} />
+                <Calendar
+                  mode="single"
+                  selected={dateTo}
+                  onSelect={setDateTo}
+                />
               </PopoverContent>
             </Popover>
 
@@ -224,125 +304,169 @@ const StockTransactionsPage = () => {
         <Card className="p-4">
           {loading ? (
             <div className="text-center py-8">Loading...</div>
+          ) : transactions.length === 0 ? (
+            <div className="text-center py-8 text-muted-foreground">
+              No transactions found
+            </div>
           ) : (
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Date & Time</TableHead>
-                  <TableHead>Product</TableHead>
-                  <TableHead>Type</TableHead>
-                  <TableHead className="text-right">Qty Change</TableHead>
-                  <TableHead className="text-right">Before</TableHead>
-                  <TableHead className="text-right">After</TableHead>
-                  <TableHead>Details</TableHead>
-                  <TableHead>User</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {transactions.map((transaction) => (
-                  <TableRow key={transaction.id}>
-                    <TableCell className="text-sm">
-                      {dayjs(transaction.createdAt).format("MMM D, YYYY h:mm A")}
-                    </TableCell>
-                    <TableCell>
-                      <div>
-                        <div className="font-medium">
-                          {transaction.product.name}
-                        </div>
-                        <div className="text-xs text-muted-foreground">
-                          {transaction.product.sku}
-                        </div>
-                      </div>
-                    </TableCell>
-                    <TableCell>
-                      <Badge
-                        className={getTransactionColor(
-                          transaction.transactionType
-                        )}
-                      >
-                        {transaction.transactionType.replace("_", " ")}
-                      </Badge>
-                    </TableCell>
-                    <TableCell className="text-right">
-                      <div
-                        className={`flex items-center justify-end gap-1 ${
-                          transaction.quantity > 0
-                            ? "text-green-600"
-                            : "text-red-600"
-                        }`}
-                      >
-                        {transaction.quantity > 0 ? (
-                          <TrendingUp className="h-4 w-4" />
-                        ) : (
-                          <TrendingDown className="h-4 w-4" />
-                        )}
-                        <span className="font-semibold">
-                          {transaction.quantity > 0 ? "+" : ""}
-                          {transaction.quantity}
-                        </span>
-                      </div>
-                    </TableCell>
-                    <TableCell className="text-right">
-                      {transaction.quantityBefore}
-                    </TableCell>
-                    <TableCell className="text-right font-semibold">
-                      {transaction.quantityAfter}
-                    </TableCell>
-                    <TableCell className="text-sm">
-                      {transaction.supplier && (
-                        <div>Supplier: {transaction.supplier}</div>
-                      )}
-                      {transaction.batchNumber && (
-                        <div>Batch: {transaction.batchNumber}</div>
-                      )}
-                      {transaction.unitCost && (
-                        <div>Cost: ₱{parseFloat(transaction.unitCost.toString()).toFixed(2)}</div>
-                      )}
-                      {transaction.reason && (
-                        <div className="text-muted-foreground">
-                          {transaction.reason}
-                        </div>
-                      )}
-                    </TableCell>
-                    <TableCell className="text-sm">
-                      {transaction.user.username}
-                    </TableCell>
+            <div className="overflow-x-auto">
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Date & Time</TableHead>
+                    <TableHead>Product</TableHead>
+                    {isViewingAllBranches && <TableHead>Branch</TableHead>}
+                    <TableHead>Type</TableHead>
+                    <TableHead className="text-right">Qty Change</TableHead>
+                    <TableHead className="text-right">Before</TableHead>
+                    <TableHead className="text-right">After</TableHead>
+                    <TableHead>Details</TableHead>
+                    <TableHead>User</TableHead>
                   </TableRow>
-                ))}
-              </TableBody>
-            </Table>
+                </TableHeader>
+                <TableBody>
+                  {transactions.map((transaction) => (
+                    <TableRow key={transaction.id}>
+                      <TableCell className="text-sm whitespace-nowrap">
+                        {dayjs(transaction.createdAt).format(
+                          "MMM D, YYYY h:mm A",
+                        )}
+                      </TableCell>
+                      <TableCell>
+                        <div>
+                          <div className="font-medium">
+                            {transaction.product.name}
+                          </div>
+                          <div className="text-xs text-muted-foreground">
+                            {transaction.product.sku}
+                          </div>
+                        </div>
+                      </TableCell>
+                      {isViewingAllBranches && (
+                        <TableCell>
+                          {transaction.branch ? (
+                            <Badge variant="outline">
+                              {transaction.branch.code}
+                            </Badge>
+                          ) : (
+                            <span className="text-xs text-muted-foreground">
+                              -
+                            </span>
+                          )}
+                        </TableCell>
+                      )}
+                      <TableCell>
+                        <Badge
+                          className={getTransactionColor(
+                            transaction.transactionType,
+                          )}
+                        >
+                          {transaction.transactionType.replace("_", " ")}
+                        </Badge>
+                      </TableCell>
+                      <TableCell className="text-right">
+                        <div
+                          className={`flex items-center justify-end gap-1 ${
+                            transaction.quantity > 0
+                              ? "text-green-600"
+                              : "text-red-600"
+                          }`}
+                        >
+                          {transaction.quantity > 0 ? (
+                            <TrendingUp className="h-4 w-4" />
+                          ) : (
+                            <TrendingDown className="h-4 w-4" />
+                          )}
+                          <span className="font-semibold">
+                            {transaction.quantity > 0 ? "+" : ""}
+                            {transaction.quantity}
+                          </span>
+                        </div>
+                      </TableCell>
+                      <TableCell className="text-right">
+                        {transaction.quantityBefore}
+                      </TableCell>
+                      <TableCell className="text-right font-semibold">
+                        {transaction.quantityAfter}
+                      </TableCell>
+                      <TableCell className="text-sm max-w-xs">
+                        <div className="space-y-1">
+                          {transaction.supplier && (
+                            <div className="truncate">
+                              <span className="text-muted-foreground">
+                                Supplier:
+                              </span>{" "}
+                              {transaction.supplier}
+                            </div>
+                          )}
+                          {transaction.batchNumber && (
+                            <div className="truncate">
+                              <span className="text-muted-foreground">
+                                Batch:
+                              </span>{" "}
+                              {transaction.batchNumber}
+                            </div>
+                          )}
+                          {transaction.unitCost && (
+                            <div>
+                              <span className="text-muted-foreground">
+                                Cost:
+                              </span>{" "}
+                              ₱
+                              {parseFloat(
+                                transaction.unitCost.toString(),
+                              ).toFixed(2)}
+                            </div>
+                          )}
+                          {transaction.reason && (
+                            <div className="text-muted-foreground italic truncate">
+                              {transaction.reason}
+                            </div>
+                          )}
+                        </div>
+                      </TableCell>
+                      <TableCell className="text-sm">
+                        {transaction.user.fullName}
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </div>
           )}
         </Card>
 
         {/* Pagination */}
-        <div className="flex justify-between items-center">
-          <div className="text-sm text-muted-foreground">
-            Showing {(pagination.page - 1) * pagination.limit + 1} -{" "}
-            {Math.min(pagination.page * pagination.limit, pagination.total)} of{" "}
-            {pagination.total} transactions
+        {transactions.length > 0 && (
+          <div className="flex justify-between items-center">
+            <div className="text-sm text-muted-foreground">
+              Showing {(pagination.page - 1) * pagination.limit + 1} -{" "}
+              {Math.min(pagination.page * pagination.limit, pagination.total)}{" "}
+              of {pagination.total} transactions
+            </div>
+            <div className="flex items-center space-x-2">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => handlePageChange(pagination.page - 1)}
+                disabled={pagination.page === 1 || loading}
+              >
+                Previous
+              </Button>
+              <span className="text-sm">
+                Page {pagination.page} of {pagination.totalPages || 1}
+              </span>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => handlePageChange(pagination.page + 1)}
+                disabled={pagination.page === pagination.totalPages || loading}
+              >
+                Next
+              </Button>
+            </div>
           </div>
-          <div className="space-x-2">
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => handlePageChange(pagination.page - 1)}
-              disabled={pagination.page === 1}
-            >
-              Previous
-            </Button>
-            <span className="text-sm">
-              Page {pagination.page} of {pagination.totalPages}
-            </span>
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => handlePageChange(pagination.page + 1)}
-              disabled={pagination.page === pagination.totalPages}
-            >
-              Next
-            </Button>
-          </div>
-        </div>
+        )}
       </div>
     </ProtectedRoute>
   );

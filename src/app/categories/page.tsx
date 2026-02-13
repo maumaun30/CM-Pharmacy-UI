@@ -324,7 +324,7 @@ export default function CategoriesPage() {
 
             <div className="space-y-4">
               <div>
-                <Label className="mb-2">Name</Label>
+                <Label className="mb-1">Name</Label>
                 <Input
                   value={formData.name}
                   onChange={(e) =>
@@ -334,7 +334,7 @@ export default function CategoriesPage() {
                 />
               </div>
               <div>
-                <Label className="mb-2">Description</Label>
+                <Label className="mb-1">Description</Label>
                 <Input
                   value={formData.description}
                   onChange={(e) =>

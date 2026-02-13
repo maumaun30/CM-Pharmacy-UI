@@ -3,6 +3,7 @@ import { useAuth } from "@/hooks/useAuth";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
+import BranchSwitcher from "@/components/BranchSwitcher";
 
 import {
   User,
@@ -41,7 +42,7 @@ export default function Navbar() {
       {user && (
         <>
           {/* Desktop Navigation */}
-          <div className="hidden md:flex items-center gap-2">
+          <div className="hidden md:flex items-center">
             {/* Main Actions */}
             <div className="flex items-center gap-2 border-r pr-2 mr-2">
               <Link href="/pos">
@@ -74,10 +75,13 @@ export default function Navbar() {
                   </DropdownMenuTrigger>
                   <DropdownMenuContent side="top" align="end" className="mb-2">
                     <DropdownMenuItem asChild>
-                      <Link href="/categories">Categories</Link>
+                      <Link href="/products">Products</Link>
                     </DropdownMenuItem>
                     <DropdownMenuItem asChild>
-                      <Link href="/products">Products</Link>
+                      <Link href="/branches">Branches</Link>
+                    </DropdownMenuItem>
+                    <DropdownMenuItem asChild>
+                      <Link href="/categories">Categories</Link>
                     </DropdownMenuItem>
                     <DropdownMenuItem asChild>
                       <Link href="/discounts">Discounts</Link>
@@ -128,12 +132,16 @@ export default function Navbar() {
               </div>
             )}
 
+            <div className="border-r pr-2 mr-2">
+              <BranchSwitcher />
+            </div>
+
             {/* User Menu */}
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
                 <Button className="cursor-pointer" variant="outline" size="sm">
                   <User className="w-4 h-4" />
-                  {user.username}
+                  {user.fullName}
                 </Button>
               </DropdownMenuTrigger>
               <DropdownMenuContent side="top" align="end" className="mb-2">

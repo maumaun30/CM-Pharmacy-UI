@@ -38,23 +38,38 @@ import {
   TableRow,
 } from "@/components/ui/table";
 
+interface Branch {
+  id: number;
+  name: string;
+  code: string;
+}
+
 type User = {
   id: number;
   username: string;
   email: string;
   role: string;
+  firstName: string;
+  lastName: string;
+  contactNumber: string;
+  branchId: number | null;
   isActive: boolean;
 };
 
 export default function UsersPage() {
   const [users, setUsers] = useState<User[]>([]);
+  const [branches, setBranches] = useState<Branch[]>([]);
   const [modalOpen, setModalOpen] = useState(false);
   const [editingUser, setEditingUser] = useState<User | null>(null);
   const [formData, setFormData] = useState({
     username: "",
     email: "",
     role: "",
+    firstName: "",
+    lastName: "",
+    contactNumber: "",
     isActive: false,
+    branchId: "",
   });
   const [loading, setLoading] = useState(false);
 
@@ -79,7 +94,17 @@ export default function UsersPage() {
 
   useEffect(() => {
     fetchUsers();
+    fetchBranches();
   }, []);
+
+  const fetchBranches = async () => {
+    try {
+      const res = await api.get("/branches?isActive=true");
+      setBranches(res.data);
+    } catch (error) {
+      console.error("Error fetching branches:", error);
+    }
+  };
 
   const handleOpenModal = (user?: User) => {
     if (user) {
@@ -88,11 +113,24 @@ export default function UsersPage() {
         username: user.username,
         email: user.email,
         role: user.role,
+        firstName: user.firstName,
+        lastName: user.lastName,
+        contactNumber: user.contactNumber,
         isActive: user.isActive,
+        branchId: user.branchId ? String(user.branchId) : "",
       });
     } else {
       setEditingUser(null);
-      setFormData({ username: "", email: "", role: "", isActive: false });
+      setFormData({
+        username: "",
+        email: "",
+        role: "",
+        firstName: "",
+        lastName: "",
+        contactNumber: "",
+        isActive: false,
+        branchId: "",
+      });
     }
     setModalOpen(true);
   };
@@ -100,11 +138,29 @@ export default function UsersPage() {
   const handleCloseModal = () => {
     setModalOpen(false);
     setEditingUser(null);
-    setFormData({ username: "", email: "", role: "", isActive: false });
+    setFormData({
+      username: "",
+      email: "",
+      role: "",
+      firstName: "",
+      lastName: "",
+      contactNumber: "",
+      isActive: false,
+      branchId: "",
+    });
   };
 
   const handleSubmit = async () => {
-    const { username, email, role, isActive } = formData;
+    const {
+      username,
+      email,
+      role,
+      firstName,
+      lastName,
+      contactNumber,
+      isActive,
+      branchId,
+    } = formData;
     if (!username.trim()) return toast.error("Username is required");
     try {
       setLoading(true);
@@ -113,7 +169,11 @@ export default function UsersPage() {
           username,
           email,
           role,
+          firstName,
+          lastName,
+          contactNumber,
           isActive,
+          branchId,
         });
         toast.success("User updated");
       } else {
@@ -121,7 +181,11 @@ export default function UsersPage() {
           username,
           email,
           role,
+          firstName,
+          lastName,
+          contactNumber,
           isActive,
+          branchId,
         });
         toast.success("User created");
       }
@@ -161,8 +225,11 @@ export default function UsersPage() {
 
   // --- Derived Data: search, sort, paginate ---
   const filtered = useMemo(() => {
-    let data = users.filter((c) =>
-      c.username.toLowerCase().includes(search.toLowerCase()),
+    let data = users.filter(
+      (c) =>
+        c.username.toLowerCase().includes(search.toLowerCase()) ||
+        c.firstName.toLowerCase().includes(search.toLowerCase()) ||
+        c.lastName.toLowerCase().includes(search.toLowerCase()),
     );
     data = data.sort((a, b) => {
       const aVal = a[sortBy];
@@ -243,9 +310,11 @@ export default function UsersPage() {
               <TableRow>
                 {[
                   { key: "id", label: "ID" },
+                  { key: "name", label: "Name" },
                   { key: "username", label: "Username" },
                   { key: "email", label: "Email" },
                   { key: "role", label: "Role" },
+                  { key: "branch", label: "Branch" },
                   { key: "isActive", label: "Status" },
                 ].map((col) => (
                   <TableHead
@@ -263,9 +332,13 @@ export default function UsersPage() {
             <TableBody>
               {paginated.map((user) => (
                 <TableRow key={user.id}>
-                  <TableCell className="text-center">{user.id}</TableCell>
+                  <TableCell>{user.id}</TableCell>
+                  <TableCell>
+                    {user.firstName} {user.lastName}
+                  </TableCell>
                   <TableCell>{user.username}</TableCell>
                   <TableCell>{user.email}</TableCell>
+                  <TableCell>{user.role}</TableCell>
                   <TableCell>{user.role}</TableCell>
                   <TableCell>
                     {user.isActive ? (
@@ -360,7 +433,7 @@ export default function UsersPage() {
 
             <div className="space-y-4">
               <div>
-                <Label className="mb-2">Name</Label>
+                <Label className="mb-1">Username</Label>
                 <Input
                   value={formData.username}
                   onChange={(e) =>
@@ -369,19 +442,58 @@ export default function UsersPage() {
                   placeholder="Username"
                 />
               </div>
-              <div>
-                <Label className="mb-2">Email</Label>
-                <Input
-                  value={formData.email}
-                  type="email"
-                  onChange={(e) =>
-                    setFormData({ ...formData, email: e.target.value })
-                  }
-                  placeholder="Email Address"
-                />
+              <div className="grid grid-cols-2 gap-2">
+                <div>
+                  <Label className="mb-1">Email</Label>
+                  <Input
+                    value={formData.email}
+                    type="email"
+                    onChange={(e) =>
+                      setFormData({ ...formData, email: e.target.value })
+                    }
+                    placeholder="Email Address"
+                  />
+                </div>
+                <div>
+                  <Label className="mb-1">Contact Number</Label>
+                  <Input
+                    value={formData.contactNumber}
+                    type="tel"
+                    onChange={(e) =>
+                      setFormData({
+                        ...formData,
+                        contactNumber: e.target.value,
+                      })
+                    }
+                    placeholder="Contact Number"
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-2">
+                <div>
+                  <Label className="mb-1">First Name</Label>
+                  <Input
+                    value={formData.firstName}
+                    onChange={(e) =>
+                      setFormData({ ...formData, firstName: e.target.value })
+                    }
+                    placeholder="First Name"
+                  />
+                </div>
+                <div>
+                  <Label className="mb-1">Last Name</Label>
+                  <Input
+                    value={formData.lastName}
+                    onChange={(e) =>
+                      setFormData({ ...formData, lastName: e.target.value })
+                    }
+                    placeholder="Last Name"
+                  />
+                </div>
               </div>
               <div>
-                <Label className="mb-2">Role</Label>
+                <Label className="mb-1">Role</Label>
                 <Select
                   value={formData.role}
                   onValueChange={(value) =>
@@ -399,7 +511,27 @@ export default function UsersPage() {
                 </Select>
               </div>
               <div>
-                <Label className="mb-2">Status</Label>
+                <Label className="mb-1">Branch</Label>
+                <Select
+                  value={formData.branchId}
+                  onValueChange={(value) =>
+                    setFormData({ ...formData, branchId: value })
+                  }
+                >
+                  <SelectTrigger className="w-[200px]">
+                    <SelectValue placeholder="Select branch" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {branches.map((branch) => (
+                      <SelectItem key={branch.id} value={String(branch.id)}>
+                        {branch.name} ({branch.code})
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div>
+                <Label className="mb-1">Status</Label>
                 <Select
                   value={String(formData.isActive)}
                   onValueChange={(value) =>
