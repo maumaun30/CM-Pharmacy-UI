@@ -26,7 +26,7 @@ import {
 } from "@/components/ui/tooltip";
 import { toast } from "sonner";
 import ProtectedRoute from "@/components/ProtectedRoute";
-import { Plus, Pencil, Trash } from "lucide-react";
+import { Plus, Pencil, Trash, Building2 } from "lucide-react";
 import { Card } from "@/components/ui/card";
 
 import {
@@ -54,6 +54,7 @@ type User = {
   contactNumber: string;
   branchId: number | null;
   isActive: boolean;
+  branch: Branch | null;
 };
 
 export default function UsersPage() {
@@ -92,11 +93,6 @@ export default function UsersPage() {
     }
   };
 
-  useEffect(() => {
-    fetchUsers();
-    fetchBranches();
-  }, []);
-
   const fetchBranches = async () => {
     try {
       const res = await api.get("/branches?isActive=true");
@@ -105,6 +101,11 @@ export default function UsersPage() {
       console.error("Error fetching branches:", error);
     }
   };
+
+  useEffect(() => {
+    fetchUsers();
+    fetchBranches();
+  }, []);
 
   const handleOpenModal = (user?: User) => {
     if (user) {
@@ -162,31 +163,27 @@ export default function UsersPage() {
       branchId,
     } = formData;
     if (!username.trim()) return toast.error("Username is required");
+    if (!role) return toast.error("Role is required");
+    if (!branchId) return toast.error("Branch is required");
+
     try {
       setLoading(true);
+      const payload = {
+        username,
+        email,
+        role,
+        firstName,
+        lastName,
+        contactNumber,
+        isActive,
+        branchId: parseInt(branchId),
+      };
+
       if (editingUser) {
-        await api.put(`/users/${editingUser.id}`, {
-          username,
-          email,
-          role,
-          firstName,
-          lastName,
-          contactNumber,
-          isActive,
-          branchId,
-        });
+        await api.put(`/users/${editingUser.id}`, payload);
         toast.success("User updated");
       } else {
-        await api.post("/users", {
-          username,
-          email,
-          role,
-          firstName,
-          lastName,
-          contactNumber,
-          isActive,
-          branchId,
-        });
+        await api.post("/users", payload);
         toast.success("User created");
       }
       handleCloseModal();
@@ -195,16 +192,6 @@ export default function UsersPage() {
       toast.error(error.response?.data?.message || "Error saving user");
     } finally {
       setLoading(false);
-    }
-  };
-
-  const handleDelete = async (id: number) => {
-    try {
-      await api.delete(`/users/${id}`);
-      toast.success("User deleted");
-      fetchUsers();
-    } catch (error: any) {
-      toast.error(error.response?.data?.message || "Error deleting user");
     }
   };
 
@@ -226,10 +213,13 @@ export default function UsersPage() {
   // --- Derived Data: search, sort, paginate ---
   const filtered = useMemo(() => {
     let data = users.filter(
-      (c) =>
-        c.username.toLowerCase().includes(search.toLowerCase()) ||
-        c.firstName.toLowerCase().includes(search.toLowerCase()) ||
-        c.lastName.toLowerCase().includes(search.toLowerCase()),
+      (u) =>
+        u.username.toLowerCase().includes(search.toLowerCase()) ||
+        u.firstName.toLowerCase().includes(search.toLowerCase()) ||
+        u.lastName.toLowerCase().includes(search.toLowerCase()) ||
+        u.email.toLowerCase().includes(search.toLowerCase()) ||
+        u.branch?.name.toLowerCase().includes(search.toLowerCase()) ||
+        u.branch?.code.toLowerCase().includes(search.toLowerCase()),
     );
     data = data.sort((a, b) => {
       const aVal = a[sortBy];
@@ -260,6 +250,19 @@ export default function UsersPage() {
     }
   };
 
+  const getRoleBadgeColor = (role: string) => {
+    switch (role.toLowerCase()) {
+      case "admin":
+        return "bg-purple-100 text-purple-800";
+      case "manager":
+        return "bg-blue-100 text-blue-800";
+      case "cashier":
+        return "bg-green-100 text-green-800";
+      default:
+        return "bg-gray-100 text-gray-800";
+    }
+  };
+
   return (
     <ProtectedRoute>
       <div className="p-6">
@@ -270,7 +273,8 @@ export default function UsersPage() {
             variant="outline"
             onClick={() => handleOpenModal()}
           >
-            <Plus /> Add
+            <Plus className="h-4 w-4 mr-2" />
+            Add User
           </Button>
         </div>
 
@@ -305,98 +309,131 @@ export default function UsersPage() {
         </div>
 
         <Card className="p-4">
-          <Table>
-            <TableHeader>
-              <TableRow>
-                {[
-                  { key: "id", label: "ID" },
-                  { key: "name", label: "Name" },
-                  { key: "username", label: "Username" },
-                  { key: "email", label: "Email" },
-                  { key: "role", label: "Role" },
-                  { key: "branch", label: "Branch" },
-                  { key: "isActive", label: "Status" },
-                ].map((col) => (
-                  <TableHead
-                    key={col.key}
-                    className="cursor-pointer select-none"
-                    onClick={() => handleSort(col.key as keyof User)}
-                  >
-                    {col.label}{" "}
-                    {sortBy === col.key && (sortDir === "asc" ? "↑" : "↓")}
-                  </TableHead>
-                ))}
-                <TableHead className="text-center">Actions</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {paginated.map((user) => (
-                <TableRow key={user.id}>
-                  <TableCell>{user.id}</TableCell>
-                  <TableCell>
-                    {user.firstName} {user.lastName}
-                  </TableCell>
-                  <TableCell>{user.username}</TableCell>
-                  <TableCell>{user.email}</TableCell>
-                  <TableCell>{user.role}</TableCell>
-                  <TableCell>{user.role}</TableCell>
-                  <TableCell>
-                    {user.isActive ? (
-                      <Badge className="bg-green-100 text-green-700 hover:bg-green-100">
-                        Active
-                      </Badge>
-                    ) : (
-                      <Badge
-                        variant="secondary"
-                        className="bg-red-100 text-red-700 hover:bg-red-100"
-                      >
-                        Inactive
-                      </Badge>
-                    )}
-                  </TableCell>
-
-                  <TableCell>
-                    <div className="text-center space-x-2">
-                      <Tooltip>
-                        <TooltipTrigger asChild>
-                          <Button
-                            className="cursor-pointer"
-                            variant="outline"
-                            size="icon"
-                            onClick={() => handleOpenModal(user)}
-                          >
-                            <Pencil />
-                          </Button>
-                        </TooltipTrigger>
-                        <TooltipContent className="pointer-events-none">
-                          <p>Edit</p>
-                        </TooltipContent>
-                      </Tooltip>
-
-                      <Tooltip>
-                        <TooltipTrigger asChild>
-                          <Button
-                            className="cursor-pointer"
-                            variant="outline"
-                            size="icon"
-                            onClick={() => {
-                              setUserToDelete(user);
-                              setDeleteOpen(true);
-                            }}
-                          >
-                            <Trash color="red" />
-                          </Button>
-                        </TooltipTrigger>
-                        <TooltipContent className="pointer-events-none">
-                          <p>Delete</p>
-                        </TooltipContent>
-                      </Tooltip>
-                    </div>
-                  </TableCell>
+          <div className="overflow-x-auto">
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  {[
+                    { key: "id", label: "ID" },
+                    { key: "name", label: "Name" },
+                    { key: "username", label: "Username" },
+                    { key: "email", label: "Email" },
+                    { key: "role", label: "Role" },
+                    { key: "branch", label: "Branch" },
+                    { key: "isActive", label: "Status" },
+                  ].map((col) => (
+                    <TableHead
+                      key={col.key}
+                      className="cursor-pointer select-none whitespace-nowrap"
+                      onClick={() => handleSort(col.key as keyof User)}
+                    >
+                      {col.label}{" "}
+                      {sortBy === col.key && (sortDir === "asc" ? "↑" : "↓")}
+                    </TableHead>
+                  ))}
+                  <TableHead className="text-center">Actions</TableHead>
                 </TableRow>
-              ))}
-            </TableBody>
-          </Table>
+              </TableHeader>
+              <TableBody>
+                {paginated.map((user) => (
+                  <TableRow key={user.id}>
+                    <TableCell>{user.id}</TableCell>
+                    <TableCell>
+                      <div>
+                        <div className="font-medium">
+                          {user.firstName} {user.lastName}
+                        </div>
+                        {user.contactNumber && (
+                          <div className="text-xs text-muted-foreground">
+                            {user.contactNumber}
+                          </div>
+                        )}
+                      </div>
+                    </TableCell>
+                    <TableCell>{user.username}</TableCell>
+                    <TableCell className="text-sm">{user.email}</TableCell>
+                    <TableCell>
+                      <Badge className={getRoleBadgeColor(user.role)}>
+                        {user.role}
+                      </Badge>
+                    </TableCell>
+                    <TableCell>
+                      {user.branch ? (
+                        <div className="flex items-center gap-2">
+                          <Building2 className="h-4 w-4 text-muted-foreground" />
+                          <div>
+                            <div className="font-medium text-sm">
+                              {user.branch.name}
+                            </div>
+                            <div className="text-xs text-muted-foreground">
+                              {user.branch.code}
+                            </div>
+                          </div>
+                        </div>
+                      ) : (
+                        <span className="text-xs text-muted-foreground">
+                          No branch assigned
+                        </span>
+                      )}
+                    </TableCell>
+                    <TableCell>
+                      {user.isActive ? (
+                        <Badge className="bg-green-100 text-green-700 hover:bg-green-100">
+                          Active
+                        </Badge>
+                      ) : (
+                        <Badge
+                          variant="secondary"
+                          className="bg-red-100 text-red-700 hover:bg-red-100"
+                        >
+                          Inactive
+                        </Badge>
+                      )}
+                    </TableCell>
+
+                    <TableCell>
+                      <div className="text-center space-x-2">
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <Button
+                              className="cursor-pointer"
+                              variant="outline"
+                              size="icon"
+                              onClick={() => handleOpenModal(user)}
+                            >
+                              <Pencil className="h-4 w-4" />
+                            </Button>
+                          </TooltipTrigger>
+                          <TooltipContent className="pointer-events-none">
+                            <p>Edit</p>
+                          </TooltipContent>
+                        </Tooltip>
+
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <Button
+                              className="cursor-pointer"
+                              variant="outline"
+                              size="icon"
+                              onClick={() => {
+                                setUserToDelete(user);
+                                setDeleteOpen(true);
+                              }}
+                            >
+                              <Trash className="h-4 w-4 text-red-600" />
+                            </Button>
+                          </TooltipTrigger>
+                          <TooltipContent className="pointer-events-none">
+                            <p>Delete</p>
+                          </TooltipContent>
+                        </Tooltip>
+                      </div>
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </div>
         </Card>
 
         {/* Pagination */}
@@ -425,15 +462,16 @@ export default function UsersPage() {
           </div>
         </div>
 
+        {/* Add/Edit Modal */}
         <Dialog open={modalOpen} onOpenChange={setModalOpen}>
-          <DialogContent className="sm:max-w-md">
+          <DialogContent className="sm:max-w-md bg-white">
             <DialogHeader>
               <DialogTitle>{editingUser ? "Edit" : "Add"} User</DialogTitle>
             </DialogHeader>
 
             <div className="space-y-4">
               <div>
-                <Label className="mb-1">Username</Label>
+                <Label className="mb-1">Username *</Label>
                 <Input
                   value={formData.username}
                   onChange={(e) =>
@@ -442,7 +480,31 @@ export default function UsersPage() {
                   placeholder="Username"
                 />
               </div>
-              <div className="grid grid-cols-2 gap-2">
+
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <Label className="mb-1">First Name</Label>
+                  <Input
+                    value={formData.firstName}
+                    onChange={(e) =>
+                      setFormData({ ...formData, firstName: e.target.value })
+                    }
+                    placeholder="First Name"
+                  />
+                </div>
+                <div>
+                  <Label className="mb-1">Last Name</Label>
+                  <Input
+                    value={formData.lastName}
+                    onChange={(e) =>
+                      setFormData({ ...formData, lastName: e.target.value })
+                    }
+                    placeholder="Last Name"
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-4">
                 <div>
                   <Label className="mb-1">Email</Label>
                   <Input
@@ -470,55 +532,54 @@ export default function UsersPage() {
                 </div>
               </div>
 
-              <div className="grid grid-cols-2 gap-2">
+              <div className="grid grid-cols-2 gap-4">
                 <div>
-                  <Label className="mb-1">First Name</Label>
-                  <Input
-                    value={formData.firstName}
-                    onChange={(e) =>
-                      setFormData({ ...formData, firstName: e.target.value })
+                  <Label className="mb-1">Role *</Label>
+                  <Select
+                    value={formData.role}
+                    onValueChange={(value) =>
+                      setFormData({ ...formData, role: value })
                     }
-                    placeholder="First Name"
-                  />
+                  >
+                    <SelectTrigger>
+                      <SelectValue placeholder="Select role" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="cashier">Cashier</SelectItem>
+                      <SelectItem value="manager">Manager</SelectItem>
+                      <SelectItem value="admin">Administrator</SelectItem>
+                    </SelectContent>
+                  </Select>
                 </div>
+
                 <div>
-                  <Label className="mb-1">Last Name</Label>
-                  <Input
-                    value={formData.lastName}
-                    onChange={(e) =>
-                      setFormData({ ...formData, lastName: e.target.value })
+                  <Label className="mb-1">Status</Label>
+                  <Select
+                    value={String(formData.isActive)}
+                    onValueChange={(value) =>
+                      setFormData({ ...formData, isActive: value === "true" })
                     }
-                    placeholder="Last Name"
-                  />
+                  >
+                    <SelectTrigger>
+                      <SelectValue placeholder="Active?" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="true">Active</SelectItem>
+                      <SelectItem value="false">Inactive</SelectItem>
+                    </SelectContent>
+                  </Select>
                 </div>
               </div>
+
               <div>
-                <Label className="mb-1">Role</Label>
-                <Select
-                  value={formData.role}
-                  onValueChange={(value) =>
-                    setFormData({ ...formData, role: value })
-                  }
-                >
-                  <SelectTrigger>
-                    <SelectValue placeholder="Select role" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="staff">Staff</SelectItem>
-                    <SelectItem value="manager">Manager</SelectItem>
-                    <SelectItem value="admin">Administrator</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-              <div>
-                <Label className="mb-1">Branch</Label>
+                <Label className="mb-1">Branch *</Label>
                 <Select
                   value={formData.branchId}
                   onValueChange={(value) =>
                     setFormData({ ...formData, branchId: value })
                   }
                 >
-                  <SelectTrigger className="w-[200px]">
+                  <SelectTrigger>
                     <SelectValue placeholder="Select branch" />
                   </SelectTrigger>
                   <SelectContent>
@@ -530,32 +591,8 @@ export default function UsersPage() {
                   </SelectContent>
                 </Select>
               </div>
-              <div>
-                <Label className="mb-1">Status</Label>
-                <Select
-                  value={String(formData.isActive)}
-                  onValueChange={(value) =>
-                    setFormData({ ...formData, isActive: value === "true" })
-                  }
-                >
-                  <SelectTrigger>
-                    <SelectValue placeholder="Active?" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="true">Active</SelectItem>
-                    <SelectItem value="false">Inactive</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-              <div className="flex justify-end space-x-2">
-                <Button
-                  className="cursor-pointer"
-                  variant="outline"
-                  onClick={handleSubmit}
-                  disabled={loading}
-                >
-                  {loading ? "Saving..." : "Save"}
-                </Button>
+
+              <div className="flex justify-end space-x-2 pt-4">
                 <Button
                   className="cursor-pointer"
                   variant="ghost"
@@ -563,11 +600,19 @@ export default function UsersPage() {
                 >
                   Cancel
                 </Button>
+                <Button
+                  className="cursor-pointer"
+                  onClick={handleSubmit}
+                  disabled={loading}
+                >
+                  {loading ? "Saving..." : "Save"}
+                </Button>
               </div>
             </div>
           </DialogContent>
         </Dialog>
 
+        {/* Delete Confirmation */}
         <Dialog open={deleteOpen} onOpenChange={setDeleteOpen}>
           <DialogContent className="sm:max-w-md bg-white">
             <DialogHeader>
