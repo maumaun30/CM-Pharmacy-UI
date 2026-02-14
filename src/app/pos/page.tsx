@@ -14,10 +14,14 @@ import {
   X,
   Building2,
   Scan,
+  ShoppingCart,
+  Trash,
+  Plus,
+  Minus,
+  Check,
 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { useMediaQuery } from "@/hooks/useMediaQuery";
-import { ShoppingCart, Trash } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import {
   Dialog,
@@ -107,7 +111,6 @@ const POSPage = () => {
   const [checkingOut, setCheckingOut] = useState(false);
   const [lastAddedId, setLastAddedId] = useState<number | null>(null);
   const [mobileCartVisible, setMobileCartVisible] = useState(false);
-  const [cartBtn, setCartBtn] = useState(true);
   const [searchQuery, setSearchQuery] = useState("");
 
   // Barcode scanner state
@@ -156,7 +159,6 @@ const POSPage = () => {
   // Barcode scanner listener
   useEffect(() => {
     const handleKeyPress = (e: KeyboardEvent) => {
-      // Ignore if user is typing in an input field
       if (
         e.target instanceof HTMLInputElement ||
         e.target instanceof HTMLTextAreaElement ||
@@ -167,23 +169,19 @@ const POSPage = () => {
         return;
       }
 
-      // Clear timeout on each keypress
       if (barcodeTimeoutRef.current) {
         clearTimeout(barcodeTimeoutRef.current);
       }
 
-      // Enter key means barcode scan is complete
       if (e.key === "Enter" && barcodeInput.length > 0) {
         handleBarcodeScanned(barcodeInput.trim());
         setBarcodeInput("");
         return;
       }
 
-      // Build up the barcode string
       if (e.key.length === 1) {
         setBarcodeInput((prev) => prev + e.key);
 
-        // Auto-clear barcode input after 100ms of inactivity
         barcodeTimeoutRef.current = setTimeout(() => {
           setBarcodeInput("");
         }, 100);
@@ -201,7 +199,6 @@ const POSPage = () => {
   }, [barcodeInput, showCheckoutDialog, showDiscountDialog, showReceiptDialog]);
 
   const handleBarcodeScanned = (barcode: string) => {
-    // Find product by SKU
     const product = products.find(
       (p) =>
         p.sku.toLowerCase() === barcode.toLowerCase() && p.status === "ACTIVE",
@@ -223,7 +220,6 @@ const POSPage = () => {
       const res = await api.get("/auth/me");
       setCurrentUser(res.data);
 
-      // Determine active branch
       const branch = res.data.currentBranch || res.data.branch;
       setActiveBranch(branch);
 
@@ -282,13 +278,11 @@ const POSPage = () => {
 
     setLoadingProductId(product.id);
 
-    // Simulate loading delay
     await new Promise((resolve) => setTimeout(resolve, 300));
 
     setCart((prev) => {
       const existing = prev.find((item) => item.product.id === product.id);
       if (existing) {
-        // Check if we have enough stock
         if (existing.quantity >= product.currentStock) {
           toast.error(`Maximum stock reached for ${product.name}`);
           return prev;
@@ -323,7 +317,6 @@ const POSPage = () => {
     setSelectedCartItem(cartItem);
 
     try {
-      // Fetch applicable discounts for this product
       const res = await api.get(
         `/discounts/product/${cartItem.product.id}/applicable`,
       );
@@ -351,7 +344,6 @@ const POSPage = () => {
               discountedPrice: discountedPrice,
             };
           } else {
-            // Remove discount
             return {
               ...item,
               appliedDiscount: null,
@@ -428,7 +420,6 @@ const POSPage = () => {
 
     setCheckingOut(true);
     try {
-      // Send cart with discount information to backend
       const saleData = {
         cart: cart.map((item) => ({
           productId: item.product.id,
@@ -445,7 +436,6 @@ const POSPage = () => {
 
       await api.post("/sales", saleData);
 
-      // Create receipt data
       const receipt: SaleReceipt = {
         items: [...cart],
         subtotal,
@@ -464,7 +454,6 @@ const POSPage = () => {
       setShowCheckoutDialog(false);
       setShowReceiptDialog(true);
 
-      // Refetch products to update quantities
       await fetchProducts();
 
       toast.success("Sale completed successfully");
@@ -486,7 +475,7 @@ const POSPage = () => {
               <title>Receipt</title>
               <style>
                 body {
-                  font-family: monospace;
+                  font-family: 'Courier New', monospace;
                   padding: 20px;
                   max-width: 400px;
                   margin: 0 auto;
@@ -497,7 +486,7 @@ const POSPage = () => {
                 th, td { padding: 8px; text-align: left; }
                 th { border-bottom: 2px solid #000; }
                 .item-row { border-bottom: 1px dashed #ccc; }
-                .discount-row { font-size: 0.9em; color: #666; padding-left: 20px; }
+                .discount-row { font-size: 0.9em; color: #059669; padding-left: 20px; }
                 .totals { margin-top: 20px; }
                 .total-row { display: flex; justify-content: space-between; padding: 5px 0; }
                 .total-row.final { border-top: 2px solid #000; font-weight: bold; font-size: 1.2em; padding-top: 10px; }
@@ -524,89 +513,103 @@ const POSPage = () => {
   };
 
   const CartItemDisplay = ({ item }: { item: CartItem }) => (
-    <div className="flex-grow flex justify-between items-start [&:not(:last-of-type)]:border-b border-gray-200 p-5">
-      <div className="flex-1">
-        <div className="flex items-start justify-between mb-2">
-          <div className="flex-1">
-            <p className="font-medium">{item.product.name}</p>
-            <p className="text-xs text-muted-foreground">
-              SKU: {item.product.sku}
-            </p>
-          </div>
-          <Button
-            variant="ghost"
-            size="sm"
-            className="cursor-pointer h-6 w-6 p-0 ml-2"
-            onClick={() => removeFromCart(item.product.id)}
-          >
-            <Trash className="h-4 w-4" />
-          </Button>
+    <div className="p-4 border-b border-emerald-100 bg-white hover:bg-emerald-50/30 transition-colors">
+      <div className="flex items-start justify-between mb-3">
+        <div className="flex-1 pr-3">
+          <p className="font-semibold text-gray-800 text-sm mb-1">
+            {item.product.name}
+          </p>
+          <p className="text-xs text-gray-500">SKU: {item.product.sku}</p>
         </div>
-
-        {item.appliedDiscount && (
-          <div className="flex items-center gap-2 mb-1">
-            <Badge
-              variant="outline"
-              className="text-xs bg-green-50 text-green-700"
-            >
-              <Tag className="h-3 w-3 mr-1" />
-              {item.appliedDiscount.name}
-            </Badge>
-          </div>
-        )}
-
-        <div className="flex items-center gap-2 text-sm">
-          {item.appliedDiscount && item.discountedPrice ? (
-            <>
-              <span className="line-through text-gray-400">
-                ₱{item.product.price.toFixed(2)}
-              </span>
-              <span className="text-green-600 font-semibold">
-                ₱{item.discountedPrice.toFixed(2)}
-              </span>
-            </>
-          ) : (
-            <span>₱{item.product.price.toFixed(2)}</span>
-          )}
-          <span>×</span>
-          <input
-            type="number"
-            className="w-16 inline-block p-2 outline-0 border-b border-gray-200"
-            min={1}
-            max={item.product.currentStock}
-            value={item.quantity}
-            onChange={(e) => {
-              const val = parseInt(e.target.value);
-              const newQty =
-                isNaN(val) || val < 1
-                  ? 1
-                  : Math.min(val, item.product.currentStock);
-              updateQuantity(item.product.id, newQty);
-            }}
-          />
-          <span className="ml-auto font-semibold">
-            ₱{getItemTotal(item).toFixed(2)}
-          </span>
-        </div>
-
         <Button
           variant="ghost"
           size="sm"
-          className="cursor-pointer h-7 mt-2 text-xs"
-          onClick={() => handleOpenDiscountDialog(item)}
+          className="h-8 w-8 p-0 text-red-600 hover:text-red-700 hover:bg-red-50"
+          onClick={() => removeFromCart(item.product.id)}
         >
-          <Tag className="h-3 w-3 mr-1" />
-          {item.appliedDiscount ? "Change Discount" : "Apply Discount"}
+          <Trash className="h-4 w-4" />
         </Button>
       </div>
+
+      {item.appliedDiscount && (
+        <Badge className="mb-2 bg-emerald-100 text-emerald-700 hover:bg-emerald-100 border-emerald-200">
+          <Tag className="h-3 w-3 mr-1" />
+          {item.appliedDiscount.name}
+        </Badge>
+      )}
+
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-2">
+          {item.appliedDiscount && item.discountedPrice ? (
+            <div className="flex flex-col">
+              <span className="text-xs line-through text-gray-400">
+                ₱{item.product.price.toFixed(2)}
+              </span>
+              <span className="text-sm font-bold text-emerald-600">
+                ₱{item.discountedPrice.toFixed(2)}
+              </span>
+            </div>
+          ) : (
+            <span className="text-sm font-semibold text-gray-800">
+              ₱{item.product.price.toFixed(2)}
+            </span>
+          )}
+        </div>
+
+        <div className="flex items-center gap-2">
+          <Button
+            variant="outline"
+            size="sm"
+            className="h-7 w-7 p-0 border-emerald-300 hover:bg-emerald-50"
+            onClick={() =>
+              updateQuantity(item.product.id, Math.max(1, item.quantity - 1))
+            }
+          >
+            <Minus className="h-3 w-3" />
+          </Button>
+          <span className="w-8 text-center font-semibold text-gray-800">
+            {item.quantity}
+          </span>
+          <Button
+            variant="outline"
+            size="sm"
+            className="h-7 w-7 p-0 border-emerald-300 hover:bg-emerald-50"
+            onClick={() =>
+              updateQuantity(
+                item.product.id,
+                Math.min(item.product.currentStock, item.quantity + 1),
+              )
+            }
+          >
+            <Plus className="h-3 w-3" />
+          </Button>
+        </div>
+
+        <span className="text-sm font-bold text-gray-800 min-w-[70px] text-right">
+          ₱{getItemTotal(item).toFixed(2)}
+        </span>
+      </div>
+
+      <Button
+        variant="ghost"
+        size="sm"
+        className="mt-2 h-7 text-xs text-emerald-700 hover:text-emerald-800 hover:bg-emerald-50 w-full"
+        onClick={() => handleOpenDiscountDialog(item)}
+      >
+        <Tag className="h-3 w-3 mr-1" />
+        {item.appliedDiscount ? "Change Discount" : "Apply Discount"}
+      </Button>
     </div>
   );
 
   if (loading) {
     return (
       <ProtectedRoute>
-        <div className="flex items-center justify-center h-screen">
-          <Loader2 className="h-8 w-8 animate-spin" />
+        <div className="flex items-center justify-center h-screen bg-gradient-to-br from-emerald-50 to-green-50">
+          <div className="text-center">
+            <Loader2 className="h-12 w-12 animate-spin text-emerald-600 mx-auto mb-4" />
+            <p className="text-gray-600 font-medium">Loading POS...</p>
+          </div>
         </div>
       </ProtectedRoute>
     );
@@ -614,260 +617,489 @@ const POSPage = () => {
 
   return (
     <ProtectedRoute>
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-5 p-5 h-full">
-        {/* Product List */}
-        <div className="md:col-span-2 overflow-auto h-[calc(100vh-104px)]">
-          {/* Branch Info & Search Bar */}
-          <div className="sticky top-0 bg-white z-10 py-5 space-y-3">
-            {/* Branch Info */}
-            {activeBranch && (
-              <Card className="p-3 bg-blue-50 border-blue-200">
-                <div className="flex items-center gap-2 text-sm">
-                  <Building2 className="h-4 w-4 text-blue-600" />
-                  <span className="text-blue-900">
-                    <strong>{activeBranch.name}</strong> ({activeBranch.code})
-                  </span>
-                </div>
-              </Card>
-            )}
+      <div className="min-h-screen bg-gradient-to-br from-emerald-50 via-white to-green-50">
+        {/* Desktop Layout */}
+        <div className="hidden md:grid md:grid-cols-3 gap-0 h-screen">
+          {/* Product List - Desktop */}
+          <div className="md:col-span-2 overflow-auto border-r border-emerald-200">
+            {/* Header Section */}
+            <div className="sticky top-0 bg-white z-20 border-b border-emerald-200 shadow-sm">
+              <div className="p-4 space-y-3">
+                {/* Branch Info */}
+                {activeBranch && (
+                  <Card className="p-3 bg-gradient-to-r from-emerald-500 to-green-600 border-0 shadow-md">
+                    <div className="flex items-center gap-2">
+                      <div className="h-8 w-8 rounded-full bg-white/20 flex items-center justify-center">
+                        <Building2 className="h-4 w-4 text-white" />
+                      </div>
+                      <div className="flex-1">
+                        <p className="text-white font-bold text-sm">
+                          {activeBranch.name}
+                        </p>
+                        <p className="text-emerald-100 text-xs">
+                          {activeBranch.code}
+                        </p>
+                      </div>
+                    </div>
+                  </Card>
+                )}
 
-            {/* Barcode Indicator */}
-            {barcodeInput && (
-              <Card className="p-2 bg-yellow-50 border-yellow-200">
-                <div className="flex items-center gap-2 text-sm text-yellow-900">
-                  <Scan className="h-4 w-4 animate-pulse" />
-                  <span>Scanning: {barcodeInput}</span>
-                </div>
-              </Card>
-            )}
+                {/* Barcode Indicator */}
+                {barcodeInput && (
+                  <motion.div
+                    initial={{ opacity: 0, y: -10 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    className="p-3 bg-amber-50 border border-amber-200 rounded-lg"
+                  >
+                    <div className="flex items-center gap-2 text-sm text-amber-900">
+                      <Scan className="h-4 w-4 animate-pulse" />
+                      <span className="font-mono font-semibold">
+                        {barcodeInput}
+                      </span>
+                    </div>
+                  </motion.div>
+                )}
 
-            {/* Search Bar */}
-            <div className="relative">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
-              <Input
-                type="text"
-                placeholder="Search by name or SKU..."
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                className="pl-10 w-full border-0 rounded-none border-b-2 shadow-none focus-visible:ring-0"
-              />
+                {/* Search Bar */}
+                <div className="relative">
+                  <Search className="absolute left-4 top-1/2 -translate-y-1/2 h-5 w-5 text-gray-400" />
+                  <Input
+                    type="text"
+                    placeholder="Search products by name or SKU..."
+                    value={searchQuery}
+                    onChange={(e) => setSearchQuery(e.target.value)}
+                    className="pl-12 h-12 border-2 border-gray-200 focus:border-emerald-500 focus:ring-2 focus:ring-emerald-200 rounded-xl text-base"
+                  />
+                </div>
+              </div>
+            </div>
+
+            {/* Product Grid */}
+            <div className="p-4">
+              {filteredProducts.length === 0 ? (
+                <div className="text-center py-20">
+                  <div className="inline-flex items-center justify-center w-16 h-16 rounded-full bg-gray-100 mb-4">
+                    <Search className="h-8 w-8 text-gray-400" />
+                  </div>
+                  <p className="text-gray-500 font-medium">No products found</p>
+                  <p className="text-gray-400 text-sm mt-1">
+                    Try a different search term
+                  </p>
+                </div>
+              ) : (
+                <div className="grid grid-cols-2 lg:grid-cols-3 gap-3">
+                  {filteredProducts.map((product) => {
+                    const inCart = cart.find(
+                      (item) => item.product.id === product.id,
+                    );
+                    const isLoading = loadingProductId === product.id;
+
+                    return (
+                      <motion.div
+                        key={product.id}
+                        whileHover={{ y: -4 }}
+                        whileTap={{ scale: 0.98 }}
+                        onClick={() => !isLoading && addToCart(product)}
+                        className={`relative p-4 rounded-xl border-2 cursor-pointer transition-all ${
+                          inCart
+                            ? "border-emerald-500 bg-emerald-50 shadow-md"
+                            : "border-gray-200 bg-white hover:border-emerald-300 hover:shadow-lg"
+                        }`}
+                      >
+                        {inCart && (
+                          <div className="absolute top-2 right-2 h-6 w-6 rounded-full bg-emerald-500 flex items-center justify-center">
+                            <Check className="h-4 w-4 text-white" />
+                          </div>
+                        )}
+
+                        <div className="mb-3">
+                          <h3 className="font-bold text-gray-800 text-sm mb-1 line-clamp-2">
+                            {product.name}
+                          </h3>
+                          <p className="text-xs text-gray-500">
+                            {product.sku}
+                          </p>
+                        </div>
+
+                        <div className="flex items-end justify-between">
+                          <div>
+                            <p className="text-xs text-gray-500 mb-1">Stock</p>
+                            <p
+                              className={`text-sm font-semibold ${
+                                product.currentStock <= 10
+                                  ? "text-orange-600"
+                                  : "text-gray-700"
+                              }`}
+                            >
+                              {product.currentStock}
+                            </p>
+                          </div>
+                          <div className="text-right">
+                            <p className="text-lg font-bold text-emerald-600">
+                              ₱{product.price.toFixed(2)}
+                            </p>
+                          </div>
+                        </div>
+
+                        {isLoading && (
+                          <div className="absolute inset-0 bg-white/80 rounded-xl flex items-center justify-center">
+                            <Loader2 className="h-6 w-6 animate-spin text-emerald-600" />
+                          </div>
+                        )}
+                      </motion.div>
+                    );
+                  })}
+                </div>
+              )}
             </div>
           </div>
 
-          <ul className="grid grid-cols-1 gap-0">
-            {filteredProducts.length === 0 ? (
-              <li className="p-5 text-center text-gray-500">No items found</li>
-            ) : (
-              filteredProducts.map((product) => (
-                <li
-                  key={product.id}
-                  className={`${
-                    cart.find((item) => item.product.id === product.id) &&
-                    "bg-gray-200"
-                  } border-b border-gray-200 hover:bg-gray-50 ease-in-out duration-300 cursor-pointer`}
-                  onClick={() => addToCart(product)}
-                >
-                  <div className="p-5 flex justify-between">
-                    <div className="flex-1">
-                      <p className="font-medium text-md">{product.name}</p>
-                      <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                        <span>SKU: {product.sku}</span>
-                        <span>•</span>
-                        <span
-                          className={
-                            product.currentStock <= 10
-                              ? "text-orange-600 font-semibold"
-                              : ""
-                          }
-                        >
-                          Stock: {product.currentStock}
-                        </span>
-                      </div>
-                    </div>
-                    <p className="text-sm font-semibold">
-                      ₱
-                      {product.price.toLocaleString(undefined, {
-                        minimumFractionDigits: 2,
-                        maximumFractionDigits: 2,
-                      })}
-                    </p>
+          {/* Cart Sidebar - Desktop */}
+          <div className="flex flex-col bg-white border-l border-emerald-200">
+            {/* Cart Header */}
+            <div className="p-4 border-b border-emerald-200 bg-gradient-to-r from-emerald-50 to-green-50">
+              <div className="flex items-center gap-3">
+                <div className="h-10 w-10 rounded-full bg-emerald-500 flex items-center justify-center">
+                  <ShoppingCart className="h-5 w-5 text-white" />
+                </div>
+                <div>
+                  <h2 className="font-bold text-gray-800">Shopping Cart</h2>
+                  <p className="text-sm text-gray-600">
+                    {cart.length} {cart.length === 1 ? "item" : "items"}
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            {/* Cart Items */}
+            <div className="flex-1 overflow-auto">
+              {cart.length === 0 ? (
+                <div className="flex flex-col items-center justify-center h-full p-8 text-center">
+                  <div className="h-20 w-20 rounded-full bg-emerald-50 flex items-center justify-center mb-4">
+                    <ShoppingCart className="h-10 w-10 text-emerald-300" />
                   </div>
-                </li>
-              ))
+                  <p className="text-gray-500 font-medium mb-2">
+                    Cart is empty
+                  </p>
+                  <p className="text-gray-400 text-sm">
+                    Scan or click products to add
+                  </p>
+                </div>
+              ) : (
+                <div className="divide-y divide-emerald-100">
+                  {cart.map((item) => (
+                    <CartItemDisplay key={item.product.id} item={item} />
+                  ))}
+                </div>
+              )}
+            </div>
+
+            {/* Cart Footer */}
+            {cart.length > 0 && (
+              <div className="border-t-2 border-emerald-200 bg-white p-4 space-y-3">
+                {totalDiscount > 0 && (
+                  <>
+                    <div className="flex justify-between text-sm text-gray-600">
+                      <span>Subtotal</span>
+                      <span>₱{subtotal.toFixed(2)}</span>
+                    </div>
+                    <div className="flex justify-between text-sm font-semibold text-emerald-600">
+                      <span>Discount</span>
+                      <span>-₱{totalDiscount.toFixed(2)}</span>
+                    </div>
+                  </>
+                )}
+                <div className="flex justify-between text-xl font-bold text-gray-800 pt-2 border-t border-emerald-100">
+                  <span>Total</span>
+                  <span className="text-emerald-600">
+                    ₱{total.toFixed(2)}
+                  </span>
+                </div>
+                <Button
+                  onClick={handleCheckoutClick}
+                  disabled={cart.length === 0 || !activeBranch}
+                  className="w-full h-12 bg-gradient-to-r from-emerald-600 to-green-600 hover:from-emerald-700 hover:to-green-700 text-white font-bold text-base shadow-lg hover:shadow-xl transition-all"
+                >
+                  Proceed to Checkout
+                </Button>
+              </div>
             )}
-          </ul>
+          </div>
         </div>
 
-        {cartBtn && (
-          <div className="fixed bottom-20 left-1/2 -translate-x-1/2 z-50 md:hidden">
-            <Button
-              onClick={() => {
-                setMobileCartVisible(!mobileCartVisible);
-                setCartBtn(false);
-              }}
-              className="cursor-pointer rounded-full h-14 w-14 p-0"
-            >
-              <ShoppingCart />
-            </Button>
-          </div>
-        )}
+        {/* Mobile Layout */}
+        <div className="md:hidden min-h-screen pb-24">
+          {/* Mobile Header */}
+          <div className="sticky top-0 bg-white z-20 border-b border-emerald-200 shadow-sm">
+            <div className="p-4 space-y-3">
+              {activeBranch && (
+                <Card className="p-3 bg-gradient-to-r from-emerald-500 to-green-600 border-0 shadow-md">
+                  <div className="flex items-center gap-2">
+                    <div className="h-8 w-8 rounded-full bg-white/20 flex items-center justify-center">
+                      <Building2 className="h-4 w-4 text-white" />
+                    </div>
+                    <div className="flex-1">
+                      <p className="text-white font-bold text-sm">
+                        {activeBranch.name}
+                      </p>
+                      <p className="text-emerald-100 text-xs">
+                        {activeBranch.code}
+                      </p>
+                    </div>
+                  </div>
+                </Card>
+              )}
 
-        {/* Cart Summary */}
-        {isMobile ? (
+              {barcodeInput && (
+                <motion.div
+                  initial={{ opacity: 0, y: -10 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  className="p-3 bg-amber-50 border border-amber-200 rounded-lg"
+                >
+                  <div className="flex items-center gap-2 text-sm text-amber-900">
+                    <Scan className="h-4 w-4 animate-pulse" />
+                    <span className="font-mono font-semibold">
+                      {barcodeInput}
+                    </span>
+                  </div>
+                </motion.div>
+              )}
+
+              <div className="relative">
+                <Search className="absolute left-4 top-1/2 -translate-y-1/2 h-5 w-5 text-gray-400" />
+                <Input
+                  type="text"
+                  placeholder="Search products..."
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  className="pl-12 h-12 border-2 border-gray-200 focus:border-emerald-500 focus:ring-2 focus:ring-emerald-200 rounded-xl"
+                />
+              </div>
+            </div>
+          </div>
+
+          {/* Mobile Product Grid */}
+          <div className="p-4">
+            {filteredProducts.length === 0 ? (
+              <div className="text-center py-20">
+                <div className="inline-flex items-center justify-center w-16 h-16 rounded-full bg-gray-100 mb-4">
+                  <Search className="h-8 w-8 text-gray-400" />
+                </div>
+                <p className="text-gray-500 font-medium">No products found</p>
+              </div>
+            ) : (
+              <div className="grid grid-cols-2 gap-3">
+                {filteredProducts.map((product) => {
+                  const inCart = cart.find(
+                    (item) => item.product.id === product.id,
+                  );
+                  const isLoading = loadingProductId === product.id;
+
+                  return (
+                    <motion.div
+                      key={product.id}
+                      whileTap={{ scale: 0.95 }}
+                      onClick={() => !isLoading && addToCart(product)}
+                      className={`relative p-4 rounded-xl border-2 active:scale-95 transition-all ${
+                        inCart
+                          ? "border-emerald-500 bg-emerald-50 shadow-md"
+                          : "border-gray-200 bg-white active:border-emerald-300"
+                      }`}
+                    >
+                      {inCart && (
+                        <div className="absolute top-2 right-2 h-6 w-6 rounded-full bg-emerald-500 flex items-center justify-center">
+                          <Check className="h-4 w-4 text-white" />
+                        </div>
+                      )}
+
+                      <div className="mb-3">
+                        <h3 className="font-bold text-gray-800 text-sm mb-1 line-clamp-2">
+                          {product.name}
+                        </h3>
+                        <p className="text-xs text-gray-500">{product.sku}</p>
+                      </div>
+
+                      <div className="space-y-2">
+                        <div className="flex items-center justify-between">
+                          <span className="text-xs text-gray-500">Stock</span>
+                          <span
+                            className={`text-sm font-semibold ${
+                              product.currentStock <= 10
+                                ? "text-orange-600"
+                                : "text-gray-700"
+                            }`}
+                          >
+                            {product.currentStock}
+                          </span>
+                        </div>
+                        <p className="text-lg font-bold text-emerald-600">
+                          ₱{product.price.toFixed(2)}
+                        </p>
+                      </div>
+
+                      {isLoading && (
+                        <div className="absolute inset-0 bg-white/80 rounded-xl flex items-center justify-center">
+                          <Loader2 className="h-6 w-6 animate-spin text-emerald-600" />
+                        </div>
+                      )}
+                    </motion.div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+
+          {/* Mobile Floating Cart Button */}
+          {!mobileCartVisible && cart.length > 0 && (
+            <motion.div
+              initial={{ scale: 0 }}
+              animate={{ scale: 1 }}
+              className="fixed bottom-6 right-6 z-30"
+            >
+              <Button
+                onClick={() => setMobileCartVisible(true)}
+                className="h-16 w-16 rounded-full bg-gradient-to-r from-emerald-600 to-green-600 hover:from-emerald-700 hover:to-green-700 shadow-2xl relative"
+              >
+                <ShoppingCart className="h-6 w-6 text-white" />
+                <div className="absolute -top-2 -right-2 h-7 w-7 rounded-full bg-red-500 flex items-center justify-center border-2 border-white">
+                  <span className="text-white text-xs font-bold">
+                    {cart.length}
+                  </span>
+                </div>
+              </Button>
+            </motion.div>
+          )}
+
+          {/* Mobile Cart Drawer */}
           <AnimatePresence>
             {mobileCartVisible && (
               <>
-                {/* Backdrop */}
                 <motion.div
-                  className="fixed inset-0 bg-black/30 z-30"
                   initial={{ opacity: 0 }}
                   animate={{ opacity: 1 }}
                   exit={{ opacity: 0 }}
-                  onClick={() => {
-                    setMobileCartVisible(false);
-                    setCartBtn(true);
-                  }}
+                  className="fixed inset-0 bg-black/50 z-40"
+                  onClick={() => setMobileCartVisible(false)}
                 />
 
-                {/* Cart Panel */}
                 <motion.div
-                  initial={{ x: "100%" }}
-                  animate={{ x: 0 }}
-                  exit={{ x: "100%" }}
-                  transition={{ duration: 0.3 }}
-                  className="fixed top-0 right-0 h-full w-[80%] bg-white shadow-lg z-40 md:hidden"
+                  initial={{ y: "100%" }}
+                  animate={{ y: 0 }}
+                  exit={{ y: "100%" }}
+                  transition={{ type: "spring", damping: 30, stiffness: 300 }}
+                  className="fixed bottom-0 left-0 right-0 bg-white z-50 rounded-t-3xl shadow-2xl max-h-[85vh] flex flex-col"
                 >
-                  <div className="flex justify-between items-center p-5 border-b border-gray-200">
-                    <p className="font-semibold text-lg">
-                      <ShoppingCart />
-                    </p>
+                  {/* Drawer Handle */}
+                  <div className="flex justify-center pt-3 pb-2">
+                    <div className="w-12 h-1.5 bg-gray-300 rounded-full" />
+                  </div>
+
+                  {/* Cart Header */}
+                  <div className="px-6 py-4 border-b border-emerald-100">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-3">
+                        <div className="h-10 w-10 rounded-full bg-emerald-500 flex items-center justify-center">
+                          <ShoppingCart className="h-5 w-5 text-white" />
+                        </div>
+                        <div>
+                          <h2 className="font-bold text-gray-800">Your Cart</h2>
+                          <p className="text-sm text-gray-600">
+                            {cart.length} {cart.length === 1 ? "item" : "items"}
+                          </p>
+                        </div>
+                      </div>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => setMobileCartVisible(false)}
+                        className="h-10 w-10 p-0 rounded-full"
+                      >
+                        <X className="h-5 w-5" />
+                      </Button>
+                    </div>
+                  </div>
+
+                  {/* Cart Items */}
+                  <div className="flex-1 overflow-auto">
+                    {cart.map((item) => (
+                      <CartItemDisplay key={item.product.id} item={item} />
+                    ))}
+                  </div>
+
+                  {/* Cart Footer */}
+                  <div className="border-t-2 border-emerald-200 bg-white p-6 space-y-3">
+                    {totalDiscount > 0 && (
+                      <>
+                        <div className="flex justify-between text-sm text-gray-600">
+                          <span>Subtotal</span>
+                          <span>₱{subtotal.toFixed(2)}</span>
+                        </div>
+                        <div className="flex justify-between text-sm font-semibold text-emerald-600">
+                          <span>Discount</span>
+                          <span>-₱{totalDiscount.toFixed(2)}</span>
+                        </div>
+                      </>
+                    )}
+                    <div className="flex justify-between text-xl font-bold text-gray-800 pt-2 border-t border-emerald-100">
+                      <span>Total</span>
+                      <span className="text-emerald-600">
+                        ₱{total.toFixed(2)}
+                      </span>
+                    </div>
                     <Button
-                      variant="ghost"
-                      size="icon"
                       onClick={() => {
                         setMobileCartVisible(false);
-                        setCartBtn(true);
+                        handleCheckoutClick();
                       }}
-                    >
-                      ✕
-                    </Button>
-                  </div>
-
-                  <div className="overflow-y-auto h-[calc(100%-12rem)] px-5 pt-5 pb-15">
-                    {cart.length === 0 ? (
-                      <p className="text-sm">No items in cart.</p>
-                    ) : (
-                      cart.map((item) => (
-                        <CartItemDisplay key={item.product.id} item={item} />
-                      ))
-                    )}
-                  </div>
-
-                  <div className="absolute bottom-0 left-0 w-full p-4 border-t border-gray-200 bg-white">
-                    {totalDiscount > 0 && (
-                      <div className="flex justify-between text-sm mb-1">
-                        <span>Subtotal:</span>
-                        <span>₱{subtotal.toFixed(2)}</span>
-                      </div>
-                    )}
-                    {totalDiscount > 0 && (
-                      <div className="flex justify-between text-sm text-green-600 mb-2">
-                        <span>Discount:</span>
-                        <span>-₱{totalDiscount.toFixed(2)}</span>
-                      </div>
-                    )}
-                    <p className="font-semibold mb-2">
-                      Total: ₱{total.toFixed(2)}
-                    </p>
-                    <Button
-                      onClick={handleCheckoutClick}
-                      variant="outline"
-                      className="cursor-pointer w-full px-5 py-2"
                       disabled={cart.length === 0 || !activeBranch}
+                      className="w-full h-14 bg-gradient-to-r from-emerald-600 to-green-600 hover:from-emerald-700 hover:to-green-700 text-white font-bold text-lg shadow-lg"
                     >
-                      Checkout
+                      Proceed to Checkout
                     </Button>
                   </div>
                 </motion.div>
               </>
             )}
           </AnimatePresence>
-        ) : (
-          <div className="p-0 md:p-5 border-0 md:border-l border-gray-200">
-            <div className="relative h-auto md:h-[100vh-120px]">
-              <div className="h-18 absolute top-0 left-0 w-full bg-white pb-5 border-b border-gray-200">
-                <ShoppingCart />
-              </div>
-              {cart.length === 0 ? (
-                <div className="pt-21 pb-16 h-full overflow-auto">
-                  <p className="text-sm text-center text-muted-foreground mt-8">
-                    Scan barcode or click products to add
-                  </p>
-                </div>
-              ) : (
-                <div className="pt-21 pb-35 h-full max-h-[calc(100vh-9rem)] overflow-auto">
-                  <div>
-                    {cart.map((item) => (
-                      <CartItemDisplay key={item.product.id} item={item} />
-                    ))}
-                  </div>
-                  <div className="absolute bottom-0 left-0 w-full h-32 pt-5 space-y-2 bg-white border-t border-gray-200">
-                    {totalDiscount > 0 && (
-                      <div className="flex justify-between text-sm">
-                        <span>Subtotal:</span>
-                        <span>₱{subtotal.toFixed(2)}</span>
-                      </div>
-                    )}
-                    {totalDiscount > 0 && (
-                      <div className="flex justify-between text-sm text-green-600">
-                        <span>Discount:</span>
-                        <span>-₱{totalDiscount.toFixed(2)}</span>
-                      </div>
-                    )}
-                    <p className="font-semibold">Total: ₱{total.toFixed(2)}</p>
-                    <Button
-                      onClick={handleCheckoutClick}
-                      variant="outline"
-                      className="w-full px-5 py-2 cursor-pointer"
-                      disabled={cart.length === 0 || !activeBranch}
-                    >
-                      Checkout
-                    </Button>
-                  </div>
-                </div>
-              )}
-            </div>
-          </div>
-        )}
+        </div>
       </div>
 
       {/* Discount Selection Dialog */}
       <Dialog open={showDiscountDialog} onOpenChange={setShowDiscountDialog}>
-        <DialogContent className="sm:max-w-md">
+        <DialogContent className="sm:max-w-md max-h-[90vh] overflow-y-auto">
           <DialogHeader>
-            <DialogTitle>Apply Discount</DialogTitle>
+            <DialogTitle className="text-xl font-bold text-gray-800">
+              Apply Discount
+            </DialogTitle>
             <DialogDescription>
               {selectedCartItem &&
                 `Select a discount for ${selectedCartItem.product.name}`}
             </DialogDescription>
           </DialogHeader>
 
-          <div className="space-y-3 py-4 max-h-[400px] overflow-y-auto">
+          <div className="space-y-3 py-4">
             {selectedCartItem?.appliedDiscount && (
               <Button
                 variant="outline"
-                className="w-full justify-start h-auto p-4 border-2 border-red-200"
+                className="w-full justify-start h-auto p-4 border-2 border-red-200 hover:bg-red-50"
                 onClick={() => applyDiscount(null)}
               >
-                <X className="h-4 w-4 mr-2" />
-                Remove Current Discount
+                <X className="h-4 w-4 mr-2 text-red-600" />
+                <span className="text-red-700 font-medium">
+                  Remove Current Discount
+                </span>
               </Button>
             )}
 
             {applicableDiscounts.length === 0 ? (
-              <p className="text-sm text-gray-500 text-center py-4">
-                No applicable discounts available
-              </p>
+              <div className="text-center py-8">
+                <div className="inline-flex items-center justify-center w-16 h-16 rounded-full bg-gray-100 mb-3">
+                  <Tag className="h-8 w-8 text-gray-400" />
+                </div>
+                <p className="text-gray-500 font-medium">
+                  No discounts available
+                </p>
+              </div>
             ) : (
               applicableDiscounts.map((discount) => {
                 const isApplied =
@@ -886,40 +1118,47 @@ const POSPage = () => {
                   <Button
                     key={discount.id}
                     variant="outline"
-                    className={`w-full justify-start h-auto p-4 ${
-                      isApplied ? "border-2 border-green-500 bg-green-50" : ""
+                    className={`w-full justify-start h-auto p-4 transition-all ${
+                      isApplied
+                        ? "border-2 border-emerald-500 bg-emerald-50 shadow-md"
+                        : "border-2 border-gray-200 hover:border-emerald-300 hover:bg-emerald-50/50"
                     }`}
                     onClick={() => applyDiscount(discount)}
                   >
-                    <div className="w-full text-left">
-                      <div className="flex items-start justify-between mb-1">
-                        <div>
-                          <p className="font-semibold">{discount.name}</p>
-                          <p className="text-xs text-gray-500">
+                    <div className="w-full text-left space-y-2">
+                      <div className="flex items-start justify-between">
+                        <div className="flex-1">
+                          <p className="font-bold text-gray-800">
+                            {discount.name}
+                          </p>
+                          <p className="text-xs text-gray-600 mt-1">
                             {discount.description}
                           </p>
                         </div>
-                        <Badge variant="outline" className="ml-2">
+                        <Badge className="ml-3 bg-emerald-100 text-emerald-700 hover:bg-emerald-100 px-3 py-1">
                           {discount.discountType === "PERCENTAGE"
                             ? `${discount.discountValue}%`
                             : `₱${discount.discountValue}`}
                         </Badge>
                       </div>
                       {selectedCartItem && (
-                        <div className="flex items-center gap-2 mt-2 text-sm">
-                          <span className="line-through text-gray-400">
+                        <div className="flex items-center gap-2 pt-2 border-t border-gray-200">
+                          <span className="line-through text-gray-400 text-sm">
                             ₱{selectedCartItem.product.price.toFixed(2)}
                           </span>
-                          <span className="font-semibold text-green-600">
+                          <span className="font-bold text-emerald-600">
                             ₱{discountedPrice.toFixed(2)}
                           </span>
-                          <span className="text-xs text-gray-500">
-                            (Save ₱{savings.toFixed(2)})
+                          <span className="text-xs text-gray-600 ml-auto">
+                            Save ₱{savings.toFixed(2)}
                           </span>
                         </div>
                       )}
                       {discount.requiresVerification && (
-                        <Badge variant="secondary" className="mt-2 text-xs">
+                        <Badge
+                          variant="secondary"
+                          className="text-xs bg-amber-50 text-amber-700 border-amber-200"
+                        >
                           ID Required
                         </Badge>
                       )}
@@ -933,8 +1172,9 @@ const POSPage = () => {
           <DialogFooter>
             <Button
               type="button"
-              variant="ghost"
+              variant="outline"
               onClick={() => setShowDiscountDialog(false)}
+              className="w-full"
             >
               Close
             </Button>
@@ -942,34 +1182,36 @@ const POSPage = () => {
         </DialogContent>
       </Dialog>
 
-      {/* Checkout Dialog - Cash Input */}
+      {/* Checkout Dialog */}
       <Dialog open={showCheckoutDialog} onOpenChange={setShowCheckoutDialog}>
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
-            <DialogTitle>Complete Payment</DialogTitle>
+            <DialogTitle className="text-xl font-bold text-gray-800">
+              Complete Payment
+            </DialogTitle>
             <DialogDescription>
               Enter the cash amount received from customer
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-4 py-4">
-            <div className="space-y-2">
-              <Label htmlFor="total">Total Amount</Label>
-              <div className="text-2xl font-bold">
-                ₱
-                {total.toLocaleString(undefined, {
-                  minimumFractionDigits: 2,
-                  maximumFractionDigits: 2,
-                })}
+            <div className="p-4 bg-emerald-50 rounded-xl border-2 border-emerald-200">
+              <Label className="text-sm text-gray-600 mb-2 block">
+                Total Amount
+              </Label>
+              <div className="text-3xl font-bold text-emerald-600">
+                ₱{total.toFixed(2)}
               </div>
               {totalDiscount > 0 && (
-                <div className="text-sm text-green-600">
+                <div className="text-sm text-emerald-700 mt-1 font-medium">
                   Total Savings: ₱{totalDiscount.toFixed(2)}
                 </div>
               )}
             </div>
 
             <div className="space-y-2">
-              <Label htmlFor="cash">Cash Amount</Label>
+              <Label htmlFor="cash" className="text-sm font-semibold">
+                Cash Amount
+              </Label>
               <Input
                 id="cash"
                 type="number"
@@ -977,24 +1219,23 @@ const POSPage = () => {
                 placeholder="0.00"
                 value={cashAmount}
                 onChange={(e) => setCashAmount(e.target.value)}
-                className="text-xl"
+                className="h-14 text-2xl font-bold text-center border-2 focus:border-emerald-500 focus:ring-2 focus:ring-emerald-200"
                 autoFocus
               />
             </div>
 
-            {/* Quick Cash Buttons */}
             <div className="space-y-2">
-              <Label className="text-sm text-muted-foreground">
+              <Label className="text-sm font-semibold text-gray-600">
                 Quick Cash
               </Label>
-              <div className="flex flex-wrap gap-2">
+              <div className="grid grid-cols-3 gap-2">
                 {[20, 50, 100, 200, 500, 1000].map((amount) => (
                   <Button
                     key={amount}
                     type="button"
                     variant="outline"
                     size="sm"
-                    className="flex-1 min-w-[70px]"
+                    className="h-12 font-semibold border-2 hover:border-emerald-500 hover:bg-emerald-50"
                     onClick={() => setCashAmount(amount.toString())}
                   >
                     ₱{amount}
@@ -1005,41 +1246,49 @@ const POSPage = () => {
                 type="button"
                 variant="outline"
                 size="sm"
-                className="w-full"
+                className="w-full h-12 font-semibold border-2 hover:border-emerald-500 hover:bg-emerald-50"
                 onClick={() => setCashAmount(total.toFixed(2))}
               >
-                Exact Amount (₱{total.toFixed(2)})
+                Exact Amount
               </Button>
             </div>
 
             {cashAmount && (
-              <div className="space-y-2">
-                <Label>Change</Label>
+              <div className="p-4 bg-gray-50 rounded-xl border-2 border-gray-200">
+                <Label className="text-sm text-gray-600 mb-2 block">
+                  Change
+                </Label>
                 <div
-                  className={`text-2xl font-bold ${calculateChange() < 0 ? "text-red-500" : "text-green-600"}`}
+                  className={`text-3xl font-bold ${
+                    calculateChange() < 0
+                      ? "text-red-600"
+                      : "text-emerald-600"
+                  }`}
                 >
-                  ₱
-                  {calculateChange().toLocaleString(undefined, {
-                    minimumFractionDigits: 2,
-                    maximumFractionDigits: 2,
-                  })}
+                  ₱{Math.abs(calculateChange()).toFixed(2)}
                 </div>
+                {calculateChange() < 0 && (
+                  <p className="text-sm text-red-600 mt-1 font-medium">
+                    Insufficient cash amount
+                  </p>
+                )}
               </div>
             )}
           </div>
-          <DialogFooter className="sm:justify-between">
+          <DialogFooter className="flex-col sm:flex-row gap-2">
             <Button
               type="button"
               variant="outline"
               onClick={() => setShowCheckoutDialog(false)}
+              className="w-full sm:w-auto"
             >
               Cancel
             </Button>
             <Button
               type="button"
-              variant="outline"
               onClick={handleCheckout}
               disabled={checkingOut || parseFloat(cashAmount) < total}
+              className="w-full sm:w-auto bg-gradient-to-r from-emerald-600 to-green-600 hover:from-emerald-700 hover:to-green-700 text-white font-bold"
             >
               {checkingOut ? (
                 <>
@@ -1056,102 +1305,102 @@ const POSPage = () => {
 
       {/* Receipt Dialog */}
       <Dialog open={showReceiptDialog} onOpenChange={setShowReceiptDialog}>
-        <DialogContent className="sm:max-w-lg">
+        <DialogContent className="sm:max-w-lg max-h-[90vh] overflow-y-auto">
           <DialogHeader>
-            <DialogTitle>Sale Completed</DialogTitle>
-            <DialogDescription>Transaction successful</DialogDescription>
+            <DialogTitle className="text-xl font-bold text-emerald-600">
+              Sale Completed
+            </DialogTitle>
+            <DialogDescription>
+              Transaction completed successfully
+            </DialogDescription>
           </DialogHeader>
 
           {currentReceipt && (
-            <div ref={receiptRef} className="py-4">
-              <div className="text-center mb-4">
-                <h2 className="text-xl font-bold">RECEIPT</h2>
-                <p className="font-semibold">{currentReceipt.branchName}</p>
+            <div ref={receiptRef} className="py-4 space-y-4">
+              <div className="text-center pb-4 border-b-2 border-dashed border-gray-300">
+                <h2 className="text-2xl font-bold text-gray-800 mb-2">
+                  RECEIPT
+                </h2>
+                <p className="font-bold text-gray-800">
+                  {currentReceipt.branchName}
+                </p>
                 {currentReceipt.branchPhone && (
-                  <p className="text-sm text-gray-500">
+                  <p className="text-sm text-gray-600">
                     {currentReceipt.branchPhone}
                   </p>
                 )}
                 {currentReceipt.branchEmail && (
-                  <p className="text-sm text-gray-500">
+                  <p className="text-sm text-gray-600">
                     {currentReceipt.branchEmail}
                   </p>
                 )}
               </div>
 
-              <div className="border-t border-b border-gray-300 py-4 mb-4">
-                <table className="w-full">
-                  <thead>
-                    <tr className="border-b border-gray-300">
-                      <th className="text-left py-2">Item</th>
-                      <th className="text-right py-2">Qty</th>
-                      <th className="text-right py-2">Price</th>
-                      <th className="text-right py-2">Total</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {currentReceipt.items.map((item) => (
-                      <React.Fragment key={item.product.id}>
-                        <tr className="border-b border-dashed border-gray-200">
-                          <td className="py-2">{item.product.name}</td>
-                          <td className="text-right">{item.quantity}</td>
-                          <td className="text-right">
-                            ₱
-                            {(
-                              item.discountedPrice ?? item.product.price
-                            ).toFixed(2)}
-                          </td>
-                          <td className="text-right">
-                            ₱{getItemTotal(item).toFixed(2)}
-                          </td>
-                        </tr>
-                        {item.appliedDiscount && (
-                          <tr className="text-xs text-gray-600">
-                            <td colSpan={4} className="py-1 pl-4">
-                              <Tag className="h-3 w-3 inline mr-1" />
-                              {item.appliedDiscount.name}
-                            </td>
-                          </tr>
-                        )}
-                      </React.Fragment>
-                    ))}
-                  </tbody>
-                </table>
+              <div className="space-y-2">
+                {currentReceipt.items.map((item) => (
+                  <div
+                    key={item.product.id}
+                    className="pb-2 border-b border-dashed border-gray-200"
+                  >
+                    <div className="flex justify-between items-start mb-1">
+                      <div className="flex-1">
+                        <p className="font-semibold text-gray-800">
+                          {item.product.name}
+                        </p>
+                        <p className="text-sm text-gray-600">
+                          {item.quantity} × ₱
+                          {(
+                            item.discountedPrice ?? item.product.price
+                          ).toFixed(2)}
+                        </p>
+                      </div>
+                      <p className="font-bold text-gray-800">
+                        ₱{getItemTotal(item).toFixed(2)}
+                      </p>
+                    </div>
+                    {item.appliedDiscount && (
+                      <div className="flex items-center gap-1 text-xs text-emerald-600">
+                        <Tag className="h-3 w-3" />
+                        <span>{item.appliedDiscount.name}</span>
+                      </div>
+                    )}
+                  </div>
+                ))}
               </div>
 
-              <div className="space-y-2">
-                <div className="flex justify-between text-lg">
-                  <span>Subtotal:</span>
+              <div className="space-y-2 pt-2 border-t-2 border-gray-300">
+                <div className="flex justify-between text-gray-600">
+                  <span>Subtotal</span>
                   <span>₱{currentReceipt.subtotal.toFixed(2)}</span>
                 </div>
                 {currentReceipt.totalDiscount > 0 && (
-                  <div className="flex justify-between text-lg text-green-600">
-                    <span>Total Discount:</span>
+                  <div className="flex justify-between font-semibold text-emerald-600">
+                    <span>Total Discount</span>
                     <span>-₱{currentReceipt.totalDiscount.toFixed(2)}</span>
                   </div>
                 )}
-                <div className="flex justify-between text-xl font-bold border-t border-gray-300 pt-2">
-                  <span>Total:</span>
+                <div className="flex justify-between text-xl font-bold text-gray-800 pt-2 border-t border-gray-300">
+                  <span>Total</span>
                   <span>₱{currentReceipt.total.toFixed(2)}</span>
                 </div>
-                <div className="flex justify-between text-lg">
-                  <span>Cash:</span>
+                <div className="flex justify-between text-gray-600">
+                  <span>Cash</span>
                   <span>₱{currentReceipt.cashAmount.toFixed(2)}</span>
                 </div>
-                <div className="flex justify-between text-xl font-bold border-t-2 border-gray-300 pt-2">
-                  <span>Change:</span>
-                  <span className="text-green-600">
-                    ₱{currentReceipt.change.toFixed(2)}
-                  </span>
+                <div className="flex justify-between text-xl font-bold text-emerald-600 pt-2 border-t-2 border-gray-300">
+                  <span>Change</span>
+                  <span>₱{currentReceipt.change.toFixed(2)}</span>
                 </div>
               </div>
 
-              <div className="text-center mt-6 text-sm text-gray-500">
+              <div className="text-center pt-4 border-t-2 border-dashed border-gray-300 text-sm text-gray-600 space-y-1">
                 <p>Sold by: {currentReceipt.soldBy}</p>
-                <p>Date & Time: {currentReceipt.date.toLocaleString()}</p>
-                <p className="mt-2">Thank you for your purchase!</p>
+                <p>{currentReceipt.date.toLocaleString()}</p>
+                <p className="font-semibold text-gray-800 mt-3">
+                  Thank you for your purchase!
+                </p>
                 {currentReceipt.totalDiscount > 0 && (
-                  <p className="text-green-600 font-semibold">
+                  <p className="text-emerald-600 font-bold">
                     You saved ₱{currentReceipt.totalDiscount.toFixed(2)}!
                   </p>
                 )}
@@ -1159,17 +1408,21 @@ const POSPage = () => {
             </div>
           )}
 
-          <DialogFooter className="sm:justify-between">
+          <DialogFooter className="flex-col sm:flex-row gap-2">
             <Button
               type="button"
               variant="outline"
               onClick={handlePrintReceipt}
-              className="flex items-center gap-2"
+              className="w-full sm:w-auto flex items-center gap-2"
             >
               <Printer className="h-4 w-4" />
               Print Receipt
             </Button>
-            <Button type="button" variant="outline" onClick={handleNewSale}>
+            <Button
+              type="button"
+              onClick={handleNewSale}
+              className="w-full sm:w-auto bg-gradient-to-r from-emerald-600 to-green-600 hover:from-emerald-700 hover:to-green-700 text-white font-bold"
+            >
               New Sale
             </Button>
           </DialogFooter>

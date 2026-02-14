@@ -1,4 +1,3 @@
-// components/BranchSwitcher.tsx
 "use client";
 
 import { useState, useEffect } from "react";
@@ -10,13 +9,15 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Building2 } from "lucide-react";
+import { Building2, Check, Loader2 } from "lucide-react";
 import { toast } from "sonner";
+import { Badge } from "@/components/ui/badge";
 
 interface Branch {
   id: number;
   name: string;
   code: string;
+  isActive: boolean;
 }
 
 interface User {
@@ -35,13 +36,13 @@ export default function BranchSwitcher() {
   const [currentUser, setCurrentUser] = useState<User | null>(null);
   const [activeBranchId, setActiveBranchId] = useState<number | null>(null);
   const [loading, setLoading] = useState(true);
+  const [switching, setSwitching] = useState(false);
 
   useEffect(() => {
     fetchCurrentUser();
   }, []);
 
   useEffect(() => {
-    // Only fetch branches if user is admin
     if (currentUser?.role === "admin") {
       fetchBranches();
     }
@@ -72,36 +73,86 @@ export default function BranchSwitcher() {
 
   const handleBranchSwitch = async (branchId: string) => {
     try {
+      setSwitching(true);
       await api.post("/auth/switch-branch", { branchId: parseInt(branchId) });
       setActiveBranchId(parseInt(branchId));
-      toast.success("Branch switched successfully");
-      // Optionally reload the page to refresh data
-      window.location.reload();
+      
+      toast.success("Branch switched successfully", {
+        description: "Page will reload to update data",
+      });
+      
+      // Reload after a short delay
+      setTimeout(() => {
+        window.location.reload();
+      }, 500);
     } catch (error: any) {
       toast.error(error.response?.data?.message || "Failed to switch branch");
+      setSwitching(false);
     }
   };
 
   if (loading) {
-    return null;
+    return (
+      <div className="flex items-center gap-2 px-3 py-2">
+        <Loader2 className="h-4 w-4 text-emerald-600 animate-spin" />
+        <span className="text-sm text-gray-500">Loading...</span>
+      </div>
+    );
   }
 
-  // Show branch switcher only for admins
+  // Admin view - Branch switcher
   if (currentUser?.role === "admin") {
+    const activeBranch = branches.find((b) => b.id === activeBranchId);
+
     return (
       <div className="flex items-center gap-2">
-        <Building2 className="h-4 w-4 text-muted-foreground" />
+        <div className="hidden sm:flex items-center justify-center h-8 w-8 rounded-lg bg-gradient-to-br from-emerald-500 to-green-600 shadow-sm">
+          <Building2 className="h-4 w-4 text-white" />
+        </div>
         <Select
           value={activeBranchId?.toString()}
           onValueChange={handleBranchSwitch}
+          disabled={switching}
         >
-          <SelectTrigger className="w-[200px]">
-            <SelectValue placeholder="Select branch" />
+          <SelectTrigger className="w-[180px] border-2 border-emerald-300 hover:border-emerald-400 focus:ring-2 focus:ring-emerald-200 font-medium">
+            <SelectValue placeholder="Select branch">
+              {switching ? (
+                <span className="flex items-center gap-2">
+                  <Loader2 className="h-3 w-3 animate-spin" />
+                  Switching...
+                </span>
+              ) : (
+                <span className="flex items-center gap-2">
+                  <Building2 className="h-3 w-3 sm:hidden" />
+                  {activeBranch?.name}
+                </span>
+              )}
+            </SelectValue>
           </SelectTrigger>
-          <SelectContent>
+          <SelectContent className="border-2 border-emerald-200">
             {branches.map((branch) => (
-              <SelectItem key={branch.id} value={branch.id.toString()}>
-                {branch.name} ({branch.code})
+              <SelectItem
+                key={branch.id}
+                value={branch.id.toString()}
+                className="cursor-pointer"
+              >
+                <div className="flex items-center justify-between w-full gap-3">
+                  <div className="flex items-center gap-2">
+                    <Building2 className="h-3 w-3 text-emerald-600" />
+                    <span className="font-medium">{branch.name}</span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <Badge
+                      variant="outline"
+                      className="text-xs bg-emerald-50 text-emerald-700 border-emerald-200"
+                    >
+                      {branch.code}
+                    </Badge>
+                    {branch.id === activeBranchId && (
+                      <Check className="h-4 w-4 text-emerald-600" />
+                    )}
+                  </div>
+                </div>
               </SelectItem>
             ))}
           </SelectContent>
@@ -110,12 +161,21 @@ export default function BranchSwitcher() {
     );
   }
 
-  // Show static branch display for non-admins
+  // Non-admin view - Static branch display
   if (currentUser?.branch) {
     return (
-      <div className="flex items-center gap-2 px-3 py-2 bg-muted rounded-md">
-        <Building2 className="h-4 w-4 text-muted-foreground" />
-        <span className="text-sm font-medium">{currentUser.branch.name}</span>
+      <div className="flex items-center gap-2 px-3 py-2 bg-gradient-to-r from-emerald-50 to-green-50 rounded-lg border-2 border-emerald-200 shadow-sm">
+        <div className="h-7 w-7 rounded-lg bg-gradient-to-br from-emerald-500 to-green-600 flex items-center justify-center">
+          <Building2 className="h-4 w-4 text-white" />
+        </div>
+        <div className="flex flex-col">
+          <span className="text-sm font-bold text-gray-800 leading-tight">
+            {currentUser.branch.name}
+          </span>
+          <span className="text-xs text-emerald-600 leading-tight">
+            {currentUser.branch.code}
+          </span>
+        </div>
       </div>
     );
   }
