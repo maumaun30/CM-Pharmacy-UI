@@ -21,6 +21,7 @@ import {
   Tag,
   Building2,
   TrendingUp,
+  Home,
 } from "lucide-react";
 import {
   DropdownMenu,
@@ -63,6 +64,16 @@ export default function Navbar() {
             <div className="hidden xl:flex items-center gap-3">
               {/* Main Actions */}
               <div className="flex items-center gap-2">
+                <Link href="/">
+                  <Button
+                    className="cursor-pointer border-emerald-300 hover:bg-emerald-50 hover:border-emerald-400 font-medium"
+                    variant="outline"
+                    size="sm"
+                  >
+                    <Home className="w-4 h-4 mr-2" />
+                    Home
+                  </Button>
+                </Link>
                 <Link href="/pos">
                   <Button
                     className="cursor-pointer bg-gradient-to-r from-emerald-600 to-green-600 hover:from-emerald-700 hover:to-green-700 text-white font-semibold shadow-md hover:shadow-lg transition-all"
@@ -295,6 +306,16 @@ export default function Navbar() {
 
             {/* Tablet Navigation (md to xl - 768px to 1279px) */}
             <div className="hidden md:flex xl:hidden items-center gap-2">
+              <Link href="/">
+                <Button
+                  className="cursor-pointer border-emerald-300 hover:bg-emerald-50 hover:border-emerald-400 font-medium"
+                  variant="outline"
+                  size="sm"
+                >
+                  <Home className="w-4 h-4 mr-2" />
+                  Home
+                </Button>
+              </Link>
               <Link href="/pos">
                 <Button
                   className="cursor-pointer bg-gradient-to-r from-emerald-600 to-green-600 hover:from-emerald-700 hover:to-green-700 text-white font-semibold shadow-md"
@@ -499,6 +520,15 @@ export default function Navbar() {
 
             {/* Mobile Navigation (below md - under 768px) */}
             <div className="flex md:hidden items-center gap-2">
+              <Link href="/">
+                <Button
+                  className="cursor-pointer h-10 w-10 p-0 border-2 border-emerald-300 hover:bg-emerald-50"
+                  variant="outline"
+                  size="sm"
+                >
+                  <Home className="w-5 h-5 text-emerald-600" />
+                </Button>
+              </Link>
               <Link href="/pos">
                 <Button
                   className="cursor-pointer h-10 w-10 p-0 bg-gradient-to-r from-emerald-600 to-green-600 hover:from-emerald-700 hover:to-green-700 text-white shadow-md"

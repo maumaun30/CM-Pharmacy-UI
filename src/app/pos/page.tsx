@@ -19,6 +19,8 @@ import {
   Plus,
   Minus,
   Check,
+  Grid3x3,
+  List,
 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { useMediaQuery } from "@/hooks/useMediaQuery";
@@ -99,6 +101,8 @@ interface User {
   currentBranch?: Branch;
 }
 
+type ViewMode = "grid" | "list";
+
 const POSPage = () => {
   const [currentUser, setCurrentUser] = useState<User | null>(null);
   const [activeBranch, setActiveBranch] = useState<Branch | null>(null);
@@ -112,6 +116,7 @@ const POSPage = () => {
   const [lastAddedId, setLastAddedId] = useState<number | null>(null);
   const [mobileCartVisible, setMobileCartVisible] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
+  const [viewMode, setViewMode] = useState<ViewMode>("grid");
 
   // Barcode scanner state
   const [barcodeInput, setBarcodeInput] = useState("");
@@ -602,6 +607,123 @@ const POSPage = () => {
     </div>
   );
 
+  const ProductGridItem = ({ product }: { product: Product }) => {
+    const inCart = cart.find((item) => item.product.id === product.id);
+    const isLoading = loadingProductId === product.id;
+
+    return (
+      <motion.div
+        whileHover={{ y: -4 }}
+        whileTap={{ scale: 0.98 }}
+        onClick={() => !isLoading && addToCart(product)}
+        className={`relative p-4 rounded-xl border-2 cursor-pointer transition-all ${
+          inCart
+            ? "border-emerald-500 bg-emerald-50 shadow-md"
+            : "border-gray-200 bg-white hover:border-emerald-300 hover:shadow-lg"
+        }`}
+      >
+        {inCart && (
+          <div className="absolute top-2 right-2 h-6 w-6 rounded-full bg-emerald-500 flex items-center justify-center">
+            <Check className="h-4 w-4 text-white" />
+          </div>
+        )}
+
+        <div className="mb-3">
+          <h3 className="font-bold text-gray-800 text-sm mb-1 line-clamp-2">
+            {product.name}
+          </h3>
+          <p className="text-xs text-gray-500">{product.sku}</p>
+        </div>
+
+        <div className="flex items-end justify-between">
+          <div>
+            <p className="text-xs text-gray-500 mb-1">Stock</p>
+            <p
+              className={`text-sm font-semibold ${
+                product.currentStock <= 10
+                  ? "text-orange-600"
+                  : "text-gray-700"
+              }`}
+            >
+              {product.currentStock}
+            </p>
+          </div>
+          <div className="text-right">
+            <p className="text-lg font-bold text-emerald-600">
+              ₱{product.price.toFixed(2)}
+            </p>
+          </div>
+        </div>
+
+        {isLoading && (
+          <div className="absolute inset-0 bg-white/80 rounded-xl flex items-center justify-center">
+            <Loader2 className="h-6 w-6 animate-spin text-emerald-600" />
+          </div>
+        )}
+      </motion.div>
+    );
+  };
+
+  const ProductListItem = ({ product }: { product: Product }) => {
+    const inCart = cart.find((item) => item.product.id === product.id);
+    const isLoading = loadingProductId === product.id;
+
+    return (
+      <motion.div
+        whileHover={{ x: 4 }}
+        whileTap={{ scale: 0.98 }}
+        onClick={() => !isLoading && addToCart(product)}
+        className={`relative p-4 rounded-xl border-2 cursor-pointer transition-all ${
+          inCart
+            ? "border-emerald-500 bg-emerald-50 shadow-md"
+            : "border-gray-200 bg-white hover:border-emerald-300 hover:shadow-lg"
+        }`}
+      >
+        <div className="flex items-center gap-4">
+          {inCart && (
+            <div className="h-10 w-10 rounded-full bg-emerald-500 flex items-center justify-center flex-shrink-0">
+              <Check className="h-5 w-5 text-white" />
+            </div>
+          )}
+
+          <div className="flex-1 min-w-0">
+            <h3 className="font-bold text-gray-800 text-base mb-1 truncate">
+              {product.name}
+            </h3>
+            <p className="text-sm text-gray-500">SKU: {product.sku}</p>
+          </div>
+
+          <div className="flex items-center gap-6 flex-shrink-0">
+            <div className="text-center">
+              <p className="text-xs text-gray-500 mb-1">Stock</p>
+              <p
+                className={`text-base font-semibold ${
+                  product.currentStock <= 10
+                    ? "text-orange-600"
+                    : "text-gray-700"
+                }`}
+              >
+                {product.currentStock}
+              </p>
+            </div>
+
+            <div className="text-right min-w-[100px]">
+              <p className="text-2xl font-bold text-emerald-600">
+                ₱{product.price.toFixed(2)}
+              </p>
+            </div>
+          </div>
+        </div>
+
+        {isLoading && (
+          <div className="absolute inset-0 bg-white/80 rounded-xl flex items-center justify-center">
+            <Loader2 className="h-6 w-6 animate-spin text-emerald-600" />
+          </div>
+        )}
+      </motion.div>
+    );
+  };
+
   if (loading) {
     return (
       <ProtectedRoute>
@@ -660,21 +782,49 @@ const POSPage = () => {
                   </motion.div>
                 )}
 
-                {/* Search Bar */}
-                <div className="relative">
-                  <Search className="absolute left-4 top-1/2 -translate-y-1/2 h-5 w-5 text-gray-400" />
-                  <Input
-                    type="text"
-                    placeholder="Search products by name or SKU..."
-                    value={searchQuery}
-                    onChange={(e) => setSearchQuery(e.target.value)}
-                    className="pl-12 h-12 border-2 border-gray-200 focus:border-emerald-500 focus:ring-2 focus:ring-emerald-200 rounded-xl text-base"
-                  />
+                {/* Search Bar and View Toggle */}
+                <div className="flex gap-2">
+                  <div className="relative flex-1">
+                    <Search className="absolute left-4 top-1/2 -translate-y-1/2 h-5 w-5 text-gray-400" />
+                    <Input
+                      type="text"
+                      placeholder="Search products by name or SKU..."
+                      value={searchQuery}
+                      onChange={(e) => setSearchQuery(e.target.value)}
+                      className="pl-12 h-12 border-2 border-gray-200 focus:border-emerald-500 focus:ring-2 focus:ring-emerald-200 rounded-xl text-base"
+                    />
+                  </div>
+                  <div className="flex border-2 border-gray-200 rounded-xl overflow-hidden bg-white">
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => setViewMode("grid")}
+                      className={`h-12 px-4 rounded-none ${
+                        viewMode === "grid"
+                          ? "bg-emerald-500 text-white hover:bg-emerald-600 hover:text-white"
+                          : "text-gray-600 hover:bg-gray-50"
+                      }`}
+                    >
+                      <Grid3x3 className="h-5 w-5" />
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => setViewMode("list")}
+                      className={`h-12 px-4 rounded-none border-l-2 border-gray-200 ${
+                        viewMode === "list"
+                          ? "bg-emerald-500 text-white hover:bg-emerald-600 hover:text-white"
+                          : "text-gray-600 hover:bg-gray-50"
+                      }`}
+                    >
+                      <List className="h-5 w-5" />
+                    </Button>
+                  </div>
                 </div>
               </div>
             </div>
 
-            {/* Product Grid */}
+            {/* Product Grid/List */}
             <div className="p-4">
               {filteredProducts.length === 0 ? (
                 <div className="text-center py-20">
@@ -686,69 +836,17 @@ const POSPage = () => {
                     Try a different search term
                   </p>
                 </div>
-              ) : (
+              ) : viewMode === "grid" ? (
                 <div className="grid grid-cols-2 lg:grid-cols-3 gap-3">
-                  {filteredProducts.map((product) => {
-                    const inCart = cart.find(
-                      (item) => item.product.id === product.id,
-                    );
-                    const isLoading = loadingProductId === product.id;
-
-                    return (
-                      <motion.div
-                        key={product.id}
-                        whileHover={{ y: -4 }}
-                        whileTap={{ scale: 0.98 }}
-                        onClick={() => !isLoading && addToCart(product)}
-                        className={`relative p-4 rounded-xl border-2 cursor-pointer transition-all ${
-                          inCart
-                            ? "border-emerald-500 bg-emerald-50 shadow-md"
-                            : "border-gray-200 bg-white hover:border-emerald-300 hover:shadow-lg"
-                        }`}
-                      >
-                        {inCart && (
-                          <div className="absolute top-2 right-2 h-6 w-6 rounded-full bg-emerald-500 flex items-center justify-center">
-                            <Check className="h-4 w-4 text-white" />
-                          </div>
-                        )}
-
-                        <div className="mb-3">
-                          <h3 className="font-bold text-gray-800 text-sm mb-1 line-clamp-2">
-                            {product.name}
-                          </h3>
-                          <p className="text-xs text-gray-500">
-                            {product.sku}
-                          </p>
-                        </div>
-
-                        <div className="flex items-end justify-between">
-                          <div>
-                            <p className="text-xs text-gray-500 mb-1">Stock</p>
-                            <p
-                              className={`text-sm font-semibold ${
-                                product.currentStock <= 10
-                                  ? "text-orange-600"
-                                  : "text-gray-700"
-                              }`}
-                            >
-                              {product.currentStock}
-                            </p>
-                          </div>
-                          <div className="text-right">
-                            <p className="text-lg font-bold text-emerald-600">
-                              ₱{product.price.toFixed(2)}
-                            </p>
-                          </div>
-                        </div>
-
-                        {isLoading && (
-                          <div className="absolute inset-0 bg-white/80 rounded-xl flex items-center justify-center">
-                            <Loader2 className="h-6 w-6 animate-spin text-emerald-600" />
-                          </div>
-                        )}
-                      </motion.div>
-                    );
-                  })}
+                  {filteredProducts.map((product) => (
+                    <ProductGridItem key={product.id} product={product} />
+                  ))}
+                </div>
+              ) : (
+                <div className="space-y-3">
+                  {filteredProducts.map((product) => (
+                    <ProductListItem key={product.id} product={product} />
+                  ))}
                 </div>
               )}
             </div>
@@ -865,20 +963,48 @@ const POSPage = () => {
                 </motion.div>
               )}
 
-              <div className="relative">
-                <Search className="absolute left-4 top-1/2 -translate-y-1/2 h-5 w-5 text-gray-400" />
-                <Input
-                  type="text"
-                  placeholder="Search products..."
-                  value={searchQuery}
-                  onChange={(e) => setSearchQuery(e.target.value)}
-                  className="pl-12 h-12 border-2 border-gray-200 focus:border-emerald-500 focus:ring-2 focus:ring-emerald-200 rounded-xl"
-                />
+              <div className="flex gap-2">
+                <div className="relative flex-1">
+                  <Search className="absolute left-4 top-1/2 -translate-y-1/2 h-5 w-5 text-gray-400" />
+                  <Input
+                    type="text"
+                    placeholder="Search products..."
+                    value={searchQuery}
+                    onChange={(e) => setSearchQuery(e.target.value)}
+                    className="pl-12 h-12 border-2 border-gray-200 focus:border-emerald-500 focus:ring-2 focus:ring-emerald-200 rounded-xl"
+                  />
+                </div>
+                <div className="flex border-2 border-gray-200 rounded-xl overflow-hidden bg-white">
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => setViewMode("grid")}
+                    className={`h-12 px-3 rounded-none ${
+                      viewMode === "grid"
+                        ? "bg-emerald-500 text-white"
+                        : "text-gray-600"
+                    }`}
+                  >
+                    <Grid3x3 className="h-5 w-5" />
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => setViewMode("list")}
+                    className={`h-12 px-3 rounded-none border-l-2 border-gray-200 ${
+                      viewMode === "list"
+                        ? "bg-emerald-500 text-white"
+                        : "text-gray-600"
+                    }`}
+                  >
+                    <List className="h-5 w-5" />
+                  </Button>
+                </div>
               </div>
             </div>
           </div>
 
-          {/* Mobile Product Grid */}
+          {/* Mobile Product Grid/List */}
           <div className="p-4">
             {filteredProducts.length === 0 ? (
               <div className="text-center py-20">
@@ -887,7 +1013,7 @@ const POSPage = () => {
                 </div>
                 <p className="text-gray-500 font-medium">No products found</p>
               </div>
-            ) : (
+            ) : viewMode === "grid" ? (
               <div className="grid grid-cols-2 gap-3">
                 {filteredProducts.map((product) => {
                   const inCart = cart.find(
@@ -935,6 +1061,70 @@ const POSPage = () => {
                         <p className="text-lg font-bold text-emerald-600">
                           ₱{product.price.toFixed(2)}
                         </p>
+                      </div>
+
+                      {isLoading && (
+                        <div className="absolute inset-0 bg-white/80 rounded-xl flex items-center justify-center">
+                          <Loader2 className="h-6 w-6 animate-spin text-emerald-600" />
+                        </div>
+                      )}
+                    </motion.div>
+                  );
+                })}
+              </div>
+            ) : (
+              <div className="space-y-3">
+                {filteredProducts.map((product) => {
+                  const inCart = cart.find(
+                    (item) => item.product.id === product.id,
+                  );
+                  const isLoading = loadingProductId === product.id;
+
+                  return (
+                    <motion.div
+                      key={product.id}
+                      whileTap={{ scale: 0.98 }}
+                      onClick={() => !isLoading && addToCart(product)}
+                      className={`relative p-4 rounded-xl border-2 transition-all ${
+                        inCart
+                          ? "border-emerald-500 bg-emerald-50 shadow-md"
+                          : "border-gray-200 bg-white active:border-emerald-300"
+                      }`}
+                    >
+                      <div className="flex items-center gap-3">
+                        {inCart && (
+                          <div className="h-8 w-8 rounded-full bg-emerald-500 flex items-center justify-center flex-shrink-0">
+                            <Check className="h-4 w-4 text-white" />
+                          </div>
+                        )}
+
+                        <div className="flex-1 min-w-0">
+                          <h3 className="font-bold text-gray-800 text-sm mb-1 truncate">
+                            {product.name}
+                          </h3>
+                          <p className="text-xs text-gray-500">{product.sku}</p>
+                        </div>
+
+                        <div className="flex items-center gap-4 flex-shrink-0">
+                          <div className="text-center">
+                            <p className="text-xs text-gray-500 mb-1">Stock</p>
+                            <p
+                              className={`text-sm font-semibold ${
+                                product.currentStock <= 10
+                                  ? "text-orange-600"
+                                  : "text-gray-700"
+                              }`}
+                            >
+                              {product.currentStock}
+                            </p>
+                          </div>
+
+                          <div className="text-right">
+                            <p className="text-lg font-bold text-emerald-600">
+                              ₱{product.price.toFixed(2)}
+                            </p>
+                          </div>
+                        </div>
                       </div>
 
                       {isLoading && (

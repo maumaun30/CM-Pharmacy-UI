@@ -20,7 +20,7 @@ export default function LoginPage() {
 
   useEffect(() => {
     verifyToken().then((valid) => {
-      if (valid) router.replace("/pos");
+      if (valid) router.replace("/");
     });
   }, [router]);
 
@@ -33,7 +33,7 @@ export default function LoginPage() {
     try {
       const res = await axios.post("/auth/login", { username, password });
       localStorage.setItem("token", res.data.token);
-      router.push("/pos");
+      router.push("/");
     } catch (err: any) {
       setError(err.response?.data?.message || "Login failed");
     } finally {
