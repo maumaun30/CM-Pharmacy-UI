@@ -741,14 +741,14 @@ const POSPage = () => {
     <ProtectedRoute>
       <div className="min-h-screen bg-gradient-to-br from-emerald-50 via-white to-green-50">
         {/* Desktop Layout */}
-        <div className="hidden md:grid md:grid-cols-3 gap-0 h-screen">
+        <div className="hidden md:grid md:grid-cols-3 gap-0 h-screen pb-16">
           {/* Product List - Desktop */}
           <div className="md:col-span-2 overflow-auto border-r border-emerald-200">
             {/* Header Section */}
             <div className="sticky top-0 bg-white z-20 border-b border-emerald-200 shadow-sm">
               <div className="p-4 space-y-3">
                 {/* Branch Info */}
-                {activeBranch && (
+                {/* {activeBranch && (
                   <Card className="p-3 bg-gradient-to-r from-emerald-500 to-green-600 border-0 shadow-md">
                     <div className="flex items-center gap-2">
                       <div className="h-8 w-8 rounded-full bg-white/20 flex items-center justify-center">
@@ -764,7 +764,7 @@ const POSPage = () => {
                       </div>
                     </div>
                   </Card>
-                )}
+                )} */}
 
                 {/* Barcode Indicator */}
                 {barcodeInput && (
@@ -870,7 +870,7 @@ const POSPage = () => {
             </div>
 
             {/* Cart Items */}
-            <div className="flex-1 overflow-auto">
+            <div className="flex-auto h-0 overflow-auto">
               {cart.length === 0 ? (
                 <div className="flex flex-col items-center justify-center h-full p-8 text-center">
                   <div className="h-20 w-20 rounded-full bg-emerald-50 flex items-center justify-center mb-4">
@@ -930,7 +930,7 @@ const POSPage = () => {
           {/* Mobile Header */}
           <div className="sticky top-0 bg-white z-20 border-b border-emerald-200 shadow-sm">
             <div className="p-4 space-y-3">
-              {activeBranch && (
+              {/* {activeBranch && (
                 <Card className="p-3 bg-gradient-to-r from-emerald-500 to-green-600 border-0 shadow-md">
                   <div className="flex items-center gap-2">
                     <div className="h-8 w-8 rounded-full bg-white/20 flex items-center justify-center">
@@ -946,7 +946,7 @@ const POSPage = () => {
                     </div>
                   </div>
                 </Card>
-              )}
+              )} */}
 
               {barcodeInput && (
                 <motion.div
@@ -1144,7 +1144,7 @@ const POSPage = () => {
             <motion.div
               initial={{ scale: 0 }}
               animate={{ scale: 1 }}
-              className="fixed bottom-6 right-6 z-30"
+              className="fixed bottom-20 right-6 z-30"
             >
               <Button
                 onClick={() => setMobileCartVisible(true)}
@@ -1177,7 +1177,7 @@ const POSPage = () => {
                   animate={{ y: 0 }}
                   exit={{ y: "100%" }}
                   transition={{ type: "spring", damping: 30, stiffness: 300 }}
-                  className="fixed bottom-0 left-0 right-0 bg-white z-50 rounded-t-3xl shadow-2xl max-h-[85vh] flex flex-col"
+                  className="fixed bottom-0 left-0 right-0 bg-white z-50 rounded-t-3xl shadow-2xl max-h-[85vh] flex flex-col pb-20"
                 >
                   {/* Drawer Handle */}
                   <div className="flex justify-center pt-3 pb-2">
