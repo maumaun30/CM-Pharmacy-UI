@@ -21,6 +21,7 @@ import {
   Check,
   Grid3x3,
   List,
+  RefreshCw,
 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { useMediaQuery } from "@/hooks/useMediaQuery";
@@ -35,6 +36,7 @@ import {
 } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
+import { io, Socket } from "socket.io-client";
 
 interface Product {
   id: number;
@@ -118,6 +120,10 @@ const POSPage = () => {
   const [searchQuery, setSearchQuery] = useState("");
   const [viewMode, setViewMode] = useState<ViewMode>("grid");
 
+  // Socket.io state
+  const socketRef = useRef<Socket | null>(null);
+  const [isConnected, setIsConnected] = useState(false);
+
   // Barcode scanner state
   const [barcodeInput, setBarcodeInput] = useState("");
   const barcodeTimeoutRef = useRef<NodeJS.Timeout | null>(null);
@@ -160,6 +166,117 @@ const POSPage = () => {
       fetchDiscounts();
     }
   }, [currentUser]);
+
+  // ✨ REAL-TIME: Initialize Socket.io connection
+  useEffect(() => {
+    if (!currentUser || !activeBranch) return;
+
+    // Get the API base URL (without /api)
+    const baseURL =
+      api.defaults.baseURL?.replace("/api", "") || "http://localhost:5000";
+
+    // Initialize Socket.io connection
+    const socket = io(baseURL, {
+      auth: {
+        token: localStorage.getItem("token"),
+      },
+      reconnection: true,
+      reconnectionDelay: 1000,
+      reconnectionAttempts: 5,
+    });
+
+    socketRef.current = socket;
+
+    // Connection event handlers
+    socket.on("connect", () => {
+      console.log("✅ Socket.io connected");
+      setIsConnected(true);
+
+      // Join branch room for targeted updates
+      socket.emit("join-branch", activeBranch.id);
+    });
+
+    socket.on("disconnect", () => {
+      console.log("❌ Socket.io disconnected");
+      setIsConnected(false);
+    });
+
+    socket.on("connect_error", (error) => {
+      console.error("Socket connection error:", error);
+      setIsConnected(false);
+    });
+
+    // ✨ REAL-TIME: Listen for stock updates
+    socket.on(
+      "stock-updated",
+      (data: { productId: number; newStock: number }) => {
+        console.log("📦 Stock update received:", data);
+
+        setProducts((prevProducts) =>
+          prevProducts.map((product) =>
+            product.id === data.productId
+              ? { ...product, currentStock: data.newStock }
+              : product,
+          ),
+        );
+
+        // Update cart if the product exists there
+        setCart((prevCart) =>
+          prevCart.map((item) => {
+            if (item.product.id === data.productId) {
+              // If cart quantity exceeds new stock, adjust it
+              if (item.quantity > data.newStock) {
+                toast.warning(
+                  `${item.product.name} stock updated. Quantity adjusted to ${data.newStock}`,
+                  { duration: 4000 },
+                );
+                return {
+                  ...item,
+                  quantity: Math.max(0, data.newStock),
+                  product: { ...item.product, currentStock: data.newStock },
+                };
+              }
+              return {
+                ...item,
+                product: { ...item.product, currentStock: data.newStock },
+              };
+            }
+            return item;
+          }),
+        );
+
+        // Show toast notification for stock updates
+        const product = products.find((p) => p.id === data.productId);
+        if (product) {
+          toast.info(`${product.name} stock updated: ${data.newStock}`, {
+            icon: <RefreshCw className="h-4 w-4" />,
+            duration: 3000,
+          });
+        }
+      },
+    );
+
+    // ✨ REAL-TIME: Listen for new sales (from other POS terminals)
+    socket.on("new-sale", (sale: any) => {
+      console.log("🛒 New sale detected:", sale);
+      // Refresh products to get updated stock levels
+      fetchProducts();
+    });
+
+    // ✨ REAL-TIME: Listen for dashboard refresh events
+    socket.on("dashboard-refresh", () => {
+      console.log("📊 Dashboard refresh triggered");
+      fetchProducts();
+    });
+
+    // Cleanup on unmount
+    return () => {
+      if (socket) {
+        socket.emit("leave-branch", activeBranch.id);
+        socket.disconnect();
+      }
+    };
+  }, [currentUser, activeBranch]);
 
   // Barcode scanner listener
   useEffect(() => {
@@ -525,6 +642,15 @@ const POSPage = () => {
             {item.product.name}
           </p>
           <p className="text-xs text-gray-500">SKU: {item.product.sku}</p>
+          <p
+            className={`text-xs mt-1 ${
+              item.product.currentStock <= 10
+                ? "text-orange-600 font-semibold"
+                : "text-gray-500"
+            }`}
+          >
+            Stock: {item.product.currentStock}
+          </p>
         </div>
         <Button
           variant="ghost"
@@ -585,6 +711,7 @@ const POSPage = () => {
                 Math.min(item.product.currentStock, item.quantity + 1),
               )
             }
+            disabled={item.quantity >= item.product.currentStock} // ✅ ADD THIS LINE
           >
             <Plus className="h-3 w-3" />
           </Button>
@@ -640,9 +767,7 @@ const POSPage = () => {
             <p className="text-xs text-gray-500 mb-1">Stock</p>
             <p
               className={`text-sm font-semibold ${
-                product.currentStock <= 10
-                  ? "text-orange-600"
-                  : "text-gray-700"
+                product.currentStock <= 10 ? "text-orange-600" : "text-gray-700"
               }`}
             >
               {product.currentStock}
@@ -741,14 +866,14 @@ const POSPage = () => {
     <ProtectedRoute>
       <div className="min-h-screen bg-gradient-to-br from-emerald-50 via-white to-green-50">
         {/* Desktop Layout */}
-        <div className="hidden md:grid md:grid-cols-3 gap-0 h-screen">
+        <div className="hidden md:grid md:grid-cols-3 gap-0 h-screen pb-16">
           {/* Product List - Desktop */}
           <div className="md:col-span-2 overflow-auto border-r border-emerald-200">
             {/* Header Section */}
             <div className="sticky top-0 bg-white z-20 border-b border-emerald-200 shadow-sm">
               <div className="p-4 space-y-3">
                 {/* Branch Info */}
-                {activeBranch && (
+                {/* {activeBranch && (
                   <Card className="p-3 bg-gradient-to-r from-emerald-500 to-green-600 border-0 shadow-md">
                     <div className="flex items-center gap-2">
                       <div className="h-8 w-8 rounded-full bg-white/20 flex items-center justify-center">
@@ -764,7 +889,7 @@ const POSPage = () => {
                       </div>
                     </div>
                   </Card>
-                )}
+                )} */}
 
                 {/* Barcode Indicator */}
                 {barcodeInput && (
@@ -853,7 +978,7 @@ const POSPage = () => {
           </div>
 
           {/* Cart Sidebar - Desktop */}
-          <div className="flex flex-col bg-white border-l border-emerald-200">
+          <div className="flex flex-col bg-white border-l border-emerald-200 pb-5">
             {/* Cart Header */}
             <div className="p-4 border-b border-emerald-200 bg-gradient-to-r from-emerald-50 to-green-50">
               <div className="flex items-center gap-3">
@@ -870,7 +995,7 @@ const POSPage = () => {
             </div>
 
             {/* Cart Items */}
-            <div className="flex-1 overflow-auto">
+            <div className="flex-auto h-0 overflow-auto">
               {cart.length === 0 ? (
                 <div className="flex flex-col items-center justify-center h-full p-8 text-center">
                   <div className="h-20 w-20 rounded-full bg-emerald-50 flex items-center justify-center mb-4">
@@ -909,9 +1034,7 @@ const POSPage = () => {
                 )}
                 <div className="flex justify-between text-xl font-bold text-gray-800 pt-2 border-t border-emerald-100">
                   <span>Total</span>
-                  <span className="text-emerald-600">
-                    ₱{total.toFixed(2)}
-                  </span>
+                  <span className="text-emerald-600">₱{total.toFixed(2)}</span>
                 </div>
                 <Button
                   onClick={handleCheckoutClick}
@@ -930,7 +1053,7 @@ const POSPage = () => {
           {/* Mobile Header */}
           <div className="sticky top-0 bg-white z-20 border-b border-emerald-200 shadow-sm">
             <div className="p-4 space-y-3">
-              {activeBranch && (
+              {/* {activeBranch && (
                 <Card className="p-3 bg-gradient-to-r from-emerald-500 to-green-600 border-0 shadow-md">
                   <div className="flex items-center gap-2">
                     <div className="h-8 w-8 rounded-full bg-white/20 flex items-center justify-center">
@@ -946,7 +1069,7 @@ const POSPage = () => {
                     </div>
                   </div>
                 </Card>
-              )}
+              )} */}
 
               {barcodeInput && (
                 <motion.div
@@ -1144,7 +1267,7 @@ const POSPage = () => {
             <motion.div
               initial={{ scale: 0 }}
               animate={{ scale: 1 }}
-              className="fixed bottom-6 right-6 z-30"
+              className="fixed bottom-20 right-6 z-30"
             >
               <Button
                 onClick={() => setMobileCartVisible(true)}
@@ -1177,7 +1300,7 @@ const POSPage = () => {
                   animate={{ y: 0 }}
                   exit={{ y: "100%" }}
                   transition={{ type: "spring", damping: 30, stiffness: 300 }}
-                  className="fixed bottom-0 left-0 right-0 bg-white z-50 rounded-t-3xl shadow-2xl max-h-[85vh] flex flex-col"
+                  className="fixed bottom-0 left-0 right-0 bg-white z-50 rounded-t-3xl shadow-2xl max-h-[85vh] flex flex-col pb-20"
                 >
                   {/* Drawer Handle */}
                   <div className="flex justify-center pt-3 pb-2">
@@ -1450,9 +1573,7 @@ const POSPage = () => {
                 </Label>
                 <div
                   className={`text-3xl font-bold ${
-                    calculateChange() < 0
-                      ? "text-red-600"
-                      : "text-emerald-600"
+                    calculateChange() < 0 ? "text-red-600" : "text-emerald-600"
                   }`}
                 >
                   ₱{Math.abs(calculateChange()).toFixed(2)}
@@ -1539,9 +1660,9 @@ const POSPage = () => {
                         </p>
                         <p className="text-sm text-gray-600">
                           {item.quantity} × ₱
-                          {(
-                            item.discountedPrice ?? item.product.price
-                          ).toFixed(2)}
+                          {(item.discountedPrice ?? item.product.price).toFixed(
+                            2,
+                          )}
                         </p>
                       </div>
                       <p className="font-bold text-gray-800">

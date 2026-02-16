@@ -148,9 +148,9 @@ export default function BranchSwitcher() {
                     >
                       {branch.code}
                     </Badge>
-                    {branch.id === activeBranchId && (
+                    {/* {branch.id === activeBranchId && (
                       <Check className="h-4 w-4 text-emerald-600" />
-                    )}
+                    )} */}
                   </div>
                 </div>
               </SelectItem>

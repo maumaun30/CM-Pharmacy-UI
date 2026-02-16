@@ -30,7 +30,7 @@ export default function ProtectedRoute({
   return (
     <>
       <main className="relative">
-        <section className="h-full max-w-7xl m-auto pb-16">{children}</section>
+        <section className="h-full max-w-7xl m-auto">{children}</section>
       </main>
       <Navbar />
     </>
