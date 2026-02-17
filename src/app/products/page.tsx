@@ -43,6 +43,8 @@ import {
   DollarSign,
   ShoppingBag,
   TrendingUp,
+  Building2,
+  ArrowRightLeft,
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import Link from "next/link";
@@ -54,6 +56,22 @@ interface Category {
   name: string;
 }
 
+interface Branch {
+  id: number;
+  name: string;
+  code: string;
+}
+
+interface BranchStock {
+  id: number;
+  branchId: number;
+  currentStock: number;
+  minimumStock: number;
+  maximumStock?: number;
+  reorderPoint: number;
+  branch: Branch;
+}
+
 interface Product {
   id: number;
   name: string;
@@ -62,10 +80,6 @@ interface Product {
   sku: string;
   cost: number;
   price: number;
-  currentStock: number;
-  minimumStock: number;
-  maximumStock?: number;
-  reorderPoint: number;
   dosage?: string;
   form?: string;
   expiryDate?: string;
@@ -73,14 +87,17 @@ interface Product {
   status: "ACTIVE" | "INACTIVE";
   categoryId: number;
   category: Category;
+  branchStocks: BranchStock[];
+  totalStock: number;
   marginPercentage?: number;
   marginAmount?: number;
-  stockStatus?: string;
 }
 
 export default function ProductList() {
   const [products, setProducts] = useState<Product[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
+  const [branches, setBranches] = useState<Branch[]>([]);
+  const [selectedBranch, setSelectedBranch] = useState<number | null>(null);
   const [modalOpen, setModalOpen] = useState(false);
   const [editingProduct, setEditingProduct] = useState<Product | null>(null);
   const [formData, setFormData] = useState({
@@ -90,9 +107,6 @@ export default function ProductList() {
     sku: "",
     cost: "",
     price: "",
-    minimumStock: "10",
-    maximumStock: "",
-    reorderPoint: "20",
     dosage: "",
     form: "",
     expiryDate: "",
@@ -112,18 +126,23 @@ export default function ProductList() {
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [productToDelete, setProductToDelete] = useState<Product | null>(null);
 
+  const [stockModalOpen, setStockModalOpen] = useState(false);
+  const [selectedProductForStock, setSelectedProductForStock] = useState<Product | null>(null);
+
   const fetchProducts = async () => {
     try {
       setFetchLoading(true);
-      const res = await api.get("/products");
+      const params: any = {};
+      if (selectedBranch) {
+        params.branchId = selectedBranch;
+      }
+      
+      const res = await api.get("/products", { params });
       const parsed = res.data.map((p: any) => ({
         ...p,
         cost: parseFloat(p.cost),
         price: parseFloat(p.price),
-        currentStock: parseInt(p.currentStock) || 0,
-        minimumStock: parseInt(p.minimumStock) || 10,
-        maximumStock: p.maximumStock ? parseInt(p.maximumStock) : null,
-        reorderPoint: parseInt(p.reorderPoint) || 20,
+        totalStock: p.totalStock || 0,
         requiresPrescription: Boolean(p.requiresPrescription),
       }));
       setProducts(parsed);
@@ -143,10 +162,20 @@ export default function ProductList() {
     }
   };
 
+  const fetchBranches = async () => {
+    try {
+      const res = await api.get("/branches");
+      setBranches(res.data);
+    } catch {
+      toast.error("Failed to load branches");
+    }
+  };
+
   useEffect(() => {
     fetchProducts();
     fetchCategories();
-  }, []);
+    fetchBranches();
+  }, [selectedBranch]);
 
   const handleOpenModal = (product?: Product) => {
     if (product) {
@@ -158,9 +187,6 @@ export default function ProductList() {
         sku: product.sku,
         cost: product.cost.toString(),
         price: product.price.toString(),
-        minimumStock: product.minimumStock?.toString() || "10",
-        maximumStock: product.maximumStock?.toString() || "",
-        reorderPoint: product.reorderPoint?.toString() || "20",
         dosage: product.dosage || "",
         form: product.form || "",
         expiryDate: product.expiryDate
@@ -179,9 +205,6 @@ export default function ProductList() {
         sku: "",
         cost: "",
         price: "",
-        minimumStock: "10",
-        maximumStock: "",
-        reorderPoint: "20",
         dosage: "",
         form: "",
         expiryDate: "",
@@ -206,9 +229,6 @@ export default function ProductList() {
       sku,
       cost,
       price,
-      minimumStock,
-      maximumStock,
-      reorderPoint,
       dosage,
       form,
       expiryDate,
@@ -232,9 +252,6 @@ export default function ProductList() {
         sku,
         cost: parseFloat(cost),
         price: parseFloat(price),
-        minimumStock: parseInt(minimumStock),
-        maximumStock: maximumStock ? parseInt(maximumStock) : null,
-        reorderPoint: parseInt(reorderPoint),
         dosage: dosage || null,
         form: form || null,
         expiryDate: expiryDate || null,
@@ -293,10 +310,43 @@ export default function ProductList() {
     return ((price - cost) / cost) * 100;
   };
 
-  const getStockStatus = (product: Product) => {
-    const stock = product.currentStock || 0;
-    const reorder = product.reorderPoint || 20;
-    const minimum = product.minimumStock || 10;
+  const getStockForBranch = (product: Product, branchId: number | null) => {
+    if (!branchId) {
+      return product.totalStock || 0;
+    }
+    const branchStock = product.branchStocks?.find(
+      (bs) => bs.branchId === branchId,
+    );
+    return branchStock?.currentStock || 0;
+  };
+
+  const getStockStatus = (product: Product, branchId: number | null) => {
+    if (!branchId) {
+      // Overall stock status
+      const totalStock = product.totalStock || 0;
+      if (totalStock === 0) {
+        return { label: "Out of Stock", color: "bg-red-100 text-red-800 border-red-200" };
+      }
+      // Check if any branch is low
+      const hasLowStock = product.branchStocks?.some(
+        (bs) => bs.currentStock > 0 && bs.currentStock <= bs.reorderPoint,
+      );
+      if (hasLowStock) {
+        return { label: "Low in Some Branches", color: "bg-yellow-100 text-yellow-800 border-yellow-200" };
+      }
+      return { label: "In Stock", color: "bg-emerald-100 text-emerald-800 border-emerald-200" };
+    }
+
+    const branchStock = product.branchStocks?.find(
+      (bs) => bs.branchId === branchId,
+    );
+    if (!branchStock) {
+      return { label: "Not Available", color: "bg-gray-100 text-gray-800 border-gray-200" };
+    }
+
+    const stock = branchStock.currentStock || 0;
+    const reorder = branchStock.reorderPoint || 20;
+    const minimum = branchStock.minimumStock || 10;
 
     if (stock === 0) {
       return { label: "Out of Stock", color: "bg-red-100 text-red-800 border-red-200" };
@@ -362,13 +412,23 @@ export default function ProductList() {
   };
 
   const activeCount = products.filter((p) => p.status === "ACTIVE").length;
-  const lowStockCount = products.filter(
-    (p) => p.currentStock <= p.reorderPoint,
-  ).length;
-  const totalValue = products.reduce(
-    (sum, p) => sum + p.price * p.currentStock,
-    0,
-  );
+  const lowStockCount = selectedBranch
+    ? products.filter((p) => {
+        const branchStock = p.branchStocks?.find(
+          (bs) => bs.branchId === selectedBranch,
+        );
+        return branchStock && branchStock.currentStock <= branchStock.reorderPoint;
+      }).length
+    : products.filter((p) =>
+        p.branchStocks?.some((bs) => bs.currentStock <= bs.reorderPoint),
+      ).length;
+
+  const totalValue = products.reduce((sum, p) => {
+    const stock = selectedBranch
+      ? getStockForBranch(p, selectedBranch)
+      : p.totalStock;
+    return sum + p.price * stock;
+  }, 0);
 
   if (fetchLoading) {
     return (
@@ -402,7 +462,7 @@ export default function ProductList() {
                   Products
                 </h1>
                 <p className="text-sm text-gray-600">
-                  Manage your product inventory and pricing
+                  Manage your product inventory across branches
                 </p>
               </div>
             </div>
@@ -424,6 +484,35 @@ export default function ProductList() {
                 Add Product
               </Button>
             </div>
+          </motion.div>
+
+          {/* Branch Filter */}
+          <motion.div
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ delay: 0.05 }}
+          >
+            <Card className="p-4 border-2 border-emerald-100">
+              <div className="flex items-center gap-3">
+                <Building2 className="h-5 w-5 text-emerald-600" />
+                <Label className="font-semibold text-gray-700">Filter by Branch:</Label>
+                <select
+                  value={selectedBranch || ""}
+                  onChange={(e) => {
+                    setSelectedBranch(e.target.value ? Number(e.target.value) : null);
+                    setPage(1);
+                  }}
+                  className="border-2 border-emerald-200 rounded-lg px-3 py-2 text-sm font-medium focus:border-emerald-500 focus:ring-2 focus:ring-emerald-200 outline-none"
+                >
+                  <option value="">All Branches</option>
+                  {branches.map((branch) => (
+                    <option key={branch.id} value={branch.id}>
+                      {branch.name} ({branch.code})
+                    </option>
+                  ))}
+                </select>
+              </div>
+            </Card>
           </motion.div>
 
           {/* Stats Cards */}
@@ -585,9 +674,6 @@ export default function ProductList() {
                           { key: "cost", label: "Cost" },
                           { key: "price", label: "Price" },
                           { key: "margin", label: "Margin %" },
-                          { key: "currentStock", label: "Stock" },
-                          { key: "stockStatus", label: "Stock Status" },
-                          { key: "status", label: "Status" },
                         ].map((col) => (
                           <TableHead
                             key={col.key}
@@ -605,6 +691,15 @@ export default function ProductList() {
                             </div>
                           </TableHead>
                         ))}
+                        <TableHead className="font-bold text-gray-800">
+                          Stock
+                        </TableHead>
+                        <TableHead className="font-bold text-gray-800">
+                          Stock Status
+                        </TableHead>
+                        <TableHead className="font-bold text-gray-800">
+                          Status
+                        </TableHead>
                         <TableHead className="text-center font-bold text-gray-800">
                           Actions
                         </TableHead>
@@ -620,7 +715,8 @@ export default function ProductList() {
                               ? "text-amber-600"
                               : "text-emerald-600";
 
-                        const stockStatus = getStockStatus(prod);
+                        const stock = getStockForBranch(prod, selectedBranch);
+                        const stockStatus = getStockStatus(prod, selectedBranch);
                         const expiringSoon = isExpiringSoon(prod.expiryDate);
                         const expired = isExpired(prod.expiryDate);
 
@@ -702,10 +798,21 @@ export default function ProductList() {
                             <TableCell>
                               <div className="flex items-center gap-2">
                                 <span className="font-bold text-gray-800">
-                                  {prod.currentStock}
+                                  {stock}
                                 </span>
-                                {prod.currentStock <= prod.minimumStock && (
-                                  <AlertTriangle className="h-4 w-4 text-orange-500" />
+                                {!selectedBranch && (
+                                  <Button
+                                    variant="ghost"
+                                    size="sm"
+                                    onClick={() => {
+                                      setSelectedProductForStock(prod);
+                                      setStockModalOpen(true);
+                                    }}
+                                    className="h-6 px-2 text-xs hover:bg-emerald-50"
+                                  >
+                                    <Building2 className="h-3 w-3 mr-1" />
+                                    View by Branch
+                                  </Button>
                                 )}
                               </div>
                             </TableCell>
@@ -999,65 +1106,6 @@ export default function ProductList() {
                 )}
               </div>
 
-              {/* Inventory */}
-              <div className="space-y-4">
-                <div className="flex items-center gap-2 pb-2 border-b-2 border-emerald-100">
-                  <Package className="h-5 w-5 text-emerald-600" />
-                  <h3 className="font-bold text-gray-800">Inventory Levels</h3>
-                </div>
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-                  <div>
-                    <Label className="mb-2 text-sm font-semibold text-gray-700">
-                      Minimum Stock
-                    </Label>
-                    <Input
-                      type="number"
-                      value={formData.minimumStock}
-                      onChange={(e) =>
-                        setFormData({
-                          ...formData,
-                          minimumStock: e.target.value,
-                        })
-                      }
-                      className="h-11 border-emerald-200 focus:border-emerald-500 focus:ring-2 focus:ring-emerald-200"
-                    />
-                  </div>
-                  <div>
-                    <Label className="mb-2 text-sm font-semibold text-gray-700">
-                      Reorder Point
-                    </Label>
-                    <Input
-                      type="number"
-                      value={formData.reorderPoint}
-                      onChange={(e) =>
-                        setFormData({
-                          ...formData,
-                          reorderPoint: e.target.value,
-                        })
-                      }
-                      className="h-11 border-emerald-200 focus:border-emerald-500 focus:ring-2 focus:ring-emerald-200"
-                    />
-                  </div>
-                  <div>
-                    <Label className="mb-2 text-sm font-semibold text-gray-700">
-                      Maximum Stock
-                    </Label>
-                    <Input
-                      type="number"
-                      value={formData.maximumStock}
-                      onChange={(e) =>
-                        setFormData({
-                          ...formData,
-                          maximumStock: e.target.value,
-                        })
-                      }
-                      placeholder="Optional"
-                      className="h-11 border-emerald-200 focus:border-emerald-500 focus:ring-2 focus:ring-emerald-200"
-                    />
-                  </div>
-                </div>
-              </div>
-
               {/* Additional Info */}
               <div className="space-y-4">
                 <div className="flex items-center gap-2 pb-2 border-b-2 border-emerald-100">
@@ -1173,6 +1221,79 @@ export default function ProductList() {
           </DialogContent>
         </Dialog>
 
+        {/* Stock by Branch Modal */}
+        <Dialog open={stockModalOpen} onOpenChange={setStockModalOpen}>
+          <DialogContent className="sm:max-w-2xl bg-white">
+            <DialogHeader>
+              <DialogTitle className="text-2xl font-bold text-gray-800 flex items-center gap-2">
+                <Building2 className="h-6 w-6 text-emerald-600" />
+                Stock by Branch - {selectedProductForStock?.name}
+              </DialogTitle>
+            </DialogHeader>
+
+            <div className="py-4 space-y-3">
+              {selectedProductForStock?.branchStocks && selectedProductForStock.branchStocks.length > 0 ? (
+                selectedProductForStock.branchStocks.map((bs) => {
+                  const stockStatus = bs.currentStock === 0
+                    ? { label: "Out of Stock", color: "bg-red-100 text-red-800" }
+                    : bs.currentStock <= bs.minimumStock
+                    ? { label: "Critical", color: "bg-orange-100 text-orange-800" }
+                    : bs.currentStock <= bs.reorderPoint
+                    ? { label: "Low Stock", color: "bg-yellow-100 text-yellow-800" }
+                    : { label: "In Stock", color: "bg-emerald-100 text-emerald-800" };
+
+                  return (
+                    <Card key={bs.id} className="p-4 border-2 border-emerald-100 hover:border-emerald-300 transition-all">
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-3">
+                          <div className="h-10 w-10 rounded-lg bg-emerald-50 flex items-center justify-center">
+                            <Building2 className="h-5 w-5 text-emerald-600" />
+                          </div>
+                          <div>
+                            <p className="font-bold text-gray-800">
+                              {bs.branch.name}
+                            </p>
+                            <p className="text-sm text-gray-600">
+                              Code: {bs.branch.code}
+                            </p>
+                          </div>
+                        </div>
+                        <div className="flex items-center gap-4">
+                          <div className="text-right">
+                            <p className="text-2xl font-bold text-gray-800">
+                              {bs.currentStock}
+                            </p>
+                            <p className="text-xs text-gray-600">
+                              Reorder at: {bs.reorderPoint}
+                            </p>
+                          </div>
+                          <Badge variant="outline" className={stockStatus.color}>
+                            {stockStatus.label}
+                          </Badge>
+                        </div>
+                      </div>
+                    </Card>
+                  );
+                })
+              ) : (
+                <div className="text-center py-8 text-gray-600">
+                  No branch stock data available
+                </div>
+              )}
+            </div>
+
+            <DialogFooter>
+              <Button
+                variant="outline"
+                onClick={() => setStockModalOpen(false)}
+                className="border-gray-300"
+              >
+                Close
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+
         {/* Delete Dialog */}
         <Dialog open={deleteOpen} onOpenChange={setDeleteOpen}>
           <DialogContent className="sm:max-w-md bg-white">
@@ -1195,8 +1316,7 @@ export default function ProductList() {
                 <div className="flex items-start gap-2 text-sm text-red-800">
                   <AlertCircle className="h-4 w-4 flex-shrink-0 mt-0.5" />
                   <span>
-                    This action cannot be undone. This product will be permanently
-                    removed from the system.
+                    This action cannot be undone. This will delete the product and all its branch stock records.
                   </span>
                 </div>
               </div>
