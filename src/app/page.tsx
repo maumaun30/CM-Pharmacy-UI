@@ -102,7 +102,7 @@ const HomePage = () => {
 
     return () => {
       if (socketRef.current) {
-        console.log("Cleaning up socket connection");
+        // console.log("Cleaning up socket connection");
         socketRef.current.disconnect();
         socketRef.current = null;
       }
@@ -111,7 +111,7 @@ const HomePage = () => {
 
   const initializeSocket = () => {
     if (socketRef.current) {
-      console.log("Socket already initialized");
+      // console.log("Socket already initialized");
       return;
     }
 
@@ -126,11 +126,11 @@ const HomePage = () => {
     });
 
     newSocket.on("connect", () => {
-      console.log("✅ Socket connected:", newSocket.id);
+      // console.log("✅ Socket connected:", newSocket.id);
       setIsConnected(true);
-      toast.success("Real-time updates connected", {
-        icon: <Wifi className="h-4 w-4" />,
-      });
+      // toast.success("Real-time updates connected", {
+      //   icon: <Wifi className="h-4 w-4" />,
+      // });
 
       // Join branch-specific room
       if (currentUser) {
@@ -138,7 +138,7 @@ const HomePage = () => {
           currentUser.role === "admin" && !currentUser.currentBranchId;
         
         if (isViewingAllBranches) {
-          console.log("Admin viewing all branches - joining admin-all room");
+          // console.log("Admin viewing all branches - joining admin-all room");
           newSocket.emit("join-branch", null);
         } else {
           const branchId = currentUser.currentBranchId || currentUser.branchId;
@@ -154,16 +154,16 @@ const HomePage = () => {
     });
 
     newSocket.on("disconnect", (reason) => {
-      console.log("Socket disconnected:", reason);
+      // console.log("Socket disconnected:", reason);
       setIsConnected(false);
-      toast.error("Real-time updates disconnected", {
-        icon: <WifiOff className="h-4 w-4" />,
-      });
+      // toast.error("Real-time updates disconnected", {
+      //   icon: <WifiOff className="h-4 w-4" />,
+      // });
     });
 
     // Listen for new sales
     newSocket.on("sale:new", (saleData) => {
-      console.log("🛒 New sale received:", saleData);
+      // console.log("🛒 New sale received:", saleData);
       
       // Trigger animation
       setNewSaleAnimation(true);
@@ -202,13 +202,13 @@ const HomePage = () => {
 
     // Listen for stock updates
     newSocket.on("stock:update", (stockData) => {
-      console.log("📦 Stock update received:", stockData);
+      // console.log("📦 Stock update received:", stockData);
       fetchDashboardStats();
     });
 
     // Listen for low stock alerts
     newSocket.on("stock:low-alert", (productData) => {
-      console.log("⚠️ Low stock alert:", productData);
+      // console.log("⚠️ Low stock alert:", productData);
       toast.warning(
         `Low stock alert: ${productData.name} (${productData.currentStock} remaining)`,
         {
@@ -221,7 +221,7 @@ const HomePage = () => {
 
     // Listen for dashboard refresh requests
     newSocket.on("dashboard:refresh", () => {
-      console.log("🔄 Dashboard refresh requested");
+      // console.log("🔄 Dashboard refresh requested");
       fetchDashboardStats();
     });
 
@@ -244,7 +244,7 @@ const HomePage = () => {
     try {
       setLoading(true);
       const res = await api.get("/dashboard/stats");
-      console.log("📊 Dashboard stats fetched:", res.data);
+      // console.log("📊 Dashboard stats fetched:", res.data);
       setStats(res.data);
     } catch (error) {
       console.error("Error fetching dashboard stats:", error);

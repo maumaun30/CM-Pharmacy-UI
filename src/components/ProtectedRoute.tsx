@@ -19,14 +19,6 @@ export default function ProtectedRoute({
     }
   }, [loading, user, router]);
 
-  // if (loading || !user)
-  //   return (
-  //     <div className="fixed inset-0 h-full w-full flex items-center justify-center pointer-events-none z-50 gap-1">
-  //       <LoaderCircle className="animate-spin" />
-  //       Loading ...
-  //     </div>
-  //   );
-
   return (
     <>
       <main className="relative">

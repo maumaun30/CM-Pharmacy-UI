@@ -189,15 +189,16 @@ const POSPage = () => {
 
     // Connection event handlers
     socket.on("connect", () => {
-      console.log("✅ Socket.io connected");
+      // console.log("✅ Socket.io connected");
       setIsConnected(true);
 
       // Join branch room for targeted updates
       socket.emit("join-branch", activeBranch.id);
+      // console.log(`🏢 Joined branch room: ${activeBranch.id}`);
     });
 
     socket.on("disconnect", () => {
-      console.log("❌ Socket.io disconnected");
+      // console.log("❌ Socket.io disconnected");
       setIsConnected(false);
     });
 
@@ -209,9 +210,10 @@ const POSPage = () => {
     // ✨ REAL-TIME: Listen for stock updates
     socket.on(
       "stock-updated",
-      (data: { productId: number; newStock: number }) => {
-        console.log("📦 Stock update received:", data);
+      (data: { productId: number; newStock: number; branchId?: number }) => {
+        // console.log("📦 Stock update received:", data);
 
+        // Update products list
         setProducts((prevProducts) =>
           prevProducts.map((product) =>
             product.id === data.productId
@@ -220,11 +222,10 @@ const POSPage = () => {
           ),
         );
 
-        // Update cart if the product exists there
+        // Update cart if product exists there
         setCart((prevCart) =>
           prevCart.map((item) => {
             if (item.product.id === data.productId) {
-              // If cart quantity exceeds new stock, adjust it
               if (item.quantity > data.newStock) {
                 toast.warning(
                   `${item.product.name} stock updated. Quantity adjusted to ${data.newStock}`,
@@ -245,7 +246,7 @@ const POSPage = () => {
           }),
         );
 
-        // Show toast notification for stock updates
+        // Show toast notification
         const product = products.find((p) => p.id === data.productId);
         if (product) {
           toast.info(`${product.name} stock updated: ${data.newStock}`, {
@@ -258,14 +259,14 @@ const POSPage = () => {
 
     // ✨ REAL-TIME: Listen for new sales (from other POS terminals)
     socket.on("new-sale", (sale: any) => {
-      console.log("🛒 New sale detected:", sale);
+      // console.log("🛒 New sale detected:", sale);
       // Refresh products to get updated stock levels
       fetchProducts();
     });
 
     // ✨ REAL-TIME: Listen for dashboard refresh events
     socket.on("dashboard-refresh", () => {
-      console.log("📊 Dashboard refresh triggered");
+      // console.log("📊 Dashboard refresh triggered");
       fetchProducts();
     });
 
@@ -358,12 +359,21 @@ const POSPage = () => {
 
   const fetchProducts = async () => {
     try {
-      const res = await api.get("/products");
-      const parsed = res.data.map((p: any) => ({
-        ...p,
-        price: parseFloat(p.price),
-        currentStock: parseInt(p.currentStock) || 0,
-      }));
+      const branchId = activeBranch?.id || currentUser?.branchId;
+
+      const res = await api.get(`/products?branchId=${branchId}`);
+
+      const parsed = res.data.map((p: any) => {
+        const branchStock = p.branchStocks?.[0];
+        return {
+          ...p,
+          price: parseFloat(p.price) || 0, // ✅ FIX: Convert to number
+          cost: parseFloat(p.cost) || 0,
+          currentStock: branchStock?.currentStock || 0,
+          branchStock: branchStock,
+        };
+      });
+
       setProducts(parsed);
     } catch (err) {
       toast.error("Failed to fetch products");
