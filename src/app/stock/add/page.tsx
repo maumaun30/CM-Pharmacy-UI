@@ -33,13 +33,20 @@ import {
   FileText,
   CheckCircle2,
   PackagePlus,
+  Upload,
+  AlertCircle,
+  X,
+  ChevronDown,
+  ChevronUp,
 } from "lucide-react";
-import { motion } from "framer-motion";
+import { motion, AnimatePresence } from "framer-motion";
+import { Badge } from "@/components/ui/badge";
 
 interface Product {
   id: number;
   name: string;
   sku: string;
+  barcode?: string;
   currentStock: number;
 }
 
@@ -56,6 +63,16 @@ interface User {
   currentBranchId: number | null;
   branch?: Branch;
   currentBranch?: Branch;
+}
+
+interface ImportPreviewRow {
+  csvName: string;
+  csvSku: string;
+  csvBarcode: string;
+  csvStock: number;
+  matchedProduct: Product | null;
+  matchedBy: "sku" | "barcode" | "name" | null;
+  status: "matched" | "unmatched";
 }
 
 const AddStockForm = () => {
@@ -78,6 +95,12 @@ const AddStockForm = () => {
     transactionType: "PURCHASE",
   });
 
+  // CSV Import state
+  const [importLoading, setImportLoading] = useState(false);
+  const [importPreview, setImportPreview] = useState<ImportPreviewRow[] | null>(null);
+  const [showUnmatched, setShowUnmatched] = useState(false);
+  const [importConfirmLoading, setImportConfirmLoading] = useState(false);
+
   useEffect(() => {
     fetchCurrentUser();
     fetchProducts();
@@ -87,7 +110,6 @@ const AddStockForm = () => {
     try {
       const res = await api.get("/auth/me");
       setCurrentUser(res.data);
-
       const branch = res.data.currentBranch || res.data.branch;
       setActiveBranch(branch);
     } catch (error) {
@@ -98,12 +120,21 @@ const AddStockForm = () => {
     }
   };
 
-  const fetchProducts = async () => {
+  const fetchProducts = async (): Promise<Product[]> => {
     try {
       const res = await api.get("/products");
-      setProducts(res.data);
+      const parsed: Product[] = res.data.map((p: any) => ({
+        id: p.id,
+        name: p.name,
+        sku: p.sku,
+        barcode: p.barcode ?? p.barcode ?? undefined,
+        currentStock: p.totalStock ?? p.currentStock ?? 0,
+      }));
+      setProducts(parsed);
+      return parsed;
     } catch (error) {
       toast.error("Failed to fetch products");
+      return [];
     }
   };
 
@@ -140,6 +171,183 @@ const AddStockForm = () => {
       setLoading(false);
     }
   };
+
+  // --- CSV Import Logic ---
+
+  const parseCSVLine = (line: string): string[] => {
+    const result: string[] = [];
+    let current = "";
+    let inQuotes = false;
+    for (let i = 0; i < line.length; i++) {
+      const char = line[i];
+      if (char === '"') {
+        if (inQuotes && line[i + 1] === '"') {
+          current += '"';
+          i++;
+        } else {
+          inQuotes = !inQuotes;
+        }
+      } else if (char === "," && !inQuotes) {
+        result.push(current.trim());
+        current = "";
+      } else {
+        current += char;
+      }
+    }
+    result.push(current.trim());
+    return result;
+  };
+
+  const handleImportCSV = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    setImportLoading(true);
+    const reader = new FileReader();
+    reader.onload = async (event) => {
+      try {
+        const text = event.target?.result as string;
+        const lines = text.split(/\r?\n/).filter(Boolean);
+
+        const rawHeaders = parseCSVLine(lines[0]);
+        const headers = rawHeaders.map((h) => h.replace(/"/g, "").trim());
+
+        const getValue = (row: string[], key: string) => {
+          const idx = headers.indexOf(key);
+          return idx >= 0 ? (row[idx]?.replace(/"/g, "").trim() ?? "") : "";
+        };
+
+        const parsedRows = lines.slice(1).map((line) => {
+          const row = parseCSVLine(line);
+          return {
+            name: getValue(row, "Name"),
+            sku: getValue(row, "SKU"),
+            barcode: getValue(row, "Barcode"),
+            totalStock: parseInt(getValue(row, "Total Stock")) || 0,
+          };
+        }).filter((r) => r.name || r.sku); // skip blank rows
+
+        // Always fetch fresh products to avoid stale closure
+        const freshProducts = await fetchProducts();
+
+        // Build lookup maps
+        const bySkuMap = new Map<string, Product>();
+        const byBarcodeMap = new Map<string, Product>();
+        const byNameMap = new Map<string, Product>();
+
+        for (const p of freshProducts) {
+          if (p.sku) bySkuMap.set(p.sku.toLowerCase(), p);
+          if (p.barcode) byBarcodeMap.set(p.barcode.toLowerCase(), p);
+          if (p.name) byNameMap.set(p.name.toLowerCase(), p);
+        }
+
+        const preview: ImportPreviewRow[] = parsedRows.map((row) => {
+          let matchedProduct: Product | null = null;
+          let matchedBy: ImportPreviewRow["matchedBy"] = null;
+
+          // Priority: SKU > Barcode > Name
+          if (row.sku && bySkuMap.has(row.sku.toLowerCase())) {
+            matchedProduct = bySkuMap.get(row.sku.toLowerCase())!;
+            matchedBy = "sku";
+          } else if (row.barcode && byBarcodeMap.has(row.barcode.toLowerCase())) {
+            matchedProduct = byBarcodeMap.get(row.barcode.toLowerCase())!;
+            matchedBy = "barcode";
+          } else if (row.name && byNameMap.has(row.name.toLowerCase())) {
+            matchedProduct = byNameMap.get(row.name.toLowerCase())!;
+            matchedBy = "name";
+          }
+
+          return {
+            csvName: row.name,
+            csvSku: row.sku,
+            csvBarcode: row.barcode,
+            csvStock: row.totalStock,
+            matchedProduct,
+            matchedBy,
+            status: matchedProduct ? "matched" : "unmatched",
+          };
+        });
+
+        setImportPreview(preview);
+      } catch (err) {
+        toast.error("Failed to parse CSV file");
+      } finally {
+        setImportLoading(false);
+      }
+    };
+    reader.readAsText(file);
+    e.target.value = "";
+  };
+
+  const handleConfirmImport = async () => {
+    if (!importPreview || !activeBranch) return;
+
+    const toImport = importPreview.filter(
+      (r) => r.status === "matched" && r.csvStock > 0
+    );
+
+    if (toImport.length === 0) {
+      toast.error("No matched products with stock > 0 to import");
+      return;
+    }
+
+    setImportConfirmLoading(true);
+    let success = 0;
+    let failed = 0;
+    let firstError = "";
+
+    // Process in parallel batches of 20 to avoid overwhelming the server
+    const BATCH_SIZE = 20;
+    for (let i = 0; i < toImport.length; i += BATCH_SIZE) {
+      const batch = toImport.slice(i, i + BATCH_SIZE);
+      const results = await Promise.allSettled(
+        batch.map((row) =>
+          api.post("/stock/add", {
+            productId: row.matchedProduct!.id,
+            quantity: row.csvStock,
+            unitCost: null,
+            batchNumber: null,
+            expiryDate: null,
+            supplier: null,
+            transactionType: "PURCHASE",
+          })
+        )
+      );
+
+      for (const result of results) {
+        if (result.status === "fulfilled") {
+          success++;
+        } else {
+          failed++;
+          if (!firstError) {
+            const err = (result as PromiseRejectedResult).reason;
+            firstError =
+              err?.response?.data?.message ||
+              err?.message ||
+              "Unknown server error";
+          }
+        }
+      }
+    }
+
+    setImportConfirmLoading(false);
+    setImportPreview(null);
+
+    if (failed > 0 && success === 0) {
+      toast.error(`Import failed: ${firstError}`);
+    } else if (failed > 0) {
+      toast.warning(
+        `Imported ${success} products, ${failed} failed. First error: ${firstError}`
+      );
+      router.push("/stock");
+    } else {
+      toast.success(`Successfully imported stock for ${success} products`);
+      router.push("/stock");
+    }
+  };
+
+  const matchedRows = importPreview?.filter((r) => r.status === "matched") ?? [];
+  const unmatchedRows = importPreview?.filter((r) => r.status === "unmatched") ?? [];
 
   const selectedProduct = products.find(
     (p) => p.id === parseInt(formData.productId),
@@ -230,6 +438,227 @@ const AddStockForm = () => {
                 </Card>
               </motion.div>
             )}
+
+            {/* ── CSV BULK IMPORT SECTION ── */}
+            <motion.div
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ delay: 0.15 }}
+            >
+              <Card className="overflow-hidden border-2 border-emerald-100">
+                <div className="bg-gradient-to-r from-emerald-50 to-green-50 px-6 py-4 border-b-2 border-emerald-100 flex items-center justify-between">
+                  <h3 className="text-lg font-bold text-gray-800 flex items-center gap-2">
+                    <Upload className="h-5 w-5 text-emerald-600" />
+                    Bulk Import via CSV
+                  </h3>
+                  <label className={importLoading ? "pointer-events-none opacity-60" : ""}>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="border-emerald-300 hover:bg-emerald-50 cursor-pointer"
+                      disabled={importLoading}
+                      asChild
+                    >
+                      <span>
+                        {importLoading ? (
+                          <>
+                            <Loader2 className="h-4 w-4 mr-2 text-emerald-600 animate-spin" />
+                            Parsing...
+                          </>
+                        ) : (
+                          <>
+                            <Upload className="h-4 w-4 mr-2 text-emerald-600" />
+                            Choose CSV File
+                          </>
+                        )}
+                      </span>
+                    </Button>
+                    <input
+                      type="file"
+                      accept=".csv"
+                      className="hidden"
+                      onChange={handleImportCSV}
+                      disabled={importLoading}
+                    />
+                  </label>
+                </div>
+
+                <div className="px-6 py-3">
+                  <p className="text-xs text-gray-500">
+                    CSV must include a <span className="font-semibold text-gray-700">Total Stock</span> column.
+                    Products are matched by <span className="font-semibold text-gray-700">SKU</span> first,
+                    then <span className="font-semibold text-gray-700">Barcode</span>, then <span className="font-semibold text-gray-700">Name</span>.
+                    Only rows with Total Stock &gt; 0 will be imported.
+                  </p>
+                </div>
+
+                {/* Import Preview */}
+                <AnimatePresence>
+                  {importPreview && (
+                    <motion.div
+                      initial={{ opacity: 0, height: 0 }}
+                      animate={{ opacity: 1, height: "auto" }}
+                      exit={{ opacity: 0, height: 0 }}
+                      className="px-6 pb-6 space-y-4"
+                    >
+                      {/* Summary */}
+                      <div className="flex flex-wrap gap-3 p-4 bg-gray-50 border-2 border-gray-200 rounded-xl">
+                        <div className="flex items-center gap-2">
+                          <CheckCircle2 className="h-5 w-5 text-emerald-600" />
+                          <span className="text-sm font-semibold text-gray-700">
+                            {matchedRows.length} matched
+                          </span>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <AlertCircle className="h-5 w-5 text-amber-500" />
+                          <span className="text-sm font-semibold text-gray-700">
+                            {unmatchedRows.length} unmatched
+                          </span>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <Package className="h-5 w-5 text-emerald-600" />
+                          <span className="text-sm font-semibold text-gray-700">
+                            {matchedRows.filter((r) => r.csvStock > 0).length} will be imported
+                          </span>
+                        </div>
+                      </div>
+
+                      {/* Matched rows table */}
+                      {matchedRows.length > 0 && (
+                        <div>
+                          <p className="text-sm font-bold text-gray-700 mb-2 flex items-center gap-1">
+                            <CheckCircle2 className="h-4 w-4 text-emerald-600" />
+                            Matched Products
+                          </p>
+                          <div className="border-2 border-emerald-100 rounded-xl overflow-hidden max-h-64 overflow-y-auto">
+                            <table className="w-full text-sm">
+                              <thead className="bg-emerald-50 sticky top-0">
+                                <tr>
+                                  <th className="text-left px-3 py-2 font-semibold text-gray-700">Product</th>
+                                  <th className="text-left px-3 py-2 font-semibold text-gray-700">Matched By</th>
+                                  <th className="text-right px-3 py-2 font-semibold text-gray-700">Qty to Add</th>
+                                </tr>
+                              </thead>
+                              <tbody>
+                                {matchedRows.map((row, i) => (
+                                  <tr key={i} className="border-t border-emerald-50 hover:bg-emerald-50/50">
+                                    <td className="px-3 py-2 text-gray-800 font-medium">{row.matchedProduct?.name}</td>
+                                    <td className="px-3 py-2">
+                                      <Badge
+                                        variant="outline"
+                                        className={
+                                          row.matchedBy === "sku"
+                                            ? "bg-blue-50 text-blue-700 border-blue-200 text-xs"
+                                            : row.matchedBy === "barcode"
+                                            ? "bg-purple-50 text-purple-700 border-purple-200 text-xs"
+                                            : "bg-gray-50 text-gray-700 border-gray-200 text-xs"
+                                        }
+                                      >
+                                        {row.matchedBy?.toUpperCase()}
+                                      </Badge>
+                                    </td>
+                                    <td className="px-3 py-2 text-right font-bold text-emerald-700">
+                                      {row.csvStock > 0 ? `+${row.csvStock}` : (
+                                        <span className="text-gray-400 font-normal">skipped (0)</span>
+                                      )}
+                                    </td>
+                                  </tr>
+                                ))}
+                              </tbody>
+                            </table>
+                          </div>
+                        </div>
+                      )}
+
+                      {/* Unmatched rows (collapsible) */}
+                      {unmatchedRows.length > 0 && (
+                        <div>
+                          <button
+                            type="button"
+                            onClick={() => setShowUnmatched((v) => !v)}
+                            className="text-sm font-semibold text-amber-600 flex items-center gap-1 hover:underline"
+                          >
+                            <AlertCircle className="h-4 w-4" />
+                            {unmatchedRows.length} unmatched rows (will be skipped)
+                            {showUnmatched ? (
+                              <ChevronUp className="h-4 w-4" />
+                            ) : (
+                              <ChevronDown className="h-4 w-4" />
+                            )}
+                          </button>
+                          <AnimatePresence>
+                            {showUnmatched && (
+                              <motion.div
+                                initial={{ opacity: 0, height: 0 }}
+                                animate={{ opacity: 1, height: "auto" }}
+                                exit={{ opacity: 0, height: 0 }}
+                                className="mt-2 border-2 border-amber-100 rounded-xl overflow-hidden max-h-48 overflow-y-auto"
+                              >
+                                <table className="w-full text-sm">
+                                  <thead className="bg-amber-50 sticky top-0">
+                                    <tr>
+                                      <th className="text-left px-3 py-2 font-semibold text-gray-700">CSV Name</th>
+                                      <th className="text-left px-3 py-2 font-semibold text-gray-700">SKU</th>
+                                      <th className="text-left px-3 py-2 font-semibold text-gray-700">Barcode</th>
+                                    </tr>
+                                  </thead>
+                                  <tbody>
+                                    {unmatchedRows.map((row, i) => (
+                                      <tr key={i} className="border-t border-amber-50">
+                                        <td className="px-3 py-2 text-gray-600">{row.csvName || "—"}</td>
+                                        <td className="px-3 py-2 text-gray-500 font-mono text-xs">{row.csvSku || "—"}</td>
+                                        <td className="px-3 py-2 text-gray-500 font-mono text-xs">{row.csvBarcode || "—"}</td>
+                                      </tr>
+                                    ))}
+                                  </tbody>
+                                </table>
+                              </motion.div>
+                            )}
+                          </AnimatePresence>
+                        </div>
+                      )}
+
+                      {/* Action buttons */}
+                      <div className="flex gap-3">
+                        <Button
+                          onClick={handleConfirmImport}
+                          disabled={importConfirmLoading || matchedRows.filter((r) => r.csvStock > 0).length === 0}
+                          className="flex-1 bg-gradient-to-r from-emerald-600 to-green-600 hover:from-emerald-700 hover:to-green-700 text-white font-bold"
+                        >
+                          {importConfirmLoading ? (
+                            <>
+                              <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                              Importing...
+                            </>
+                          ) : (
+                            <>
+                              <PackagePlus className="h-4 w-4 mr-2" />
+                              Confirm Import ({matchedRows.filter((r) => r.csvStock > 0).length} products)
+                            </>
+                          )}
+                        </Button>
+                        <Button
+                          variant="outline"
+                          onClick={() => setImportPreview(null)}
+                          disabled={importConfirmLoading}
+                          className="border-gray-300 hover:bg-gray-50"
+                        >
+                          <X className="h-4 w-4 mr-1" />
+                          Cancel
+                        </Button>
+                      </div>
+                    </motion.div>
+                  )}
+                </AnimatePresence>
+              </Card>
+            </motion.div>
+
+            {/* Divider */}
+            <div className="flex items-center gap-3">
+              <div className="flex-1 h-px bg-emerald-100" />
+              <span className="text-sm font-semibold text-gray-400 uppercase tracking-wider">or add single product</span>
+              <div className="flex-1 h-px bg-emerald-100" />
+            </div>
 
             {/* Form */}
             <motion.div

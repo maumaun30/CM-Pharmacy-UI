@@ -48,6 +48,11 @@ import {
   TrendingUp,
   Building2,
   ArrowRightLeft,
+  Download,
+  Upload,
+  CheckSquare,
+  Square,
+  XSquare,
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import Link from "next/link";
@@ -86,6 +91,7 @@ interface Product {
   dosage?: string;
   form?: string;
   expiryDate?: string;
+  barcode?: string;
   requiresPrescription: boolean;
   status: "ACTIVE" | "INACTIVE";
   categoryId: number;
@@ -108,6 +114,7 @@ export default function ProductList() {
     brandName: "",
     genericName: "",
     sku: "",
+    barcode: "",
     cost: "",
     price: "",
     dosage: "",
@@ -119,6 +126,7 @@ export default function ProductList() {
   });
   const [loading, setLoading] = useState(false);
   const [fetchLoading, setFetchLoading] = useState(true);
+  const [importLoading, setImportLoading] = useState(false);
 
   const [search, setSearch] = useState("");
   const [sortBy, setSortBy] = useState<keyof Product>("id");
@@ -132,6 +140,238 @@ export default function ProductList() {
   const [stockModalOpen, setStockModalOpen] = useState(false);
   const [selectedProductForStock, setSelectedProductForStock] =
     useState<Product | null>(null);
+
+  const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
+  const [bulkDeleteOpen, setBulkDeleteOpen] = useState(false);
+
+  const [filterCategory, setFilterCategory] = useState<number | null>(null);
+  const [bulkEditCategoryOpen, setBulkEditCategoryOpen] = useState(false);
+  const [bulkEditCategoryId, setBulkEditCategoryId] = useState("");
+
+  const [filterStatus, setFilterStatus] = useState<"" | "ACTIVE" | "INACTIVE">(
+    "",
+  );
+  const [filterStockStatus, setFilterStockStatus] = useState<
+    "" | "out" | "low" | "in"
+  >("");
+
+  const toggleSelectAll = () => {
+    if (allSelected) {
+      setSelectedIds((prev) => {
+        const next = new Set(prev);
+        paginated.forEach((p) => next.delete(p.id));
+        return next;
+      });
+    } else {
+      setSelectedIds((prev) => {
+        const next = new Set(prev);
+        paginated.forEach((p) => next.add(p.id));
+        return next;
+      });
+    }
+  };
+
+  const toggleSelectOne = (id: number) => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      next.has(id) ? next.delete(id) : next.add(id);
+      return next;
+    });
+  };
+
+  const handleExportCSV = () => {
+    const rows = filtered.map((p) => ({
+      ID: p.id,
+      Name: p.name,
+      "Brand Name": p.brandName,
+      "Generic Name": p.genericName || "",
+      SKU: p.sku,
+      Barcode: p.barcode || "",
+      Cost: p.cost.toFixed(2),
+      Price: p.price.toFixed(2),
+      Dosage: p.dosage || "",
+      Form: p.form || "",
+      Category: p.category?.name || "",
+      "Requires Prescription": p.requiresPrescription ? "Yes" : "No",
+      Status: p.status,
+      "Expiry Date": p.expiryDate
+        ? dayjs(p.expiryDate).format("YYYY-MM-DD")
+        : "",
+      "Total Stock": p.totalStock,
+    }));
+
+    const headers = Object.keys(rows[0]);
+    const csv = [
+      headers.join(","),
+      ...rows.map((row) =>
+        headers
+          .map(
+            (h) =>
+              `"${String(row[h as keyof typeof row]).replace(/"/g, '""')}"`,
+          )
+          .join(","),
+      ),
+    ].join("\n");
+
+    const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `products_${dayjs().format("YYYY-MM-DD")}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+    toast.success(`Exported ${rows.length} products`);
+  };
+
+  const handleImportCSV = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = async (event) => {
+      setImportLoading(true);
+      try {
+        const text = event.target?.result as string;
+        const lines = text.split(/\r?\n/).filter(Boolean);
+
+        const parseCSVLine = (line: string): string[] => {
+          const result: string[] = [];
+          let current = "";
+          let inQuotes = false;
+          for (let i = 0; i < line.length; i++) {
+            const char = line[i];
+            if (char === '"') {
+              if (inQuotes && line[i + 1] === '"') {
+                current += '"';
+                i++;
+              } else {
+                inQuotes = !inQuotes;
+              }
+            } else if (char === "," && !inQuotes) {
+              result.push(current.trim());
+              current = "";
+            } else {
+              current += char;
+            }
+          }
+          result.push(current.trim());
+          return result;
+        };
+
+        const headers = parseCSVLine(lines[0]).map((h) =>
+          h.replace(/"/g, "").trim(),
+        );
+
+        const getValue = (row: string[], key: string) => {
+          const idx = headers.indexOf(key);
+          return idx >= 0 ? (row[idx]?.replace(/"/g, "").trim() ?? "") : "";
+        };
+
+        const parsedProducts = lines.slice(1).map((line) => {
+          const row = parseCSVLine(line);
+          return {
+            name: getValue(row, "Name"),
+            brandName: getValue(row, "Brand Name"),
+            genericName: getValue(row, "Generic Name") || null,
+            sku: getValue(row, "SKU"),
+            barcode: getValue(row, "Barcode") || undefined,
+            cost: parseFloat(getValue(row, "Cost")) || 0,
+            price: parseFloat(getValue(row, "Price")) || 0,
+            dosage: getValue(row, "Dosage") || null,
+            form: getValue(row, "Form") || null,
+            expiryDate: getValue(row, "Expiry Date") || null,
+            requiresPrescription:
+              getValue(row, "Requires Prescription") === "Yes",
+            status:
+              (getValue(row, "Status") as "ACTIVE" | "INACTIVE") || "ACTIVE",
+            categoryName: getValue(row, "Category"),
+          };
+        });
+
+        // Build a set of existing SKUs to skip duplicates
+        const existingSkus = new Set(products.map((p) => p.sku));
+
+        let success = 0;
+        let skipped = 0;
+        let failed = 0;
+
+        for (const product of parsedProducts) {
+          if (!product.name || !product.sku) {
+            failed++;
+            continue;
+          }
+
+          // Skip already-existing SKUs instead of failing
+          if (existingSkus.has(product.sku)) {
+            skipped++;
+            continue;
+          }
+
+          let matchedCat = categories.find(
+            (c) => c.name.toLowerCase() === product.categoryName.toLowerCase(),
+          );
+          if (!matchedCat) {
+            if (!product.categoryName) {
+              failed++;
+              continue;
+            }
+            try {
+              // Create the category on the fly
+              const res = await api.post("/categories", {
+                name: product.categoryName,
+              });
+              matchedCat = res.data;
+              // Add to local categories so subsequent products reuse it
+              setCategories((prev) => [...prev, res.data]);
+              categories.push(res.data); // also update the local ref used in this loop
+            } catch {
+              failed++;
+              continue;
+            }
+          }
+
+          try {
+            const { categoryName, ...productData } = product;
+            await api.post("/products", {
+              ...productData,
+              categoryId: matchedCat.id,
+            });
+            // Add to local set so duplicates within the CSV itself are also caught
+            existingSkus.add(product.sku);
+            success++;
+          } catch (err: any) {
+            // If it's a duplicate SKU/barcode error from server, count as skipped
+            const msg = err.response?.data?.message || "";
+            if (msg.includes("already exists")) {
+              skipped++;
+            } else {
+              failed++;
+            }
+          }
+        }
+
+        const parts = [`Imported ${success} products`];
+        if (skipped > 0) parts.push(`${skipped} skipped (already exist)`);
+        if (failed > 0) parts.push(`${failed} failed`);
+        toast.success(parts.join(", "));
+        fetchProducts();
+      } catch (err: any) {
+        const msg = err.response?.data?.message || "";
+        if (msg.includes("already exists")) {
+          skipped++;
+        } else {
+          console.error(
+            `Failed: ${product.name} (SKU: ${product.sku}) — ${msg}`,
+          );
+          failed++;
+        }
+      } finally {
+        setImportLoading(false);
+      }
+    };
+    reader.readAsText(file);
+    e.target.value = "";
+  };
 
   const fetchProducts = async () => {
     try {
@@ -189,6 +429,7 @@ export default function ProductList() {
         brandName: product.brandName,
         genericName: product.genericName || "",
         sku: product.sku,
+        barcode: product.barcode || "",
         cost: product.cost.toString(),
         price: product.price.toString(),
         dosage: product.dosage || "",
@@ -207,6 +448,7 @@ export default function ProductList() {
         brandName: "",
         genericName: "",
         sku: "",
+        barcode: "",
         cost: "",
         price: "",
         dosage: "",
@@ -231,6 +473,7 @@ export default function ProductList() {
       brandName,
       genericName,
       sku,
+      barcode,
       cost,
       price,
       dosage,
@@ -254,6 +497,7 @@ export default function ProductList() {
         brandName,
         genericName: genericName || null,
         sku,
+        barcode: formData.barcode || null,
         cost: parseFloat(cost),
         price: parseFloat(price),
         dosage: dosage || null,
@@ -292,6 +536,20 @@ export default function ProductList() {
     } finally {
       setDeleteOpen(false);
       setProductToDelete(null);
+    }
+  };
+
+  const handleBulkDelete = async () => {
+    try {
+      await Promise.all(
+        Array.from(selectedIds).map((id) => api.delete(`/products/${id}`)),
+      );
+      toast.success(`Deleted ${selectedIds.size} products`);
+      setSelectedIds(new Set());
+      setBulkDeleteOpen(false);
+      fetchProducts();
+    } catch (err: any) {
+      toast.error(err.response?.data?.message || "Error deleting products");
     }
   };
 
@@ -402,14 +660,38 @@ export default function ProductList() {
   };
 
   const filtered = useMemo(() => {
-    let data = products.filter(
-      (p) =>
+    let data = products.filter((p) => {
+      const matchesSearch =
         p.name.toLowerCase().includes(search.toLowerCase()) ||
         p.brandName.toLowerCase().includes(search.toLowerCase()) ||
         p.genericName?.toLowerCase().includes(search.toLowerCase()) ||
         p.sku.toLowerCase().includes(search.toLowerCase()) ||
-        p.category?.name.toLowerCase().includes(search.toLowerCase()),
-    );
+        p.category?.name.toLowerCase().includes(search.toLowerCase());
+
+      const matchesCategory =
+        !filterCategory || p.categoryId === filterCategory;
+
+      const matchesStatus = !filterStatus || p.status === filterStatus;
+
+      const matchesStockStatus = (() => {
+        if (!filterStockStatus) return true;
+        const stock = getStockForBranch(p, selectedBranch);
+        const reorderPoint = selectedBranch
+          ? (p.branchStocks?.find((bs) => bs.branchId === selectedBranch)
+              ?.reorderPoint ?? 20)
+          : Math.min(...(p.branchStocks?.map((bs) => bs.reorderPoint) ?? [20]));
+        if (filterStockStatus === "out") return stock === 0;
+        if (filterStockStatus === "low")
+          return stock > 0 && stock <= reorderPoint;
+        if (filterStockStatus === "in") return stock > reorderPoint;
+        return true;
+      })();
+
+      return (
+        matchesSearch && matchesCategory && matchesStatus && matchesStockStatus
+      );
+    });
+
     data = data.sort((a, b) => {
       const aVal = a[sortBy];
       const bVal = b[sortBy];
@@ -421,7 +703,16 @@ export default function ProductList() {
         : String(bVal).localeCompare(String(aVal));
     });
     return data;
-  }, [products, search, sortBy, sortDir]);
+  }, [
+    products,
+    search,
+    sortBy,
+    sortDir,
+    filterCategory,
+    filterStatus,
+    filterStockStatus,
+    selectedBranch,
+  ]);
 
   const paginated = useMemo(() => {
     const start = (page - 1) * perPage;
@@ -430,12 +721,36 @@ export default function ProductList() {
 
   const totalPages = Math.ceil(filtered.length / perPage);
 
+  const allSelected =
+    paginated.length > 0 && paginated.every((p) => selectedIds.has(p.id));
+  const someSelected = selectedIds.size > 0;
+
   const handleSort = (key: keyof Product) => {
     if (sortBy === key) {
       setSortDir(sortDir === "asc" ? "desc" : "asc");
     } else {
       setSortBy(key);
       setSortDir("asc");
+    }
+  };
+
+  const handleBulkEditCategory = async () => {
+    if (!bulkEditCategoryId) return;
+    try {
+      await Promise.all(
+        Array.from(selectedIds).map((id) =>
+          api.put(`/products/${id}`, {
+            categoryId: parseInt(bulkEditCategoryId),
+          }),
+        ),
+      );
+      toast.success(`Updated category for ${selectedIds.size} products`);
+      setSelectedIds(new Set());
+      setBulkEditCategoryOpen(false);
+      setBulkEditCategoryId("");
+      fetchProducts();
+    } catch (err: any) {
+      toast.error(err.response?.data?.message || "Error updating categories");
     }
   };
 
@@ -517,6 +832,101 @@ export default function ProductList() {
                   Add Product
                 </Button>
               </div>
+            </motion.div>
+
+            {/* Import/Export + Bulk Actions Bar */}
+            <motion.div
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ delay: 0.04 }}
+            >
+              <Card className="p-3 border-2 border-emerald-100">
+                <div className="flex flex-wrap items-center gap-2 justify-between">
+                  <div className="flex items-center gap-2">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={handleExportCSV}
+                      className="border-emerald-300 hover:bg-emerald-50 h-9"
+                    >
+                      <Download className="h-4 w-4 mr-2 text-emerald-600" />
+                      Export CSV
+                    </Button>
+                    <label
+                      className={
+                        importLoading ? "pointer-events-none opacity-60" : ""
+                      }
+                    >
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="border-emerald-300 hover:bg-emerald-50 h-9 cursor-pointer"
+                        disabled={importLoading}
+                        asChild
+                      >
+                        <span>
+                          {importLoading ? (
+                            <>
+                              <Loader2 className="h-4 w-4 mr-2 text-emerald-600 animate-spin" />
+                              Importing...
+                            </>
+                          ) : (
+                            <>
+                              <Upload className="h-4 w-4 mr-2 text-emerald-600" />
+                              Import CSV
+                            </>
+                          )}
+                        </span>
+                      </Button>
+                      <input
+                        type="file"
+                        accept=".csv"
+                        className="hidden"
+                        onChange={handleImportCSV}
+                        disabled={importLoading}
+                      />
+                    </label>
+                  </div>
+
+                  {someSelected && (
+                    <motion.div
+                      initial={{ opacity: 0, scale: 0.95 }}
+                      animate={{ opacity: 1, scale: 1 }}
+                      className="flex items-center gap-3"
+                    >
+                      <span className="text-sm font-semibold text-gray-700">
+                        {selectedIds.size} selected
+                      </span>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => setSelectedIds(new Set())}
+                        className="border-gray-300 hover:bg-gray-50 h-9"
+                      >
+                        <XSquare className="h-4 w-4 mr-1" />
+                        Clear
+                      </Button>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => setBulkEditCategoryOpen(true)}
+                        className="border-emerald-300 hover:bg-emerald-50 h-9"
+                      >
+                        <Pencil className="h-4 w-4 mr-1" />
+                        Edit Category
+                      </Button>
+                      <Button
+                        size="sm"
+                        onClick={() => setBulkDeleteOpen(true)}
+                        className="bg-red-600 hover:bg-red-700 text-white h-9"
+                      >
+                        <Trash className="h-4 w-4 mr-1" />
+                        Delete Selected
+                      </Button>
+                    </motion.div>
+                  )}
+                </div>
+              </Card>
             </motion.div>
 
             {/* Branch Filter */}
@@ -634,8 +1044,9 @@ export default function ProductList() {
               transition={{ delay: 0.2 }}
             >
               <Card className="p-4 border-2 border-emerald-100">
-                <div className="flex flex-col sm:flex-row sm:items-center gap-3 sm:justify-between">
-                  <div className="relative flex-1">
+                <div className="flex flex-col gap-3">
+                  {/* Search row */}
+                  <div className="relative">
                     <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-5 w-5 text-gray-400" />
                     <Input
                       placeholder="Search by name, brand, generic, SKU, or category..."
@@ -647,25 +1058,156 @@ export default function ProductList() {
                       }}
                     />
                   </div>
-                  <div className="flex items-center gap-2">
-                    <span className="text-sm font-medium text-gray-600 whitespace-nowrap">
-                      Rows per page:
-                    </span>
+
+                  {/* Filters row */}
+                  <div className="flex flex-wrap items-center gap-2">
+                    {/* Category Filter */}
                     <select
-                      value={perPage}
+                      value={filterCategory || ""}
                       onChange={(e) => {
+                        setFilterCategory(
+                          e.target.value ? Number(e.target.value) : null,
+                        );
                         setPage(1);
-                        setPerPage(Number(e.target.value));
                       }}
                       className="border-2 border-emerald-200 rounded-lg px-3 py-2 text-sm font-medium focus:border-emerald-500 focus:ring-2 focus:ring-emerald-200 outline-none"
                     >
-                      {[5, 10, 20, 50].map((n) => (
-                        <option key={n} value={n}>
-                          {n}
+                      <option value="">All Categories</option>
+                      {categories.map((cat) => (
+                        <option key={cat.id} value={cat.id}>
+                          {cat.name}
                         </option>
                       ))}
                     </select>
+
+                    {/* Status Filter */}
+                    <select
+                      value={filterStatus}
+                      onChange={(e) => {
+                        setFilterStatus(
+                          e.target.value as "" | "ACTIVE" | "INACTIVE",
+                        );
+                        setPage(1);
+                      }}
+                      className="border-2 border-emerald-200 rounded-lg px-3 py-2 text-sm font-medium focus:border-emerald-500 focus:ring-2 focus:ring-emerald-200 outline-none"
+                    >
+                      <option value="">All Statuses</option>
+                      <option value="ACTIVE">Active</option>
+                      <option value="INACTIVE">Inactive</option>
+                    </select>
+
+                    {/* Stock Status Filter */}
+                    <select
+                      value={filterStockStatus}
+                      onChange={(e) => {
+                        setFilterStockStatus(
+                          e.target.value as "" | "out" | "low" | "in",
+                        );
+                        setPage(1);
+                      }}
+                      className="border-2 border-emerald-200 rounded-lg px-3 py-2 text-sm font-medium focus:border-emerald-500 focus:ring-2 focus:ring-emerald-200 outline-none"
+                    >
+                      <option value="">All Stock</option>
+                      <option value="out">Out of Stock</option>
+                      <option value="low">Low Stock</option>
+                      <option value="in">In Stock</option>
+                    </select>
+
+                    {/* Clear filters button — only shown when any filter is active */}
+                    {(filterCategory ||
+                      filterStatus ||
+                      filterStockStatus ||
+                      search) && (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => {
+                          setFilterCategory(null);
+                          setFilterStatus("");
+                          setFilterStockStatus("");
+                          setSearch("");
+                          setPage(1);
+                        }}
+                        className="border-red-200 text-red-600 hover:bg-red-50 h-9"
+                      >
+                        <XSquare className="h-4 w-4 mr-1" />
+                        Clear Filters
+                      </Button>
+                    )}
+
+                    {/* Spacer + rows per page pushed to the right */}
+                    <div className="ml-auto flex items-center gap-2">
+                      <span className="text-sm font-medium text-gray-600 whitespace-nowrap">
+                        Rows per page:
+                      </span>
+                      <select
+                        value={perPage}
+                        onChange={(e) => {
+                          setPage(1);
+                          setPerPage(Number(e.target.value));
+                        }}
+                        className="border-2 border-emerald-200 rounded-lg px-3 py-2 text-sm font-medium focus:border-emerald-500 focus:ring-2 focus:ring-emerald-200 outline-none"
+                      >
+                        {[5, 10, 20, 50].map((n) => (
+                          <option key={n} value={n}>
+                            {n}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
                   </div>
+
+                  {/* Active filter badges */}
+                  {(filterCategory || filterStatus || filterStockStatus) && (
+                    <div className="flex flex-wrap gap-2">
+                      {filterCategory && (
+                        <Badge
+                          variant="outline"
+                          className="bg-emerald-50 text-emerald-700 border-emerald-300 gap-1 cursor-pointer"
+                          onClick={() => {
+                            setFilterCategory(null);
+                            setPage(1);
+                          }}
+                        >
+                          {
+                            categories.find((c) => c.id === filterCategory)
+                              ?.name
+                          }
+                          <XSquare className="h-3 w-3" />
+                        </Badge>
+                      )}
+                      {filterStatus && (
+                        <Badge
+                          variant="outline"
+                          className="bg-emerald-50 text-emerald-700 border-emerald-300 gap-1 cursor-pointer"
+                          onClick={() => {
+                            setFilterStatus("");
+                            setPage(1);
+                          }}
+                        >
+                          {filterStatus === "ACTIVE" ? "Active" : "Inactive"}
+                          <XSquare className="h-3 w-3" />
+                        </Badge>
+                      )}
+                      {filterStockStatus && (
+                        <Badge
+                          variant="outline"
+                          className="bg-emerald-50 text-emerald-700 border-emerald-300 gap-1 cursor-pointer"
+                          onClick={() => {
+                            setFilterStockStatus("");
+                            setPage(1);
+                          }}
+                        >
+                          {filterStockStatus === "out"
+                            ? "Out of Stock"
+                            : filterStockStatus === "low"
+                              ? "Low Stock"
+                              : "In Stock"}
+                          <XSquare className="h-3 w-3" />
+                        </Badge>
+                      )}
+                    </div>
+                  )}
                 </div>
               </Card>
             </motion.div>
@@ -705,12 +1247,25 @@ export default function ProductList() {
                     <Table>
                       <TableHeader>
                         <TableRow className="bg-gradient-to-r from-emerald-50 to-green-50 hover:from-emerald-50 hover:to-green-50">
+                          <TableHead className="w-10">
+                            <button
+                              onClick={toggleSelectAll}
+                              className="flex items-center justify-center"
+                            >
+                              {allSelected ? (
+                                <CheckSquare className="h-5 w-5 text-emerald-600" />
+                              ) : someSelected ? (
+                                <CheckSquare className="h-5 w-5 text-gray-400" />
+                              ) : (
+                                <Square className="h-5 w-5 text-gray-400" />
+                              )}
+                            </button>
+                          </TableHead>
                           {[
-                            { key: "id", label: "ID" },
+                            // { key: "id", label: "ID" },
                             { key: "name", label: "Name" },
-                            { key: "genericName", label: "Generic" },
-                            { key: "sku", label: "SKU" },
-                            { key: "dosage", label: "Dosage" },
+                            { key: "categoryName", label: "Category" },
+                            // { key: "sku", label: "SKU" },
                             { key: "cost", label: "Cost" },
                             { key: "price", label: "Price" },
                             { key: "margin", label: "Margin %" },
@@ -771,13 +1326,28 @@ export default function ProductList() {
                               className="hover:bg-emerald-50 transition-colors"
                             >
                               <TableCell>
+                                <button
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    toggleSelectOne(prod.id);
+                                  }}
+                                  className="flex items-center justify-center"
+                                >
+                                  {selectedIds.has(prod.id) ? (
+                                    <CheckSquare className="h-5 w-5 text-emerald-600" />
+                                  ) : (
+                                    <Square className="h-5 w-5 text-gray-300 hover:text-gray-500" />
+                                  )}
+                                </button>
+                              </TableCell>
+                              {/* <TableCell>
                                 <Badge
                                   variant="outline"
                                   className="bg-emerald-50 text-emerald-700 border-emerald-200"
                                 >
                                   #{prod.id}
                                 </Badge>
-                              </TableCell>
+                              </TableCell> */}
                               <TableCell>
                                 <div>
                                   <div className="font-semibold text-gray-800">
@@ -818,19 +1388,11 @@ export default function ProductList() {
                                 </div>
                               </TableCell>
                               <TableCell className="text-sm text-gray-600">
-                                {prod.genericName || "-"}
+                                {prod.category.name || "-"}
                               </TableCell>
-                              <TableCell className="font-mono text-sm text-gray-800">
+                              {/* <TableCell className="font-mono text-sm text-gray-800">
                                 {prod.sku}
-                              </TableCell>
-                              <TableCell className="text-sm text-gray-700">
-                                {prod.dosage || "-"}
-                                {prod.form && (
-                                  <div className="text-xs text-gray-500">
-                                    {prod.form}
-                                  </div>
-                                )}
-                              </TableCell>
+                              </TableCell> */}
                               <TableCell className="font-semibold text-gray-800">
                                 ₱{prod.cost.toFixed(2)}
                               </TableCell>
@@ -1103,6 +1665,20 @@ export default function ProductList() {
                         className="h-11 border-emerald-200 focus:border-emerald-500 focus:ring-2 focus:ring-emerald-200"
                       />
                     </div>
+                  </div>
+
+                  <div>
+                    <Label className="mb-2 text-sm font-semibold text-gray-700">
+                      Barcode
+                    </Label>
+                    <Input
+                      value={formData.barcode ?? ""}
+                      onChange={(e) =>
+                        setFormData({ ...formData, barcode: e.target.value })
+                      }
+                      placeholder="e.g., 1234567890123"
+                      className="h-11 border-emerald-200 focus:border-emerald-500 focus:ring-2 focus:ring-emerald-200"
+                    />
                   </div>
                 </div>
 
@@ -1423,6 +1999,112 @@ export default function ProductList() {
                 >
                   <Trash className="w-4 h-4 mr-2" />
                   Delete Product
+                </Button>
+              </DialogFooter>
+            </DialogContent>
+          </Dialog>
+
+          {/* Bulk Delete Dialog */}
+          <Dialog open={bulkDeleteOpen} onOpenChange={setBulkDeleteOpen}>
+            <DialogContent className="sm:max-w-md bg-white">
+              <DialogHeader>
+                <DialogTitle className="text-2xl font-bold text-red-600 flex items-center gap-2">
+                  <AlertCircle className="h-6 w-6" />
+                  Delete {selectedIds.size} Products
+                </DialogTitle>
+              </DialogHeader>
+              <div className="py-4">
+                <p className="text-gray-700 mb-4">
+                  Are you sure you want to delete{" "}
+                  <span className="font-bold text-gray-900">
+                    {selectedIds.size} products
+                  </span>
+                  ?
+                </p>
+                <div className="p-4 bg-red-50 border-2 border-red-200 rounded-lg">
+                  <div className="flex items-start gap-2 text-sm text-red-800">
+                    <AlertCircle className="h-4 w-4 flex-shrink-0 mt-0.5" />
+                    <span>
+                      This action cannot be undone. All selected products and
+                      their branch stock records will be permanently deleted.
+                    </span>
+                  </div>
+                </div>
+              </div>
+              <DialogFooter className="flex-col sm:flex-row gap-2">
+                <Button
+                  variant="outline"
+                  onClick={() => setBulkDeleteOpen(false)}
+                  className="w-full sm:w-auto border-gray-300"
+                >
+                  Cancel
+                </Button>
+                <Button
+                  variant="destructive"
+                  onClick={handleBulkDelete}
+                  className="w-full sm:w-auto bg-red-600 hover:bg-red-700"
+                >
+                  <Trash className="w-4 h-4 mr-2" />
+                  Delete {selectedIds.size} Products
+                </Button>
+              </DialogFooter>
+            </DialogContent>
+          </Dialog>
+          {/* Bulk Edit Category Dialog */}
+          <Dialog
+            open={bulkEditCategoryOpen}
+            onOpenChange={setBulkEditCategoryOpen}
+          >
+            <DialogContent className="sm:max-w-md bg-white">
+              <DialogHeader>
+                <DialogTitle className="text-2xl font-bold text-gray-800 flex items-center gap-2">
+                  <Pencil className="h-6 w-6 text-emerald-600" />
+                  Edit Category for {selectedIds.size} Products
+                </DialogTitle>
+              </DialogHeader>
+              <div className="py-4 space-y-4">
+                <p className="text-sm text-gray-600">
+                  Select a new category to apply to all{" "}
+                  <span className="font-semibold text-gray-800">
+                    {selectedIds.size} selected products
+                  </span>
+                  .
+                </p>
+                <div>
+                  <Label className="mb-2 text-sm font-semibold text-gray-700">
+                    New Category *
+                  </Label>
+                  <select
+                    className="w-full border-2 border-emerald-200 rounded-lg px-3 py-2.5 focus:border-emerald-500 focus:ring-2 focus:ring-emerald-200 outline-none"
+                    value={bulkEditCategoryId}
+                    onChange={(e) => setBulkEditCategoryId(e.target.value)}
+                  >
+                    <option value="">Select category</option>
+                    {categories.map((cat) => (
+                      <option key={cat.id} value={cat.id}>
+                        {cat.name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+              <DialogFooter className="flex-col sm:flex-row gap-2">
+                <Button
+                  variant="outline"
+                  onClick={() => {
+                    setBulkEditCategoryOpen(false);
+                    setBulkEditCategoryId("");
+                  }}
+                  className="w-full sm:w-auto border-gray-300"
+                >
+                  Cancel
+                </Button>
+                <Button
+                  onClick={handleBulkEditCategory}
+                  disabled={!bulkEditCategoryId}
+                  className="w-full sm:w-auto bg-gradient-to-r from-emerald-600 to-green-600 hover:from-emerald-700 hover:to-green-700 text-white"
+                >
+                  Apply to {selectedIds.size} Products
                 </Button>
               </DialogFooter>
             </DialogContent>

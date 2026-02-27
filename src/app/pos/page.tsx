@@ -1,6 +1,13 @@
 "use client";
 
-import React, { useEffect, useState, useRef } from "react";
+import React, {
+  useEffect,
+  useState,
+  useRef,
+  useMemo,
+  useCallback,
+  memo,
+} from "react";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import ProtectedRoute from "@/components/ProtectedRoute";
@@ -37,11 +44,15 @@ import {
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { io, Socket } from "socket.io-client";
+import { useVirtualizer } from "@tanstack/react-virtual";
+
+// ─── Types ────────────────────────────────────────────────────────────────────
 
 interface Product {
   id: number;
   name: string;
   sku: string;
+  barcode?: string;
   price: number;
   currentStock: number;
   status: string;
@@ -105,546 +116,55 @@ interface User {
 
 type ViewMode = "grid" | "list";
 
-const POSPage = () => {
-  const [currentUser, setCurrentUser] = useState<User | null>(null);
-  const [activeBranch, setActiveBranch] = useState<Branch | null>(null);
-  const [loading, setLoading] = useState(true);
+// ─── Constants ────────────────────────────────────────────────────────────────
 
-  const [products, setProducts] = useState<Product[]>([]);
-  const [discounts, setDiscounts] = useState<Discount[]>([]);
-  const [cart, setCart] = useState<CartItem[]>([]);
-  const [loadingProductId, setLoadingProductId] = useState<number | null>(null);
-  const [checkingOut, setCheckingOut] = useState(false);
-  const [lastAddedId, setLastAddedId] = useState<number | null>(null);
-  const [mobileCartVisible, setMobileCartVisible] = useState(false);
-  const [searchQuery, setSearchQuery] = useState("");
-  const [viewMode, setViewMode] = useState<ViewMode>("grid");
+const GRID_ITEM_HEIGHT = 160;
+const LIST_ITEM_HEIGHT = 88;
+const GRID_COL_MIN_WIDTH = 180;
+const GRID_GAP = 12;
+const GRID_PADDING = 12;
 
-  // Socket.io state
-  const socketRef = useRef<Socket | null>(null);
-  const [isConnected, setIsConnected] = useState(false);
+// ─── Helpers ──────────────────────────────────────────────────────────────────
 
-  // Barcode scanner state
-  const [barcodeInput, setBarcodeInput] = useState("");
-  const barcodeTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+function calculateDiscountedPrice(price: number, discount: Discount): number {
+  if (discount.discountType === "PERCENTAGE") {
+    const discountAmount = (price * discount.discountValue) / 100;
+    const finalDiscount = discount.maximumDiscountAmount
+      ? Math.min(discountAmount, discount.maximumDiscountAmount)
+      : discountAmount;
+    return price - finalDiscount;
+  }
+  return price - Math.min(discount.discountValue, price);
+}
 
-  // Discount dialog states
-  const [showDiscountDialog, setShowDiscountDialog] = useState(false);
-  const [selectedCartItem, setSelectedCartItem] = useState<CartItem | null>(
-    null,
-  );
-  const [applicableDiscounts, setApplicableDiscounts] = useState<Discount[]>(
-    [],
-  );
+function getItemTotal(item: CartItem): number {
+  const price = item.discountedPrice ?? item.product.price;
+  return price * item.quantity;
+}
 
-  // Checkout dialog states
-  const [showCheckoutDialog, setShowCheckoutDialog] = useState(false);
-  const [cashAmount, setCashAmount] = useState("");
-  const [showReceiptDialog, setShowReceiptDialog] = useState(false);
-  const [currentReceipt, setCurrentReceipt] = useState<SaleReceipt | null>(
-    null,
-  );
-
-  const receiptRef = useRef<HTMLDivElement>(null);
-  const isMobile = useMediaQuery("(max-width: 767px)");
-
-  // Filter products based on search query and active status
-  const filteredProducts = products.filter(
-    (product) =>
-      (product.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        product.sku.toLowerCase().includes(searchQuery.toLowerCase())) &&
-      product.status === "ACTIVE",
-  );
-
+function useDebounce<T>(value: T, delay = 200): T {
+  const [debounced, setDebounced] = useState(value);
   useEffect(() => {
-    fetchCurrentUser();
-  }, []);
-
-  useEffect(() => {
-    if (currentUser) {
-      fetchProducts();
-      fetchDiscounts();
-    }
-  }, [currentUser]);
-
-  // ✨ REAL-TIME: Initialize Socket.io connection
-  useEffect(() => {
-    if (!currentUser || !activeBranch) return;
-
-    // Get the API base URL (without /api)
-    const baseURL =
-      api.defaults.baseURL?.replace("/api", "") || "http://localhost:5000";
-
-    // Initialize Socket.io connection
-    const socket = io(baseURL, {
-      auth: {
-        token: localStorage.getItem("token"),
-      },
-      reconnection: true,
-      reconnectionDelay: 1000,
-      reconnectionAttempts: 5,
-    });
-
-    socketRef.current = socket;
-
-    // Connection event handlers
-    socket.on("connect", () => {
-      // console.log("✅ Socket.io connected");
-      setIsConnected(true);
-
-      // Join branch room for targeted updates
-      socket.emit("join-branch", activeBranch.id);
-      // console.log(`🏢 Joined branch room: ${activeBranch.id}`);
-    });
-
-    socket.on("disconnect", () => {
-      // console.log("❌ Socket.io disconnected");
-      setIsConnected(false);
-    });
-
-    socket.on("connect_error", (error) => {
-      console.error("Socket connection error:", error);
-      setIsConnected(false);
-    });
-
-    // ✨ REAL-TIME: Listen for stock updates
-    socket.on(
-      "stock-updated",
-      (data: { productId: number; newStock: number; branchId?: number }) => {
-        // console.log("📦 Stock update received:", data);
-
-        // Update products list
-        setProducts((prevProducts) =>
-          prevProducts.map((product) =>
-            product.id === data.productId
-              ? { ...product, currentStock: data.newStock }
-              : product,
-          ),
-        );
-
-        // Update cart if product exists there
-        setCart((prevCart) =>
-          prevCart.map((item) => {
-            if (item.product.id === data.productId) {
-              if (item.quantity > data.newStock) {
-                toast.warning(
-                  `${item.product.name} stock updated. Quantity adjusted to ${data.newStock}`,
-                  { duration: 4000 },
-                );
-                return {
-                  ...item,
-                  quantity: Math.max(0, data.newStock),
-                  product: { ...item.product, currentStock: data.newStock },
-                };
-              }
-              return {
-                ...item,
-                product: { ...item.product, currentStock: data.newStock },
-              };
-            }
-            return item;
-          }),
-        );
-
-        // Show toast notification
-        const product = products.find((p) => p.id === data.productId);
-        if (product) {
-          toast.info(`${product.name} stock updated: ${data.newStock}`, {
-            icon: <RefreshCw className="h-4 w-4" />,
-            duration: 3000,
-          });
-        }
-      },
-    );
-
-    // ✨ REAL-TIME: Listen for new sales (from other POS terminals)
-    socket.on("new-sale", (sale: any) => {
-      // console.log("🛒 New sale detected:", sale);
-      // Refresh products to get updated stock levels
-      fetchProducts();
-    });
-
-    // ✨ REAL-TIME: Listen for dashboard refresh events
-    socket.on("dashboard-refresh", () => {
-      // console.log("📊 Dashboard refresh triggered");
-      fetchProducts();
-    });
-
-    // Cleanup on unmount
-    return () => {
-      if (socket) {
-        socket.emit("leave-branch", activeBranch.id);
-        socket.disconnect();
-      }
-    };
-  }, [currentUser, activeBranch]);
-
-  // Barcode scanner listener
-  useEffect(() => {
-    const handleKeyPress = (e: KeyboardEvent) => {
-      if (
-        e.target instanceof HTMLInputElement ||
-        e.target instanceof HTMLTextAreaElement ||
-        showCheckoutDialog ||
-        showDiscountDialog ||
-        showReceiptDialog
-      ) {
-        return;
-      }
-
-      if (barcodeTimeoutRef.current) {
-        clearTimeout(barcodeTimeoutRef.current);
-      }
-
-      if (e.key === "Enter" && barcodeInput.length > 0) {
-        handleBarcodeScanned(barcodeInput.trim());
-        setBarcodeInput("");
-        return;
-      }
-
-      if (e.key.length === 1) {
-        setBarcodeInput((prev) => prev + e.key);
-
-        barcodeTimeoutRef.current = setTimeout(() => {
-          setBarcodeInput("");
-        }, 100);
-      }
-    };
-
-    window.addEventListener("keypress", handleKeyPress);
-
-    return () => {
-      window.removeEventListener("keypress", handleKeyPress);
-      if (barcodeTimeoutRef.current) {
-        clearTimeout(barcodeTimeoutRef.current);
-      }
-    };
-  }, [barcodeInput, showCheckoutDialog, showDiscountDialog, showReceiptDialog]);
-
-  const handleBarcodeScanned = (barcode: string) => {
-    const product = products.find(
-      (p) =>
-        p.sku.toLowerCase() === barcode.toLowerCase() && p.status === "ACTIVE",
-    );
-
-    if (product) {
-      addToCart(product);
-      toast.success(`Added: ${product.name}`, {
-        icon: <Scan className="h-4 w-4" />,
-      });
-    } else {
-      toast.error(`Product not found: ${barcode}`);
-    }
-  };
-
-  const fetchCurrentUser = async () => {
-    try {
-      setLoading(true);
-      const res = await api.get("/auth/me");
-      setCurrentUser(res.data);
-
-      const branch = res.data.currentBranch || res.data.branch;
-      setActiveBranch(branch);
-
-      if (!branch) {
-        toast.error("No branch assigned. Please contact administrator.");
-      }
-    } catch (error) {
-      console.error("Error fetching user:", error);
-      toast.error("Failed to fetch user information");
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const fetchProducts = async () => {
-    try {
-      const branchId = activeBranch?.id || currentUser?.branchId;
-
-      const res = await api.get(`/products?branchId=${branchId}`);
-
-      const parsed = res.data.map((p: any) => {
-        const branchStock = p.branchStocks?.[0];
-        return {
-          ...p,
-          price: parseFloat(p.price) || 0, // ✅ FIX: Convert to number
-          cost: parseFloat(p.cost) || 0,
-          currentStock: branchStock?.currentStock || 0,
-          branchStock: branchStock,
-        };
-      });
-
-      setProducts(parsed);
-    } catch (err) {
-      toast.error("Failed to fetch products");
-    }
-  };
-
-  const fetchDiscounts = async () => {
-    try {
-      const res = await api.get("/discounts?activeOnly=true");
-      setDiscounts(res.data);
-    } catch (err) {
-      toast.error("Failed to fetch discounts");
-    }
-  };
-
-  const calculateDiscountedPrice = (price: number, discount: Discount) => {
-    if (discount.discountType === "PERCENTAGE") {
-      const discountAmount = (price * discount.discountValue) / 100;
-      const finalDiscount = discount.maximumDiscountAmount
-        ? Math.min(discountAmount, discount.maximumDiscountAmount)
-        : discountAmount;
-      return price - finalDiscount;
-    } else {
-      const discountAmount = Math.min(discount.discountValue, price);
-      return price - discountAmount;
-    }
-  };
-
-  const addToCart = async (product: Product) => {
-    if (product.currentStock <= 0) {
-      toast.error(`${product.name} is out of stock`);
-      return;
-    }
-
-    setLoadingProductId(product.id);
-
-    await new Promise((resolve) => setTimeout(resolve, 300));
-
-    setCart((prev) => {
-      const existing = prev.find((item) => item.product.id === product.id);
-      if (existing) {
-        if (existing.quantity >= product.currentStock) {
-          toast.error(`Maximum stock reached for ${product.name}`);
-          return prev;
-        }
-        return prev.map((item) =>
-          item.product.id === product.id
-            ? { ...item, quantity: item.quantity + 1 }
-            : item,
-        );
-      }
-      return [...prev, { product, quantity: 1, appliedDiscount: null }];
-    });
-
-    setLoadingProductId(null);
-    setLastAddedId(product.id);
-  };
-
-  const updateQuantity = (id: number, qty: number) => {
-    setCart((prev) =>
-      prev.map((item) =>
-        item.product.id === id ? { ...item, quantity: qty } : item,
-      ),
-    );
-  };
-
-  const removeFromCart = (id: number) => {
-    setCart((prev) => prev.filter((item) => item.product.id !== id));
-    setLastAddedId(null);
-  };
-
-  const handleOpenDiscountDialog = async (cartItem: CartItem) => {
-    setSelectedCartItem(cartItem);
-
-    try {
-      const res = await api.get(
-        `/discounts/product/${cartItem.product.id}/applicable`,
-      );
-      setApplicableDiscounts(res.data);
-      setShowDiscountDialog(true);
-    } catch (err) {
-      toast.error("Failed to fetch applicable discounts");
-    }
-  };
-
-  const applyDiscount = (discount: Discount | null) => {
-    if (!selectedCartItem) return;
-
-    setCart((prev) =>
-      prev.map((item) => {
-        if (item.product.id === selectedCartItem.product.id) {
-          if (discount) {
-            const discountedPrice = calculateDiscountedPrice(
-              item.product.price,
-              discount,
-            );
-            return {
-              ...item,
-              appliedDiscount: discount,
-              discountedPrice: discountedPrice,
-            };
-          } else {
-            return {
-              ...item,
-              appliedDiscount: null,
-              discountedPrice: undefined,
-            };
-          }
-        }
-        return item;
-      }),
-    );
-
-    setShowDiscountDialog(false);
-    setSelectedCartItem(null);
-
-    if (discount) {
-      toast.success(`${discount.name} applied`);
-    } else {
-      toast.success("Discount removed");
-    }
-  };
-
-  const getItemTotal = (item: CartItem) => {
-    const price = item.discountedPrice ?? item.product.price;
-    return price * item.quantity;
-  };
-
-  const subtotal = cart.reduce(
-    (sum, item) => sum + item.product.price * item.quantity,
-    0,
-  );
-
-  const totalDiscount = cart.reduce((sum, item) => {
-    if (item.appliedDiscount && item.discountedPrice) {
-      const discountPerItem = item.product.price - item.discountedPrice;
-      return sum + discountPerItem * item.quantity;
-    }
-    return sum;
-  }, 0);
-
-  const total = subtotal - totalDiscount;
-
-  const calculateChange = () => {
-    const cash = parseFloat(cashAmount) || 0;
-    return cash - total;
-  };
-
-  const handleCheckoutClick = () => {
-    if (cart.length === 0) {
-      toast.error("Cart is empty");
-      return;
-    }
-
-    if (!activeBranch) {
-      toast.error("No active branch. Cannot process sale.");
-      return;
-    }
-
-    setShowCheckoutDialog(true);
-    setCashAmount(total.toFixed(2));
-  };
-
-  const handleCheckout = async () => {
-    const cash = parseFloat(cashAmount) || 0;
-
-    if (cash < total) {
-      toast.error("Cash amount is insufficient");
-      return;
-    }
-
-    if (!activeBranch) {
-      toast.error("No active branch. Cannot complete sale.");
-      return;
-    }
-
-    setCheckingOut(true);
-    try {
-      const saleData = {
-        cart: cart.map((item) => ({
-          productId: item.product.id,
-          quantity: item.quantity,
-          price: item.product.price,
-          discountId: item.appliedDiscount?.id || null,
-          discountedPrice: item.discountedPrice || null,
-        })),
-        subtotal,
-        totalDiscount,
-        total,
-        cashAmount: cash,
-      };
-
-      await api.post("/sales", saleData);
-
-      const receipt: SaleReceipt = {
-        items: [...cart],
-        subtotal,
-        totalDiscount,
-        total,
-        cashAmount: cash,
-        change: cash - total,
-        date: new Date(),
-        branchName: activeBranch.name,
-        branchPhone: activeBranch.phone || "",
-        branchEmail: activeBranch.email || "",
-        soldBy: currentUser?.username || "Unknown",
-      };
-
-      setCurrentReceipt(receipt);
-      setShowCheckoutDialog(false);
-      setShowReceiptDialog(true);
-
-      await fetchProducts();
-
-      toast.success("Sale completed successfully");
-    } catch (error: any) {
-      const msg = error?.response?.data?.message || "Error during checkout";
-      toast.error(msg);
-    } finally {
-      setCheckingOut(false);
-    }
-  };
-
-  const handlePrintReceipt = () => {
-    if (receiptRef.current) {
-      const printWindow = window.open("", "", "width=800,height=600");
-      if (printWindow) {
-        printWindow.document.write(`
-          <html>
-            <head>
-              <title>Receipt</title>
-              <style>
-                body {
-                  font-family: 'Courier New', monospace;
-                  padding: 20px;
-                  max-width: 400px;
-                  margin: 0 auto;
-                }
-                h2 { text-align: center; margin-bottom: 20px; }
-                .receipt-info { margin-bottom: 10px; text-align: center; }
-                table { width: 100%; border-collapse: collapse; margin: 20px 0; }
-                th, td { padding: 8px; text-align: left; }
-                th { border-bottom: 2px solid #000; }
-                .item-row { border-bottom: 1px dashed #ccc; }
-                .discount-row { font-size: 0.9em; color: #059669; padding-left: 20px; }
-                .totals { margin-top: 20px; }
-                .total-row { display: flex; justify-content: space-between; padding: 5px 0; }
-                .total-row.final { border-top: 2px solid #000; font-weight: bold; font-size: 1.2em; padding-top: 10px; }
-                .footer { text-align: center; margin-top: 30px; font-size: 0.9em; }
-              </style>
-            </head>
-            <body>
-              ${receiptRef.current.innerHTML}
-            </body>
-          </html>
-        `);
-        printWindow.document.close();
-        printWindow.print();
-      }
-    }
-  };
-
-  const handleNewSale = () => {
-    setCart([]);
-    setLastAddedId(null);
-    setCashAmount("");
-    setCurrentReceipt(null);
-    setShowReceiptDialog(false);
-  };
-
-  const CartItemDisplay = ({ item }: { item: CartItem }) => (
+    const id = setTimeout(() => setDebounced(value), delay);
+    return () => clearTimeout(id);
+  }, [value, delay]);
+  return debounced;
+}
+
+// ─── Memoized sub-components ──────────────────────────────────────────────────
+
+const CartItemDisplay = memo(
+  ({
+    item,
+    onRemove,
+    onUpdateQty,
+    onOpenDiscount,
+  }: {
+    item: CartItem;
+    onRemove: (id: number) => void;
+    onUpdateQty: (id: number, qty: number) => void;
+    onOpenDiscount: (item: CartItem) => void;
+  }) => (
     <div className="p-4 border-b border-emerald-100 bg-white hover:bg-emerald-50/30 transition-colors">
       <div className="flex items-start justify-between mb-3">
         <div className="flex-1 pr-3">
@@ -666,7 +186,7 @@ const POSPage = () => {
           variant="ghost"
           size="sm"
           className="h-8 w-8 p-0 text-red-600 hover:text-red-700 hover:bg-red-50"
-          onClick={() => removeFromCart(item.product.id)}
+          onClick={() => onRemove(item.product.id)}
         >
           <Trash className="h-4 w-4" />
         </Button>
@@ -703,7 +223,7 @@ const POSPage = () => {
             size="sm"
             className="h-7 w-7 p-0 border-emerald-300 hover:bg-emerald-50"
             onClick={() =>
-              updateQuantity(item.product.id, Math.max(1, item.quantity - 1))
+              onUpdateQty(item.product.id, Math.max(1, item.quantity - 1))
             }
           >
             <Minus className="h-3 w-3" />
@@ -716,12 +236,12 @@ const POSPage = () => {
             size="sm"
             className="h-7 w-7 p-0 border-emerald-300 hover:bg-emerald-50"
             onClick={() =>
-              updateQuantity(
+              onUpdateQty(
                 item.product.id,
                 Math.min(item.product.currentStock, item.quantity + 1),
               )
             }
-            disabled={item.quantity >= item.product.currentStock} // ✅ ADD THIS LINE
+            disabled={item.quantity >= item.product.currentStock}
           >
             <Plus className="h-3 w-3" />
           </Button>
@@ -736,128 +256,799 @@ const POSPage = () => {
         variant="ghost"
         size="sm"
         className="mt-2 h-7 text-xs text-emerald-700 hover:text-emerald-800 hover:bg-emerald-50 w-full"
-        onClick={() => handleOpenDiscountDialog(item)}
+        onClick={() => onOpenDiscount(item)}
       >
         <Tag className="h-3 w-3 mr-1" />
         {item.appliedDiscount ? "Change Discount" : "Apply Discount"}
       </Button>
     </div>
-  );
+  ),
+);
+CartItemDisplay.displayName = "CartItemDisplay";
 
-  const ProductGridItem = ({ product }: { product: Product }) => {
-    const inCart = cart.find((item) => item.product.id === product.id);
-    const isLoading = loadingProductId === product.id;
+// ─── Product card (grid) ──────────────────────────────────────────────────────
 
-    return (
-      <motion.div
-        whileHover={{ y: -4 }}
-        whileTap={{ scale: 0.98 }}
-        onClick={() => !isLoading && addToCart(product)}
-        className={`relative p-4 rounded-xl border-2 cursor-pointer transition-all ${
-          inCart
-            ? "border-emerald-500 bg-emerald-50 shadow-md"
-            : "border-gray-200 bg-white hover:border-emerald-300 hover:shadow-lg"
-        }`}
-      >
+const ProductGridCard = memo(
+  ({
+    product,
+    inCart,
+    isLoading,
+    onAdd,
+  }: {
+    product: Product;
+    inCart: boolean;
+    isLoading: boolean;
+    onAdd: (p: Product) => void;
+  }) => (
+    <motion.div
+      whileHover={{ y: -4 }}
+      whileTap={{ scale: 0.98 }}
+      onClick={() => !isLoading && onAdd(product)}
+      className={`relative p-4 rounded-xl border-2 cursor-pointer transition-all h-full ${
+        inCart
+          ? "border-emerald-500 bg-emerald-50 shadow-md"
+          : "border-gray-200 bg-white hover:border-emerald-300 hover:shadow-lg"
+      }`}
+    >
+      {inCart && (
+        <div className="absolute top-2 right-2 h-6 w-6 rounded-full bg-emerald-500 flex items-center justify-center">
+          <Check className="h-4 w-4 text-white" />
+        </div>
+      )}
+      <div className="mb-3">
+        <h3 className="font-bold text-gray-800 text-sm mb-1 line-clamp-2">
+          {product.name}
+        </h3>
+        <p className="text-xs text-gray-500">{product.sku}</p>
+      </div>
+      <div className="flex items-end justify-between">
+        <div>
+          <p className="text-xs text-gray-500 mb-1">Stock</p>
+          <p
+            className={`text-sm font-semibold ${
+              product.currentStock <= 10 ? "text-orange-600" : "text-gray-700"
+            }`}
+          >
+            {product.currentStock}
+          </p>
+        </div>
+        <p className="text-lg font-bold text-emerald-600">
+          ₱{product.price.toFixed(2)}
+        </p>
+      </div>
+      {isLoading && (
+        <div className="absolute inset-0 bg-white/80 rounded-xl flex items-center justify-center">
+          <Loader2 className="h-6 w-6 animate-spin text-emerald-600" />
+        </div>
+      )}
+    </motion.div>
+  ),
+);
+ProductGridCard.displayName = "ProductGridCard";
+
+// ─── Product card (list) ──────────────────────────────────────────────────────
+
+const ProductListCard = memo(
+  ({
+    product,
+    inCart,
+    isLoading,
+    onAdd,
+  }: {
+    product: Product;
+    inCart: boolean;
+    isLoading: boolean;
+    onAdd: (p: Product) => void;
+  }) => (
+    <motion.div
+      whileHover={{ x: 4 }}
+      whileTap={{ scale: 0.98 }}
+      onClick={() => !isLoading && onAdd(product)}
+      className={`relative p-4 rounded-xl border-2 cursor-pointer transition-all ${
+        inCart
+          ? "border-emerald-500 bg-emerald-50 shadow-md"
+          : "border-gray-200 bg-white hover:border-emerald-300 hover:shadow-lg"
+      }`}
+    >
+      <div className="flex items-center gap-4">
         {inCart && (
-          <div className="absolute top-2 right-2 h-6 w-6 rounded-full bg-emerald-500 flex items-center justify-center">
-            <Check className="h-4 w-4 text-white" />
+          <div className="h-10 w-10 rounded-full bg-emerald-500 flex items-center justify-center flex-shrink-0">
+            <Check className="h-5 w-5 text-white" />
           </div>
         )}
-
-        <div className="mb-3">
-          <h3 className="font-bold text-gray-800 text-sm mb-1 line-clamp-2">
+        <div className="flex-1 min-w-0">
+          <h3 className="font-bold text-gray-800 text-base mb-1 truncate">
             {product.name}
           </h3>
-          <p className="text-xs text-gray-500">{product.sku}</p>
+          <p className="text-sm text-gray-500">SKU: {product.sku}</p>
         </div>
-
-        <div className="flex items-end justify-between">
-          <div>
+        <div className="flex items-center gap-6 flex-shrink-0">
+          <div className="text-center">
             <p className="text-xs text-gray-500 mb-1">Stock</p>
             <p
-              className={`text-sm font-semibold ${
+              className={`text-base font-semibold ${
                 product.currentStock <= 10 ? "text-orange-600" : "text-gray-700"
               }`}
             >
               {product.currentStock}
             </p>
           </div>
-          <div className="text-right">
-            <p className="text-lg font-bold text-emerald-600">
-              ₱{product.price.toFixed(2)}
-            </p>
-          </div>
+          <p className="text-2xl font-bold text-emerald-600 min-w-[100px] text-right">
+            ₱{product.price.toFixed(2)}
+          </p>
         </div>
+      </div>
+      {isLoading && (
+        <div className="absolute inset-0 bg-white/80 rounded-xl flex items-center justify-center">
+          <Loader2 className="h-6 w-6 animate-spin text-emerald-600" />
+        </div>
+      )}
+    </motion.div>
+  ),
+);
+ProductListCard.displayName = "ProductListCard";
 
-        {isLoading && (
-          <div className="absolute inset-0 bg-white/80 rounded-xl flex items-center justify-center">
-            <Loader2 className="h-6 w-6 animate-spin text-emerald-600" />
-          </div>
-        )}
-      </motion.div>
+// ─── GridView — proper standalone component ───────────────────────────────────
+
+const GridView = memo(
+  ({
+    products,
+    cartMap,
+    loadingProductId,
+    onAdd,
+  }: {
+    products: Product[];
+    cartMap: Map<number, CartItem>;
+    loadingProductId: number | null;
+    onAdd: (p: Product) => void;
+  }) => {
+    const parentRef = useRef<HTMLDivElement>(null);
+    const [containerWidth, setContainerWidth] = useState(0);
+
+    useEffect(() => {
+      const el = parentRef.current;
+      if (!el) return;
+      // Set initial width immediately
+      setContainerWidth(el.getBoundingClientRect().width);
+      const observer = new ResizeObserver(([entry]) => {
+        setContainerWidth(entry.contentRect.width);
+      });
+      observer.observe(el);
+      return () => observer.disconnect();
+    }, []);
+
+    const availableWidth = Math.max(0, containerWidth - GRID_PADDING * 2);
+    const cols = Math.max(
+      2,
+      Math.floor(availableWidth / (GRID_COL_MIN_WIDTH + GRID_GAP)),
     );
-  };
+    const colWidth = Math.floor(
+      (availableWidth - GRID_GAP * (cols - 1)) / cols,
+    );
+    const rowCount = Math.ceil(products.length / cols);
 
-  const ProductListItem = ({ product }: { product: Product }) => {
-    const inCart = cart.find((item) => item.product.id === product.id);
-    const isLoading = loadingProductId === product.id;
+    const rowVirtualizer = useVirtualizer({
+      count: rowCount,
+      getScrollElement: () => parentRef.current,
+      estimateSize: () => GRID_ITEM_HEIGHT + GRID_GAP,
+      overscan: 3,
+    });
 
     return (
-      <motion.div
-        whileHover={{ x: 4 }}
-        whileTap={{ scale: 0.98 }}
-        onClick={() => !isLoading && addToCart(product)}
-        className={`relative p-4 rounded-xl border-2 cursor-pointer transition-all ${
-          inCart
-            ? "border-emerald-500 bg-emerald-50 shadow-md"
-            : "border-gray-200 bg-white hover:border-emerald-300 hover:shadow-lg"
-        }`}
+      <div
+        ref={parentRef}
+        className="h-full overflow-auto"
+        style={{ padding: GRID_PADDING }}
       >
-        <div className="flex items-center gap-4">
-          {inCart && (
-            <div className="h-10 w-10 rounded-full bg-emerald-500 flex items-center justify-center flex-shrink-0">
-              <Check className="h-5 w-5 text-white" />
-            </div>
-          )}
-
-          <div className="flex-1 min-w-0">
-            <h3 className="font-bold text-gray-800 text-base mb-1 truncate">
-              {product.name}
-            </h3>
-            <p className="text-sm text-gray-500">SKU: {product.sku}</p>
-          </div>
-
-          <div className="flex items-center gap-6 flex-shrink-0">
-            <div className="text-center">
-              <p className="text-xs text-gray-500 mb-1">Stock</p>
-              <p
-                className={`text-base font-semibold ${
-                  product.currentStock <= 10
-                    ? "text-orange-600"
-                    : "text-gray-700"
-                }`}
+        <div
+          style={{
+            height: rowVirtualizer.getTotalSize(),
+            width: "100%",
+            position: "relative",
+          }}
+        >
+          {rowVirtualizer.getVirtualItems().map((virtualRow) => {
+            const startIdx = virtualRow.index * cols;
+            return (
+              <div
+                key={virtualRow.key}
+                style={{
+                  position: "absolute",
+                  top: virtualRow.start,
+                  left: 0,
+                  width: "100%",
+                  height: GRID_ITEM_HEIGHT,
+                  display: "grid",
+                  gridTemplateColumns: `repeat(${cols}, ${colWidth}px)`,
+                  gap: GRID_GAP,
+                }}
               >
-                {product.currentStock}
-              </p>
-            </div>
-
-            <div className="text-right min-w-[100px]">
-              <p className="text-2xl font-bold text-emerald-600">
-                ₱{product.price.toFixed(2)}
-              </p>
-            </div>
-          </div>
+                {Array.from({ length: cols }).map((_, colIdx) => {
+                  const idx = startIdx + colIdx;
+                  if (idx >= products.length) return <div key={colIdx} />;
+                  const product = products[idx];
+                  return (
+                    <ProductGridCard
+                      key={product.id}
+                      product={product}
+                      inCart={!!cartMap.get(product.id)}
+                      isLoading={loadingProductId === product.id}
+                      onAdd={onAdd}
+                    />
+                  );
+                })}
+              </div>
+            );
+          })}
         </div>
-
-        {isLoading && (
-          <div className="absolute inset-0 bg-white/80 rounded-xl flex items-center justify-center">
-            <Loader2 className="h-6 w-6 animate-spin text-emerald-600" />
-          </div>
-        )}
-      </motion.div>
+      </div>
     );
-  };
+  },
+);
+GridView.displayName = "GridView";
+
+// ─── ListView — proper standalone component ───────────────────────────────────
+
+const ListView = memo(
+  ({
+    products,
+    cartMap,
+    loadingProductId,
+    onAdd,
+  }: {
+    products: Product[];
+    cartMap: Map<number, CartItem>;
+    loadingProductId: number | null;
+    onAdd: (p: Product) => void;
+  }) => {
+    const parentRef = useRef<HTMLDivElement>(null);
+
+    const rowVirtualizer = useVirtualizer({
+      count: products.length,
+      getScrollElement: () => parentRef.current,
+      estimateSize: () => LIST_ITEM_HEIGHT + 12,
+      overscan: 5,
+    });
+
+    return (
+      <div
+        ref={parentRef}
+        className="h-full overflow-auto"
+        style={{ padding: 12 }}
+      >
+        <div
+          style={{
+            height: rowVirtualizer.getTotalSize(),
+            width: "100%",
+            position: "relative",
+          }}
+        >
+          {rowVirtualizer.getVirtualItems().map((virtualRow) => {
+            const product = products[virtualRow.index];
+            return (
+              <div
+                key={virtualRow.key}
+                style={{
+                  position: "absolute",
+                  top: virtualRow.start,
+                  left: 0,
+                  width: "100%",
+                  height: LIST_ITEM_HEIGHT,
+                }}
+              >
+                <ProductListCard
+                  product={product}
+                  inCart={!!cartMap.get(product.id)}
+                  isLoading={loadingProductId === product.id}
+                  onAdd={onAdd}
+                />
+              </div>
+            );
+          })}
+        </div>
+      </div>
+    );
+  },
+);
+ListView.displayName = "ListView";
+
+// ─── Main component ───────────────────────────────────────────────────────────
+
+const POSPage = () => {
+  const [currentUser, setCurrentUser] = useState<User | null>(null);
+  const [activeBranch, setActiveBranch] = useState<Branch | null>(null);
+  const [loading, setLoading] = useState(true);
+
+  const [products, setProducts] = useState<Product[]>([]);
+  const [discounts, setDiscounts] = useState<Discount[]>([]);
+  const [cart, setCart] = useState<CartItem[]>([]);
+  const [loadingProductId, setLoadingProductId] = useState<number | null>(null);
+  const [checkingOut, setCheckingOut] = useState(false);
+  const [mobileCartVisible, setMobileCartVisible] = useState(false);
+  const [searchQuery, setSearchQuery] = useState("");
+  const [viewMode, setViewMode] = useState<ViewMode>("grid");
+
+  const socketRef = useRef<Socket | null>(null);
+  const barcodeInputRef = useRef("");
+  const barcodeTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+
+  // Discount dialog
+  const [showDiscountDialog, setShowDiscountDialog] = useState(false);
+  const [selectedCartItem, setSelectedCartItem] = useState<CartItem | null>(null);
+  const [applicableDiscounts, setApplicableDiscounts] = useState<Discount[]>([]);
+
+  // Checkout
+  const [showCheckoutDialog, setShowCheckoutDialog] = useState(false);
+  const [cashAmount, setCashAmount] = useState("");
+  const [showReceiptDialog, setShowReceiptDialog] = useState(false);
+  const [currentReceipt, setCurrentReceipt] = useState<SaleReceipt | null>(null);
+
+  const receiptRef = useRef<HTMLDivElement>(null);
+  const isMobile = useMediaQuery("(max-width: 767px)");
+
+  const debouncedSearch = useDebounce(searchQuery, 200);
+
+  const cartMap = useMemo(
+    () => new Map(cart.map((item) => [item.product.id, item])),
+    [cart],
+  );
+
+  const filteredProducts = useMemo(() => {
+    const q = debouncedSearch.toLowerCase();
+    return products.filter(
+      (p) =>
+        p.status === "ACTIVE" &&
+        (p.name.toLowerCase().includes(q) || p.sku.toLowerCase().includes(q)),
+    );
+  }, [products, debouncedSearch]);
+
+  const { subtotal, totalDiscount, total } = useMemo(() => {
+    let sub = 0;
+    let disc = 0;
+    for (const item of cart) {
+      sub += item.product.price * item.quantity;
+      if (item.appliedDiscount && item.discountedPrice != null) {
+        disc += (item.product.price - item.discountedPrice) * item.quantity;
+      }
+    }
+    return { subtotal: sub, totalDiscount: disc, total: sub - disc };
+  }, [cart]);
+
+  const calculateChange = useCallback(() => {
+    return (parseFloat(cashAmount) || 0) - total;
+  }, [cashAmount, total]);
+
+  // ── Data fetching ────────────────────────────────────────────────────────────
+
+  const fetchProducts = useCallback(async () => {
+    try {
+      const branchId = activeBranch?.id ?? currentUser?.branchId;
+      const res = await api.get(`/products?branchId=${branchId}`);
+      const parsed = res.data.map((p: any) => ({
+        ...p,
+        price: parseFloat(p.price) || 0,
+        cost: parseFloat(p.cost) || 0,
+        currentStock: p.branchStocks?.[0]?.currentStock ?? 0,
+      }));
+      setProducts(parsed);
+    } catch {
+      toast.error("Failed to fetch products");
+    }
+  }, [activeBranch, currentUser]);
+
+  const fetchDiscounts = useCallback(async () => {
+    try {
+      const res = await api.get("/discounts?activeOnly=true");
+      setDiscounts(res.data);
+    } catch {
+      toast.error("Failed to fetch discounts");
+    }
+  }, []);
+
+  useEffect(() => {
+    (async () => {
+      try {
+        setLoading(true);
+        const res = await api.get("/auth/me");
+        setCurrentUser(res.data);
+        const branch = res.data.currentBranch ?? res.data.branch;
+        setActiveBranch(branch);
+        if (!branch)
+          toast.error("No branch assigned. Please contact administrator.");
+      } catch {
+        toast.error("Failed to fetch user information");
+      } finally {
+        setLoading(false);
+      }
+    })();
+  }, []);
+
+  useEffect(() => {
+    if (currentUser) {
+      fetchProducts();
+      fetchDiscounts();
+    }
+  }, [currentUser, fetchProducts, fetchDiscounts]);
+
+  // ── Socket.io ────────────────────────────────────────────────────────────────
+  useEffect(() => {
+    if (!currentUser || !activeBranch) return;
+
+    const baseURL =
+      api.defaults.baseURL?.replace("/api", "") ?? "http://localhost:5000";
+    const socket = io(baseURL, {
+      auth: { token: localStorage.getItem("token") },
+      reconnection: true,
+      reconnectionDelay: 1000,
+      reconnectionAttempts: 5,
+    });
+    socketRef.current = socket;
+
+    socket.on("connect", () => socket.emit("join-branch", activeBranch.id));
+    socket.on("connect_error", console.error);
+
+    socket.on(
+      "stock-updated",
+      (data: { productId: number; newStock: number }) => {
+        setProducts((prev) =>
+          prev.map((p) =>
+            p.id === data.productId ? { ...p, currentStock: data.newStock } : p,
+          ),
+        );
+        setCart((prev) =>
+          prev.map((item) => {
+            if (item.product.id !== data.productId) return item;
+            const newQty = Math.min(item.quantity, Math.max(0, data.newStock));
+            if (newQty < item.quantity)
+              toast.warning(
+                `${item.product.name} stock updated. Quantity adjusted.`,
+                { duration: 4000 },
+              );
+            return {
+              ...item,
+              quantity: newQty,
+              product: { ...item.product, currentStock: data.newStock },
+            };
+          }),
+        );
+        setProducts((prev) => {
+          const product = prev.find((p) => p.id === data.productId);
+          if (product)
+            toast.info(`${product.name} stock updated: ${data.newStock}`, {
+              icon: <RefreshCw className="h-4 w-4" />,
+              duration: 3000,
+            });
+          return prev;
+        });
+      },
+    );
+
+    socket.on("new-sale", () => fetchProducts());
+    socket.on("dashboard-refresh", () => fetchProducts());
+
+    return () => {
+      socket.emit("leave-branch", activeBranch.id);
+      socket.disconnect();
+    };
+  }, [currentUser, activeBranch, fetchProducts]);
+
+  // ── Barcode scanner ──────────────────────────────────────────────────────────
+  const dialogsOpen =
+    showCheckoutDialog || showDiscountDialog || showReceiptDialog;
+
+  const addToCart = useCallback(async (product: Product) => {
+    if (product.currentStock <= 0) {
+      toast.error(`${product.name} is out of stock`);
+      return;
+    }
+    setLoadingProductId(product.id);
+    await new Promise((r) => setTimeout(r, 200));
+    setCart((prev) => {
+      const existing = prev.find((i) => i.product.id === product.id);
+      if (existing) {
+        if (existing.quantity >= product.currentStock) {
+          toast.error(`Maximum stock reached for ${product.name}`);
+          return prev;
+        }
+        return prev.map((i) =>
+          i.product.id === product.id ? { ...i, quantity: i.quantity + 1 } : i,
+        );
+      }
+      return [...prev, { product, quantity: 1, appliedDiscount: null }];
+    });
+    setLoadingProductId(null);
+  }, []);
+
+  const handleBarcodeScanned = useCallback(
+    (barcode: string) => {
+      const product = products.find(
+        (p) =>
+          (p.barcode?.toLowerCase() === barcode.toLowerCase() ||
+            p.sku.toLowerCase() === barcode.toLowerCase()) &&
+          p.status === "ACTIVE",
+      );
+      if (product) {
+        addToCart(product);
+        toast.success(`Added: ${product.name}`, {
+          icon: <Scan className="h-4 w-4" />,
+        });
+      } else {
+        toast.error(`Product not found: ${barcode}`);
+      }
+    },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [products],
+  );
+
+  useEffect(() => {
+    const handleKeyPress = (e: KeyboardEvent) => {
+      if (
+        e.target instanceof HTMLInputElement ||
+        e.target instanceof HTMLTextAreaElement ||
+        dialogsOpen
+      )
+        return;
+
+      if (barcodeTimeoutRef.current) clearTimeout(barcodeTimeoutRef.current);
+
+      if (e.key === "Enter" && barcodeInputRef.current.length > 0) {
+        handleBarcodeScanned(barcodeInputRef.current.trim());
+        barcodeInputRef.current = "";
+        return;
+      }
+
+      if (e.key.length === 1) {
+        barcodeInputRef.current += e.key;
+        barcodeTimeoutRef.current = setTimeout(() => {
+          barcodeInputRef.current = "";
+        }, 100);
+      }
+    };
+
+    window.addEventListener("keypress", handleKeyPress);
+    return () => {
+      window.removeEventListener("keypress", handleKeyPress);
+      if (barcodeTimeoutRef.current) clearTimeout(barcodeTimeoutRef.current);
+    };
+  }, [dialogsOpen, handleBarcodeScanned]);
+
+  // ── Cart actions ─────────────────────────────────────────────────────────────
+
+  const updateQuantity = useCallback((id: number, qty: number) => {
+    setCart((prev) =>
+      prev.map((item) =>
+        item.product.id === id ? { ...item, quantity: qty } : item,
+      ),
+    );
+  }, []);
+
+  const removeFromCart = useCallback((id: number) => {
+    setCart((prev) => prev.filter((item) => item.product.id !== id));
+  }, []);
+
+  const handleOpenDiscountDialog = useCallback(async (cartItem: CartItem) => {
+    setSelectedCartItem(cartItem);
+    try {
+      const res = await api.get(
+        `/discounts/product/${cartItem.product.id}/applicable`,
+      );
+      setApplicableDiscounts(res.data);
+      setShowDiscountDialog(true);
+    } catch {
+      toast.error("Failed to fetch applicable discounts");
+    }
+  }, []);
+
+  const applyDiscount = useCallback(
+    (discount: Discount | null) => {
+      if (!selectedCartItem) return;
+      setCart((prev) =>
+        prev.map((item) => {
+          if (item.product.id !== selectedCartItem.product.id) return item;
+          if (discount) {
+            return {
+              ...item,
+              appliedDiscount: discount,
+              discountedPrice: calculateDiscountedPrice(
+                item.product.price,
+                discount,
+              ),
+            };
+          }
+          return { ...item, appliedDiscount: null, discountedPrice: undefined };
+        }),
+      );
+      setShowDiscountDialog(false);
+      setSelectedCartItem(null);
+      toast.success(discount ? `${discount.name} applied` : "Discount removed");
+    },
+    [selectedCartItem],
+  );
+
+  const handleCheckoutClick = useCallback(() => {
+    if (cart.length === 0) {
+      toast.error("Cart is empty");
+      return;
+    }
+    if (!activeBranch) {
+      toast.error("No active branch.");
+      return;
+    }
+    setShowCheckoutDialog(true);
+    setCashAmount(total.toFixed(2));
+  }, [cart.length, activeBranch, total]);
+
+  const handleCheckout = useCallback(async () => {
+    const cash = parseFloat(cashAmount) || 0;
+    if (cash < total) {
+      toast.error("Cash amount is insufficient");
+      return;
+    }
+    if (!activeBranch) {
+      toast.error("No active branch.");
+      return;
+    }
+
+    setCheckingOut(true);
+    try {
+      await api.post("/sales", {
+        cart: cart.map((item) => ({
+          productId: item.product.id,
+          quantity: item.quantity,
+          price: item.product.price,
+          discountId: item.appliedDiscount?.id ?? null,
+          discountedPrice: item.discountedPrice ?? null,
+        })),
+        subtotal,
+        totalDiscount,
+        total,
+        cashAmount: cash,
+      });
+
+      setCurrentReceipt({
+        items: [...cart],
+        subtotal,
+        totalDiscount,
+        total,
+        cashAmount: cash,
+        change: cash - total,
+        date: new Date(),
+        branchName: activeBranch.name,
+        branchPhone: activeBranch.phone ?? "",
+        branchEmail: activeBranch.email ?? "",
+        soldBy: currentUser?.username ?? "Unknown",
+      });
+      setShowCheckoutDialog(false);
+      setShowReceiptDialog(true);
+      await fetchProducts();
+      toast.success("Sale completed successfully");
+    } catch (error: any) {
+      toast.error(error?.response?.data?.message ?? "Error during checkout");
+    } finally {
+      setCheckingOut(false);
+    }
+  }, [
+    cashAmount,
+    total,
+    activeBranch,
+    cart,
+    subtotal,
+    totalDiscount,
+    currentUser,
+    fetchProducts,
+  ]);
+
+  const handlePrintReceipt = useCallback(() => {
+    if (!receiptRef.current) return;
+    const pw = window.open("", "", "width=800,height=600");
+    if (!pw) return;
+    pw.document.write(`
+      <html>
+        <head>
+          <title>Receipt</title>
+          <style>
+            body { font-family: 'Courier New', monospace; padding: 20px; max-width: 400px; margin: 0 auto; }
+            h2 { text-align: center; margin-bottom: 20px; }
+            .receipt-info { margin-bottom: 10px; text-align: center; }
+            table { width: 100%; border-collapse: collapse; margin: 20px 0; }
+            th, td { padding: 8px; text-align: left; }
+            th { border-bottom: 2px solid #000; }
+            .item-row { border-bottom: 1px dashed #ccc; }
+            .discount-row { font-size: 0.9em; color: #059669; padding-left: 20px; }
+            .totals { margin-top: 20px; }
+            .total-row { display: flex; justify-content: space-between; padding: 5px 0; }
+            .total-row.final { border-top: 2px solid #000; font-weight: bold; font-size: 1.2em; padding-top: 10px; }
+            .footer { text-align: center; margin-top: 30px; font-size: 0.9em; }
+          </style>
+        </head>
+        <body>${receiptRef.current.innerHTML}</body>
+      </html>
+    `);
+    pw.document.close();
+    pw.print();
+  }, []);
+
+  const handleNewSale = useCallback(() => {
+    setCart([]);
+    setCashAmount("");
+    setCurrentReceipt(null);
+    setShowReceiptDialog(false);
+  }, []);
+
+  // ── Shared header controls ────────────────────────────────────────────────────
+
+  const SearchBar = (
+    <div className="flex gap-2">
+      <div className="relative flex-1">
+        <Search className="absolute left-4 top-1/2 -translate-y-1/2 h-5 w-5 text-gray-400" />
+        <Input
+          type="text"
+          placeholder="Search products by name or SKU..."
+          value={searchQuery}
+          onChange={(e) => setSearchQuery(e.target.value)}
+          className="pl-12 h-12 border-2 border-gray-200 focus:border-emerald-500 focus:ring-2 focus:ring-emerald-200 rounded-xl text-base"
+        />
+      </div>
+      <div className="flex border-2 border-gray-200 rounded-xl overflow-hidden bg-white">
+        <Button
+          variant="ghost"
+          size="sm"
+          onClick={() => setViewMode("grid")}
+          className={`h-12 px-4 rounded-none ${
+            viewMode === "grid"
+              ? "bg-emerald-500 text-white hover:bg-emerald-600 hover:text-white"
+              : "text-gray-600 hover:bg-gray-50"
+          }`}
+        >
+          <Grid3x3 className="h-5 w-5" />
+        </Button>
+        <Button
+          variant="ghost"
+          size="sm"
+          onClick={() => setViewMode("list")}
+          className={`h-12 px-4 rounded-none border-l-2 border-gray-200 ${
+            viewMode === "list"
+              ? "bg-emerald-500 text-white hover:bg-emerald-600 hover:text-white"
+              : "text-gray-600 hover:bg-gray-50"
+          }`}
+        >
+          <List className="h-5 w-5" />
+        </Button>
+      </div>
+    </div>
+  );
+
+  // ── Product area (shared between desktop and mobile) ──────────────────────────
+
+  const ProductArea = (
+    <div className="h-full">
+      {filteredProducts.length === 0 ? (
+        <div className="flex flex-col items-center justify-center h-full text-center px-4">
+          <div className="inline-flex items-center justify-center w-16 h-16 rounded-full bg-gray-100 mb-4">
+            <Search className="h-8 w-8 text-gray-400" />
+          </div>
+          <p className="text-gray-500 font-medium">No products found</p>
+          <p className="text-gray-400 text-sm mt-1">Try a different search term</p>
+        </div>
+      ) : viewMode === "grid" ? (
+        <GridView
+          products={filteredProducts}
+          cartMap={cartMap}
+          loadingProductId={loadingProductId}
+          onAdd={addToCart}
+        />
+      ) : (
+        <ListView
+          products={filteredProducts}
+          cartMap={cartMap}
+          loadingProductId={loadingProductId}
+          onAdd={addToCart}
+        />
+      )}
+    </div>
+  );
+
+  // ── Render ────────────────────────────────────────────────────────────────────
 
   if (loading) {
     return (
@@ -875,121 +1066,20 @@ const POSPage = () => {
   return (
     <ProtectedRoute>
       <div className="min-h-screen bg-gradient-to-br from-emerald-50 via-white to-green-50">
-        {/* Desktop Layout */}
+        {/* ── Desktop Layout ───────────────────────────────────────────────────── */}
         <div className="hidden md:grid md:grid-cols-3 gap-0 h-screen pb-16">
-          {/* Product List - Desktop */}
-          <div className="md:col-span-2 overflow-auto border-r border-emerald-200">
-            {/* Header Section */}
-            <div className="sticky top-0 bg-white z-20 border-b border-emerald-200 shadow-sm">
-              <div className="p-4 space-y-3">
-                {/* Branch Info */}
-                {/* {activeBranch && (
-                  <Card className="p-3 bg-gradient-to-r from-emerald-500 to-green-600 border-0 shadow-md">
-                    <div className="flex items-center gap-2">
-                      <div className="h-8 w-8 rounded-full bg-white/20 flex items-center justify-center">
-                        <Building2 className="h-4 w-4 text-white" />
-                      </div>
-                      <div className="flex-1">
-                        <p className="text-white font-bold text-sm">
-                          {activeBranch.name}
-                        </p>
-                        <p className="text-emerald-100 text-xs">
-                          {activeBranch.code}
-                        </p>
-                      </div>
-                    </div>
-                  </Card>
-                )} */}
-
-                {/* Barcode Indicator */}
-                {barcodeInput && (
-                  <motion.div
-                    initial={{ opacity: 0, y: -10 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    className="p-3 bg-amber-50 border border-amber-200 rounded-lg"
-                  >
-                    <div className="flex items-center gap-2 text-sm text-amber-900">
-                      <Scan className="h-4 w-4 animate-pulse" />
-                      <span className="font-mono font-semibold">
-                        {barcodeInput}
-                      </span>
-                    </div>
-                  </motion.div>
-                )}
-
-                {/* Search Bar and View Toggle */}
-                <div className="flex gap-2">
-                  <div className="relative flex-1">
-                    <Search className="absolute left-4 top-1/2 -translate-y-1/2 h-5 w-5 text-gray-400" />
-                    <Input
-                      type="text"
-                      placeholder="Search products by name or SKU..."
-                      value={searchQuery}
-                      onChange={(e) => setSearchQuery(e.target.value)}
-                      className="pl-12 h-12 border-2 border-gray-200 focus:border-emerald-500 focus:ring-2 focus:ring-emerald-200 rounded-xl text-base"
-                    />
-                  </div>
-                  <div className="flex border-2 border-gray-200 rounded-xl overflow-hidden bg-white">
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      onClick={() => setViewMode("grid")}
-                      className={`h-12 px-4 rounded-none ${
-                        viewMode === "grid"
-                          ? "bg-emerald-500 text-white hover:bg-emerald-600 hover:text-white"
-                          : "text-gray-600 hover:bg-gray-50"
-                      }`}
-                    >
-                      <Grid3x3 className="h-5 w-5" />
-                    </Button>
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      onClick={() => setViewMode("list")}
-                      className={`h-12 px-4 rounded-none border-l-2 border-gray-200 ${
-                        viewMode === "list"
-                          ? "bg-emerald-500 text-white hover:bg-emerald-600 hover:text-white"
-                          : "text-gray-600 hover:bg-gray-50"
-                      }`}
-                    >
-                      <List className="h-5 w-5" />
-                    </Button>
-                  </div>
-                </div>
-              </div>
+          {/* Product panel */}
+          <div className="md:col-span-2 flex flex-col border-r border-emerald-200 overflow-hidden">
+            <div className="bg-white z-20 border-b border-emerald-200 shadow-sm p-4">
+              {SearchBar}
             </div>
-
-            {/* Product Grid/List */}
-            <div className="p-4">
-              {filteredProducts.length === 0 ? (
-                <div className="text-center py-20">
-                  <div className="inline-flex items-center justify-center w-16 h-16 rounded-full bg-gray-100 mb-4">
-                    <Search className="h-8 w-8 text-gray-400" />
-                  </div>
-                  <p className="text-gray-500 font-medium">No products found</p>
-                  <p className="text-gray-400 text-sm mt-1">
-                    Try a different search term
-                  </p>
-                </div>
-              ) : viewMode === "grid" ? (
-                <div className="grid grid-cols-2 lg:grid-cols-3 gap-3">
-                  {filteredProducts.map((product) => (
-                    <ProductGridItem key={product.id} product={product} />
-                  ))}
-                </div>
-              ) : (
-                <div className="space-y-3">
-                  {filteredProducts.map((product) => (
-                    <ProductListItem key={product.id} product={product} />
-                  ))}
-                </div>
-              )}
+            <div className="flex-1 overflow-hidden">
+              {ProductArea}
             </div>
           </div>
 
-          {/* Cart Sidebar - Desktop */}
+          {/* Cart sidebar */}
           <div className="flex flex-col bg-white border-l border-emerald-200 pb-5">
-            {/* Cart Header */}
             <div className="p-4 border-b border-emerald-200 bg-gradient-to-r from-emerald-50 to-green-50">
               <div className="flex items-center gap-3">
                 <div className="h-10 w-10 rounded-full bg-emerald-500 flex items-center justify-center">
@@ -1004,16 +1094,13 @@ const POSPage = () => {
               </div>
             </div>
 
-            {/* Cart Items */}
             <div className="flex-auto h-0 overflow-auto">
               {cart.length === 0 ? (
                 <div className="flex flex-col items-center justify-center h-full p-8 text-center">
                   <div className="h-20 w-20 rounded-full bg-emerald-50 flex items-center justify-center mb-4">
                     <ShoppingCart className="h-10 w-10 text-emerald-300" />
                   </div>
-                  <p className="text-gray-500 font-medium mb-2">
-                    Cart is empty
-                  </p>
+                  <p className="text-gray-500 font-medium">Cart is empty</p>
                   <p className="text-gray-400 text-sm">
                     Scan or click products to add
                   </p>
@@ -1021,13 +1108,18 @@ const POSPage = () => {
               ) : (
                 <div className="divide-y divide-emerald-100">
                   {cart.map((item) => (
-                    <CartItemDisplay key={item.product.id} item={item} />
+                    <CartItemDisplay
+                      key={item.product.id}
+                      item={item}
+                      onRemove={removeFromCart}
+                      onUpdateQty={updateQuantity}
+                      onOpenDiscount={handleOpenDiscountDialog}
+                    />
                   ))}
                 </div>
               )}
             </div>
 
-            {/* Cart Footer */}
             {cart.length > 0 && (
               <div className="border-t-2 border-emerald-200 bg-white p-4 space-y-3">
                 {totalDiscount > 0 && (
@@ -1049,7 +1141,7 @@ const POSPage = () => {
                 <Button
                   onClick={handleCheckoutClick}
                   disabled={cart.length === 0 || !activeBranch}
-                  className="w-full h-12 bg-gradient-to-r from-emerald-600 to-green-600 hover:from-emerald-700 hover:to-green-700 text-white font-bold text-base shadow-lg hover:shadow-xl transition-all"
+                  className="w-full h-12 bg-gradient-to-r from-emerald-600 to-green-600 hover:from-emerald-700 hover:to-green-700 text-white font-bold text-base shadow-lg"
                 >
                   Proceed to Checkout
                 </Button>
@@ -1058,221 +1150,15 @@ const POSPage = () => {
           </div>
         </div>
 
-        {/* Mobile Layout */}
-        <div className="md:hidden min-h-screen pb-24">
-          {/* Mobile Header */}
-          <div className="sticky top-0 bg-white z-20 border-b border-emerald-200 shadow-sm">
-            <div className="p-4 space-y-3">
-              {/* {activeBranch && (
-                <Card className="p-3 bg-gradient-to-r from-emerald-500 to-green-600 border-0 shadow-md">
-                  <div className="flex items-center gap-2">
-                    <div className="h-8 w-8 rounded-full bg-white/20 flex items-center justify-center">
-                      <Building2 className="h-4 w-4 text-white" />
-                    </div>
-                    <div className="flex-1">
-                      <p className="text-white font-bold text-sm">
-                        {activeBranch.name}
-                      </p>
-                      <p className="text-emerald-100 text-xs">
-                        {activeBranch.code}
-                      </p>
-                    </div>
-                  </div>
-                </Card>
-              )} */}
-
-              {barcodeInput && (
-                <motion.div
-                  initial={{ opacity: 0, y: -10 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  className="p-3 bg-amber-50 border border-amber-200 rounded-lg"
-                >
-                  <div className="flex items-center gap-2 text-sm text-amber-900">
-                    <Scan className="h-4 w-4 animate-pulse" />
-                    <span className="font-mono font-semibold">
-                      {barcodeInput}
-                    </span>
-                  </div>
-                </motion.div>
-              )}
-
-              <div className="flex gap-2">
-                <div className="relative flex-1">
-                  <Search className="absolute left-4 top-1/2 -translate-y-1/2 h-5 w-5 text-gray-400" />
-                  <Input
-                    type="text"
-                    placeholder="Search products..."
-                    value={searchQuery}
-                    onChange={(e) => setSearchQuery(e.target.value)}
-                    className="pl-12 h-12 border-2 border-gray-200 focus:border-emerald-500 focus:ring-2 focus:ring-emerald-200 rounded-xl"
-                  />
-                </div>
-                <div className="flex border-2 border-gray-200 rounded-xl overflow-hidden bg-white">
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    onClick={() => setViewMode("grid")}
-                    className={`h-12 px-3 rounded-none ${
-                      viewMode === "grid"
-                        ? "bg-emerald-500 text-white"
-                        : "text-gray-600"
-                    }`}
-                  >
-                    <Grid3x3 className="h-5 w-5" />
-                  </Button>
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    onClick={() => setViewMode("list")}
-                    className={`h-12 px-3 rounded-none border-l-2 border-gray-200 ${
-                      viewMode === "list"
-                        ? "bg-emerald-500 text-white"
-                        : "text-gray-600"
-                    }`}
-                  >
-                    <List className="h-5 w-5" />
-                  </Button>
-                </div>
-              </div>
-            </div>
+        {/* ── Mobile Layout ────────────────────────────────────────────────────── */}
+        <div className="md:hidden flex flex-col h-screen pb-24 overflow-hidden">
+          <div className="bg-white z-20 border-b border-emerald-200 shadow-sm p-4">
+            {SearchBar}
+          </div>
+          <div className="flex-1 overflow-hidden">
+            {ProductArea}
           </div>
 
-          {/* Mobile Product Grid/List */}
-          <div className="p-4">
-            {filteredProducts.length === 0 ? (
-              <div className="text-center py-20">
-                <div className="inline-flex items-center justify-center w-16 h-16 rounded-full bg-gray-100 mb-4">
-                  <Search className="h-8 w-8 text-gray-400" />
-                </div>
-                <p className="text-gray-500 font-medium">No products found</p>
-              </div>
-            ) : viewMode === "grid" ? (
-              <div className="grid grid-cols-2 gap-3">
-                {filteredProducts.map((product) => {
-                  const inCart = cart.find(
-                    (item) => item.product.id === product.id,
-                  );
-                  const isLoading = loadingProductId === product.id;
-
-                  return (
-                    <motion.div
-                      key={product.id}
-                      whileTap={{ scale: 0.95 }}
-                      onClick={() => !isLoading && addToCart(product)}
-                      className={`relative p-4 rounded-xl border-2 active:scale-95 transition-all ${
-                        inCart
-                          ? "border-emerald-500 bg-emerald-50 shadow-md"
-                          : "border-gray-200 bg-white active:border-emerald-300"
-                      }`}
-                    >
-                      {inCart && (
-                        <div className="absolute top-2 right-2 h-6 w-6 rounded-full bg-emerald-500 flex items-center justify-center">
-                          <Check className="h-4 w-4 text-white" />
-                        </div>
-                      )}
-
-                      <div className="mb-3">
-                        <h3 className="font-bold text-gray-800 text-sm mb-1 line-clamp-2">
-                          {product.name}
-                        </h3>
-                        <p className="text-xs text-gray-500">{product.sku}</p>
-                      </div>
-
-                      <div className="space-y-2">
-                        <div className="flex items-center justify-between">
-                          <span className="text-xs text-gray-500">Stock</span>
-                          <span
-                            className={`text-sm font-semibold ${
-                              product.currentStock <= 10
-                                ? "text-orange-600"
-                                : "text-gray-700"
-                            }`}
-                          >
-                            {product.currentStock}
-                          </span>
-                        </div>
-                        <p className="text-lg font-bold text-emerald-600">
-                          ₱{product.price.toFixed(2)}
-                        </p>
-                      </div>
-
-                      {isLoading && (
-                        <div className="absolute inset-0 bg-white/80 rounded-xl flex items-center justify-center">
-                          <Loader2 className="h-6 w-6 animate-spin text-emerald-600" />
-                        </div>
-                      )}
-                    </motion.div>
-                  );
-                })}
-              </div>
-            ) : (
-              <div className="space-y-3">
-                {filteredProducts.map((product) => {
-                  const inCart = cart.find(
-                    (item) => item.product.id === product.id,
-                  );
-                  const isLoading = loadingProductId === product.id;
-
-                  return (
-                    <motion.div
-                      key={product.id}
-                      whileTap={{ scale: 0.98 }}
-                      onClick={() => !isLoading && addToCart(product)}
-                      className={`relative p-4 rounded-xl border-2 transition-all ${
-                        inCart
-                          ? "border-emerald-500 bg-emerald-50 shadow-md"
-                          : "border-gray-200 bg-white active:border-emerald-300"
-                      }`}
-                    >
-                      <div className="flex items-center gap-3">
-                        {inCart && (
-                          <div className="h-8 w-8 rounded-full bg-emerald-500 flex items-center justify-center flex-shrink-0">
-                            <Check className="h-4 w-4 text-white" />
-                          </div>
-                        )}
-
-                        <div className="flex-1 min-w-0">
-                          <h3 className="font-bold text-gray-800 text-sm mb-1 truncate">
-                            {product.name}
-                          </h3>
-                          <p className="text-xs text-gray-500">{product.sku}</p>
-                        </div>
-
-                        <div className="flex items-center gap-4 flex-shrink-0">
-                          <div className="text-center">
-                            <p className="text-xs text-gray-500 mb-1">Stock</p>
-                            <p
-                              className={`text-sm font-semibold ${
-                                product.currentStock <= 10
-                                  ? "text-orange-600"
-                                  : "text-gray-700"
-                              }`}
-                            >
-                              {product.currentStock}
-                            </p>
-                          </div>
-
-                          <div className="text-right">
-                            <p className="text-lg font-bold text-emerald-600">
-                              ₱{product.price.toFixed(2)}
-                            </p>
-                          </div>
-                        </div>
-                      </div>
-
-                      {isLoading && (
-                        <div className="absolute inset-0 bg-white/80 rounded-xl flex items-center justify-center">
-                          <Loader2 className="h-6 w-6 animate-spin text-emerald-600" />
-                        </div>
-                      )}
-                    </motion.div>
-                  );
-                })}
-              </div>
-            )}
-          </div>
-
-          {/* Mobile Floating Cart Button */}
           {!mobileCartVisible && cart.length > 0 && (
             <motion.div
               initial={{ scale: 0 }}
@@ -1281,7 +1167,7 @@ const POSPage = () => {
             >
               <Button
                 onClick={() => setMobileCartVisible(true)}
-                className="h-16 w-16 rounded-full bg-gradient-to-r from-emerald-600 to-green-600 hover:from-emerald-700 hover:to-green-700 shadow-2xl relative"
+                className="h-16 w-16 rounded-full bg-gradient-to-r from-emerald-600 to-green-600 shadow-2xl relative"
               >
                 <ShoppingCart className="h-6 w-6 text-white" />
                 <div className="absolute -top-2 -right-2 h-7 w-7 rounded-full bg-red-500 flex items-center justify-center border-2 border-white">
@@ -1293,7 +1179,6 @@ const POSPage = () => {
             </motion.div>
           )}
 
-          {/* Mobile Cart Drawer */}
           <AnimatePresence>
             {mobileCartVisible && (
               <>
@@ -1304,7 +1189,6 @@ const POSPage = () => {
                   className="fixed inset-0 bg-black/50 z-40"
                   onClick={() => setMobileCartVisible(false)}
                 />
-
                 <motion.div
                   initial={{ y: "100%" }}
                   animate={{ y: 0 }}
@@ -1312,12 +1196,9 @@ const POSPage = () => {
                   transition={{ type: "spring", damping: 30, stiffness: 300 }}
                   className="fixed bottom-0 left-0 right-0 bg-white z-50 rounded-t-3xl shadow-2xl max-h-[85vh] flex flex-col pb-20"
                 >
-                  {/* Drawer Handle */}
                   <div className="flex justify-center pt-3 pb-2">
                     <div className="w-12 h-1.5 bg-gray-300 rounded-full" />
                   </div>
-
-                  {/* Cart Header */}
                   <div className="px-6 py-4 border-b border-emerald-100">
                     <div className="flex items-center justify-between">
                       <div className="flex items-center gap-3">
@@ -1341,15 +1222,17 @@ const POSPage = () => {
                       </Button>
                     </div>
                   </div>
-
-                  {/* Cart Items */}
                   <div className="flex-1 overflow-auto">
                     {cart.map((item) => (
-                      <CartItemDisplay key={item.product.id} item={item} />
+                      <CartItemDisplay
+                        key={item.product.id}
+                        item={item}
+                        onRemove={removeFromCart}
+                        onUpdateQty={updateQuantity}
+                        onOpenDiscount={handleOpenDiscountDialog}
+                      />
                     ))}
                   </div>
-
-                  {/* Cart Footer */}
                   <div className="border-t-2 border-emerald-200 bg-white p-6 space-y-3">
                     {totalDiscount > 0 && (
                       <>
@@ -1375,7 +1258,7 @@ const POSPage = () => {
                         handleCheckoutClick();
                       }}
                       disabled={cart.length === 0 || !activeBranch}
-                      className="w-full h-14 bg-gradient-to-r from-emerald-600 to-green-600 hover:from-emerald-700 hover:to-green-700 text-white font-bold text-lg shadow-lg"
+                      className="w-full h-14 bg-gradient-to-r from-emerald-600 to-green-600 text-white font-bold text-lg shadow-lg"
                     >
                       Proceed to Checkout
                     </Button>
@@ -1387,7 +1270,7 @@ const POSPage = () => {
         </div>
       </div>
 
-      {/* Discount Selection Dialog */}
+      {/* ── Discount Dialog ───────────────────────────────────────────────────── */}
       <Dialog open={showDiscountDialog} onOpenChange={setShowDiscountDialog}>
         <DialogContent className="sm:max-w-md max-h-[90vh] overflow-y-auto">
           <DialogHeader>
@@ -1399,7 +1282,6 @@ const POSPage = () => {
                 `Select a discount for ${selectedCartItem.product.name}`}
             </DialogDescription>
           </DialogHeader>
-
           <div className="space-y-3 py-4">
             {selectedCartItem?.appliedDiscount && (
               <Button
@@ -1413,7 +1295,6 @@ const POSPage = () => {
                 </span>
               </Button>
             )}
-
             {applicableDiscounts.length === 0 ? (
               <div className="text-center py-8">
                 <div className="inline-flex items-center justify-center w-16 h-16 rounded-full bg-gray-100 mb-3">
@@ -1436,7 +1317,6 @@ const POSPage = () => {
                 const savings = selectedCartItem
                   ? selectedCartItem.product.price - discountedPrice
                   : 0;
-
                 return (
                   <Button
                     key={discount.id}
@@ -1491,7 +1371,6 @@ const POSPage = () => {
               })
             )}
           </div>
-
           <DialogFooter>
             <Button
               type="button"
@@ -1505,7 +1384,7 @@ const POSPage = () => {
         </DialogContent>
       </Dialog>
 
-      {/* Checkout Dialog */}
+      {/* ── Checkout Dialog ───────────────────────────────────────────────────── */}
       <Dialog open={showCheckoutDialog} onOpenChange={setShowCheckoutDialog}>
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
@@ -1530,7 +1409,6 @@ const POSPage = () => {
                 </div>
               )}
             </div>
-
             <div className="space-y-2">
               <Label htmlFor="cash" className="text-sm font-semibold">
                 Cash Amount
@@ -1546,7 +1424,6 @@ const POSPage = () => {
                 autoFocus
               />
             </div>
-
             <div className="space-y-2">
               <Label className="text-sm font-semibold text-gray-600">
                 Quick Cash
@@ -1575,16 +1452,13 @@ const POSPage = () => {
                 Exact Amount
               </Button>
             </div>
-
             {cashAmount && (
               <div className="p-4 bg-gray-50 rounded-xl border-2 border-gray-200">
                 <Label className="text-sm text-gray-600 mb-2 block">
                   Change
                 </Label>
                 <div
-                  className={`text-3xl font-bold ${
-                    calculateChange() < 0 ? "text-red-600" : "text-emerald-600"
-                  }`}
+                  className={`text-3xl font-bold ${calculateChange() < 0 ? "text-red-600" : "text-emerald-600"}`}
                 >
                   ₱{Math.abs(calculateChange()).toFixed(2)}
                 </div>
@@ -1609,7 +1483,7 @@ const POSPage = () => {
               type="button"
               onClick={handleCheckout}
               disabled={checkingOut || parseFloat(cashAmount) < total}
-              className="w-full sm:w-auto bg-gradient-to-r from-emerald-600 to-green-600 hover:from-emerald-700 hover:to-green-700 text-white font-bold"
+              className="w-full sm:w-auto bg-gradient-to-r from-emerald-600 to-green-600 text-white font-bold"
             >
               {checkingOut ? (
                 <>
@@ -1624,7 +1498,7 @@ const POSPage = () => {
         </DialogContent>
       </Dialog>
 
-      {/* Receipt Dialog */}
+      {/* ── Receipt Dialog ────────────────────────────────────────────────────── */}
       <Dialog open={showReceiptDialog} onOpenChange={setShowReceiptDialog}>
         <DialogContent className="sm:max-w-lg max-h-[90vh] overflow-y-auto">
           <DialogHeader>
@@ -1635,7 +1509,6 @@ const POSPage = () => {
               Transaction completed successfully
             </DialogDescription>
           </DialogHeader>
-
           {currentReceipt && (
             <div ref={receiptRef} className="py-4 space-y-4">
               <div className="text-center pb-4 border-b-2 border-dashed border-gray-300">
@@ -1656,7 +1529,6 @@ const POSPage = () => {
                   </p>
                 )}
               </div>
-
               <div className="space-y-2">
                 {currentReceipt.items.map((item) => (
                   <div
@@ -1670,9 +1542,7 @@ const POSPage = () => {
                         </p>
                         <p className="text-sm text-gray-600">
                           {item.quantity} × ₱
-                          {(item.discountedPrice ?? item.product.price).toFixed(
-                            2,
-                          )}
+                          {(item.discountedPrice ?? item.product.price).toFixed(2)}
                         </p>
                       </div>
                       <p className="font-bold text-gray-800">
@@ -1688,7 +1558,6 @@ const POSPage = () => {
                   </div>
                 ))}
               </div>
-
               <div className="space-y-2 pt-2 border-t-2 border-gray-300">
                 <div className="flex justify-between text-gray-600">
                   <span>Subtotal</span>
@@ -1713,7 +1582,6 @@ const POSPage = () => {
                   <span>₱{currentReceipt.change.toFixed(2)}</span>
                 </div>
               </div>
-
               <div className="text-center pt-4 border-t-2 border-dashed border-gray-300 text-sm text-gray-600 space-y-1">
                 <p>Sold by: {currentReceipt.soldBy}</p>
                 <p>{currentReceipt.date.toLocaleString()}</p>
@@ -1728,7 +1596,6 @@ const POSPage = () => {
               </div>
             </div>
           )}
-
           <DialogFooter className="flex-col sm:flex-row gap-2">
             <Button
               type="button"
@@ -1742,7 +1609,7 @@ const POSPage = () => {
             <Button
               type="button"
               onClick={handleNewSale}
-              className="w-full sm:w-auto bg-gradient-to-r from-emerald-600 to-green-600 hover:from-emerald-700 hover:to-green-700 text-white font-bold"
+              className="w-full sm:w-auto bg-gradient-to-r from-emerald-600 to-green-600 text-white font-bold"
             >
               New Sale
             </Button>
