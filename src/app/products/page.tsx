@@ -332,10 +332,17 @@ export default function ProductList() {
 
           try {
             const { categoryName, ...productData } = product;
-            await api.post("/products", {
-              ...productData,
-              categoryId: matchedCat.id,
-            });
+            if (matchedCat) {
+              await api.post("/products", {
+                ...productData,
+                categoryId: matchedCat.id,
+              });
+            } else {
+              // Handle the error: category was not found
+              console.error("Category not found");
+              // Optional: throw error or alert user
+            }
+
             // Add to local set so duplicates within the CSV itself are also caught
             existingSkus.add(product.sku);
             success++;
