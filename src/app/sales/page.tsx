@@ -864,7 +864,7 @@ const SalesReportPage = () => {
                     <div className="space-y-3">
                       {selectedSale.items.map((item, idx) => {
                         const itemId = item.id;
-                        if (!itemId) return null;
+                        // if (!itemId) return null;
                         const refundable = getRefundableQty(item);
                         const selected = refundCart[itemId] || 0;
                         const alreadyDone = alreadyRefunded[itemId] || 0;

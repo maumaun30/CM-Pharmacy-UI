@@ -7,6 +7,7 @@ import { Badge } from "@/components/ui/badge";
 import { toast } from "sonner";
 import api from "@/lib/api";
 import ProtectedRoute from "@/components/ProtectedRoute";
+import SalesTrendChart from "@/components/SalesTrendChart";
 import {
   ShoppingCart,
   TrendingUp,
@@ -85,7 +86,13 @@ const HomePage = () => {
   const [currentTime, setCurrentTime] = useState(new Date());
   const [isConnected, setIsConnected] = useState(false);
   const [newSaleAnimation, setNewSaleAnimation] = useState(false);
-  
+  const [latestSaleEvent, setLatestSaleEvent] = useState<{
+    id: number;
+    totalAmount: number;
+    soldAt: string;
+    branchId: number;
+  } | null>(null);
+
   const socketRef = useRef<Socket | null>(null);
 
   useEffect(() => {
@@ -115,9 +122,10 @@ const HomePage = () => {
       return;
     }
 
-    const socketUrl = process.env.NEXT_PUBLIC_SOCKET_URL || "http://localhost:3000";
+    const socketUrl =
+      process.env.NEXT_PUBLIC_SOCKET_URL || "http://localhost:3000";
     console.log("Connecting to Socket.IO server:", socketUrl);
-    
+
     const newSocket = io(socketUrl, {
       transports: ["websocket", "polling"],
       reconnection: true,
@@ -134,9 +142,9 @@ const HomePage = () => {
 
       // Join branch-specific room
       if (currentUser) {
-        const isViewingAllBranches = 
+        const isViewingAllBranches =
           currentUser.role === "admin" && !currentUser.currentBranchId;
-        
+
         if (isViewingAllBranches) {
           // console.log("Admin viewing all branches - joining admin-all room");
           newSocket.emit("join-branch", null);
@@ -164,20 +172,30 @@ const HomePage = () => {
     // Listen for new sales
     newSocket.on("sale:new", (saleData) => {
       // console.log("🛒 New sale received:", saleData);
-      
+
       // Trigger animation
       setNewSaleAnimation(true);
       setTimeout(() => setNewSaleAnimation(false), 1000);
 
       // Show notification
       toast.success(
-        `New sale: ₱${parseFloat(saleData.totalAmount).toLocaleString(undefined, {
-          minimumFractionDigits: 2,
-        })}`,
+        `New sale: ₱${parseFloat(saleData.totalAmount).toLocaleString(
+          undefined,
+          {
+            minimumFractionDigits: 2,
+          },
+        )}`,
         {
           icon: <ShoppingCart className="h-4 w-4" />,
-        }
+        },
       );
+
+      setLatestSaleEvent({
+        id: saleData.id,
+        totalAmount: parseFloat(saleData.totalAmount),
+        soldAt: saleData.soldAt,
+        branchId: saleData.branchId,
+      });
 
       // Update stats with deduplication
       setStats((prev) => {
@@ -189,7 +207,9 @@ const HomePage = () => {
         };
 
         // Remove duplicate if it exists
-        const existingSales = prev.recentSales.filter(sale => sale.id !== saleData.id);
+        const existingSales = prev.recentSales.filter(
+          (sale) => sale.id !== saleData.id,
+        );
 
         return {
           ...prev,
@@ -214,7 +234,7 @@ const HomePage = () => {
         {
           icon: <AlertTriangle className="h-4 w-4" />,
           duration: 5000,
-        }
+        },
       );
       fetchDashboardStats();
     });
@@ -301,7 +321,7 @@ const HomePage = () => {
       borderColor: "border-amber-200",
       roles: ["admin"], // Admin only
     },
-  ].filter(action => action.roles.includes(currentUser?.role || ""));
+  ].filter((action) => action.roles.includes(currentUser?.role || ""));
 
   const adminActions = [
     {
@@ -363,7 +383,8 @@ const HomePage = () => {
               <div>
                 <div className="flex items-center gap-3">
                   <h1 className="text-3xl md:text-4xl font-bold bg-gradient-to-r from-emerald-600 to-green-600 bg-clip-text text-transparent">
-                    Welcome back, {currentUser?.fullName || currentUser?.username}!
+                    Welcome back,{" "}
+                    {currentUser?.fullName || currentUser?.username}!
                   </h1>
                   {/* Connection Status Indicator */}
                   <div className="flex items-center gap-2">
@@ -380,7 +401,10 @@ const HomePage = () => {
                 <p className="text-gray-600 mt-1">
                   Here's what's happening with your store today
                   {isConnected && (
-                    <span className="text-emerald-600 font-semibold"> • Live</span>
+                    <span className="text-emerald-600 font-semibold">
+                      {" "}
+                      • Live
+                    </span>
                   )}
                 </p>
               </div>
@@ -441,7 +465,10 @@ const HomePage = () => {
                       Today's Sales
                     </p>
                     <p className="text-3xl font-bold text-emerald-600 mt-2">
-                      ₱{stats.todaySales.toLocaleString(undefined, { minimumFractionDigits: 2 })}
+                      ₱
+                      {stats.todaySales.toLocaleString(undefined, {
+                        minimumFractionDigits: 2,
+                      })}
                     </p>
                     <p className="text-xs text-gray-500 mt-1">
                       {stats.todayTransactions} transactions
@@ -483,7 +510,9 @@ const HomePage = () => {
                       <p className="text-3xl font-bold text-orange-600 mt-2">
                         {stats.lowStockCount}
                       </p>
-                      <p className="text-xs text-gray-500 mt-1">Needs attention</p>
+                      <p className="text-xs text-gray-500 mt-1">
+                        Needs attention
+                      </p>
                     </div>
                     <div className="h-12 w-12 rounded-xl bg-orange-500 flex items-center justify-center">
                       <AlertTriangle className="h-6 w-6 text-white" />
@@ -517,8 +546,12 @@ const HomePage = () => {
             animate={{ opacity: 1, y: 0 }}
             transition={{ delay: 0.2 }}
           >
-            <h2 className="text-xl font-bold text-gray-800 mb-4">Quick Actions</h2>
-            <div className={`grid grid-cols-1 sm:grid-cols-2 ${isAdmin ? 'lg:grid-cols-4' : 'lg:grid-cols-2'} gap-4`}>
+            <h2 className="text-xl font-bold text-gray-800 mb-4">
+              Quick Actions
+            </h2>
+            <div
+              className={`grid grid-cols-1 sm:grid-cols-2 ${isAdmin ? "lg:grid-cols-4" : "lg:grid-cols-2"} gap-4`}
+            >
               {quickActions.map((action, index) => {
                 const Icon = action.icon;
                 return (
@@ -550,6 +583,17 @@ const HomePage = () => {
                 );
               })}
             </div>
+          </motion.div>
+
+          <motion.div
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ delay: 0.25 }}
+          >
+            <SalesTrendChart
+              isConnected={isConnected}
+              latestSale={latestSaleEvent}
+            />
           </motion.div>
 
           {/* Recent Sales and Admin Panel / Stock Alert */}
@@ -620,7 +664,10 @@ const HomePage = () => {
                             </div>
                             <div className="text-right">
                               <p className="font-bold text-emerald-600">
-                                ₱{sale.totalAmount.toLocaleString(undefined, { minimumFractionDigits: 2 })}
+                                ₱
+                                {sale.totalAmount.toLocaleString(undefined, {
+                                  minimumFractionDigits: 2,
+                                })}
                               </p>
                             </div>
                           </motion.div>
@@ -689,9 +736,14 @@ const HomePage = () => {
                         <div className="inline-flex items-center justify-center w-20 h-20 rounded-full bg-gradient-to-br from-emerald-100 to-green-100 mb-4">
                           <DollarSign className="h-10 w-10 text-emerald-600" />
                         </div>
-                        <p className="text-sm text-gray-600 mb-2">Today's Sales</p>
+                        <p className="text-sm text-gray-600 mb-2">
+                          Today's Sales
+                        </p>
                         <p className="text-3xl font-bold text-emerald-600">
-                          ₱{stats.todaySales.toLocaleString(undefined, { minimumFractionDigits: 2 })}
+                          ₱
+                          {stats.todaySales.toLocaleString(undefined, {
+                            minimumFractionDigits: 2,
+                          })}
                         </p>
                         <p className="text-sm text-gray-500 mt-2">
                           {stats.todayTransactions} transactions completed

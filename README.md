@@ -40,5 +40,7 @@ Todo:
 <!-- Discounts -->
 <!-- Sales Adjustment -->
 <!-- Print Receipt -->
-Barcode scanner
+<!-- Barcode scanner -->
 <!-- Store branches -->
+more detailed sales summary page, with income, profit, loss, refunds etc
+users pin code as password, login with pincode, ask for pincode when idle or when switching page
