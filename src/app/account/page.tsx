@@ -32,6 +32,7 @@ const AccountPage = () => {
   const [username, setUsername] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [pin, setPin] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
@@ -119,6 +120,20 @@ const AccountPage = () => {
       toast.error(error.response?.data?.message || "Failed to update profile");
     } finally {
       setIsLoading(false);
+    }
+  };
+
+  const handleSavePin = async () => {
+    if (pin && !/^\d{4,6}$/.test(pin)) {
+      toast.error("PIN must be 4–6 digits");
+      return;
+    }
+    try {
+      await api.put("/auth/pin", { pin: pin || null });
+      toast.success(pin ? "PIN saved" : "PIN removed");
+      setPin("");
+    } catch (err: any) {
+      toast.error(err.response?.data?.message || "Failed to save PIN");
     }
   };
 
@@ -405,6 +420,46 @@ const AccountPage = () => {
                       </div>
                     )}
                   </div>
+                </div>
+
+                {/* PIN Section */}
+                <div className="space-y-4 p-4 bg-gradient-to-r from-blue-50/50 to-indigo-50/50 rounded-xl border-2 border-blue-100">
+                  <div className="flex items-start gap-3">
+                    <div className="h-10 w-10 rounded-lg bg-gradient-to-br from-blue-500 to-indigo-600 flex items-center justify-center flex-shrink-0">
+                      <Shield className="h-5 w-5 text-white" />
+                    </div>
+                    <div>
+                      <h4 className="text-base font-bold text-gray-800">
+                        Quick PIN
+                      </h4>
+                      <p className="text-sm text-gray-600 mt-1">
+                        Set a 4–6 digit PIN for faster login
+                      </p>
+                    </div>
+                  </div>
+                  <div className="space-y-2">
+                    <Label className="text-sm font-semibold text-gray-700">
+                      PIN Code
+                    </Label>
+                    <Input
+                      type="password"
+                      inputMode="numeric"
+                      maxLength={6}
+                      value={pin}
+                      onChange={(e) =>
+                        setPin(e.target.value.replace(/\D/, "").slice(0, 6))
+                      }
+                      placeholder="Enter 4–6 digit PIN (blank to remove)"
+                      className="h-12 border-2 border-gray-200 focus:border-blue-500 focus:ring-2 focus:ring-blue-200 tracking-widest text-center text-lg"
+                    />
+                  </div>
+                  <Button
+                    type="button"
+                    onClick={handleSavePin}
+                    className="w-full h-10 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white font-bold"
+                  >
+                    {pin ? "Save PIN" : "Remove PIN"}
+                  </Button>
                 </div>
 
                 {/* Action Buttons */}
