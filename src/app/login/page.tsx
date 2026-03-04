@@ -14,6 +14,9 @@ export default function LoginPage() {
   const [isLoading, setIsLoading] = useState(false);
   const router = useRouter();
 
+  const [loginMode, setLoginMode] = useState<"password" | "pin">("password");
+  const [pin, setPin] = useState("");
+
   const brand = process.env.NEXT_PUBLIC_SITE_NAME
     ? process.env.NEXT_PUBLIC_SITE_NAME
     : "Brand Logo";
@@ -26,12 +29,15 @@ export default function LoginPage() {
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
-
     setIsLoading(true);
     setError("");
 
     try {
-      const res = await axios.post("/auth/login", { username, password });
+      const endpoint = loginMode === "pin" ? "/auth/login-pin" : "/auth/login";
+      const payload =
+        loginMode === "pin" ? { username, pin } : { username, password };
+
+      const res = await axios.post(endpoint, payload);
       localStorage.setItem("token", res.data.token);
       router.push("/");
     } catch (err: any) {
@@ -55,7 +61,7 @@ export default function LoginPage() {
       {/* Login card */}
       <div className="relative w-full max-w-md">
         <div className="absolute inset-0 bg-gradient-to-r from-emerald-500 to-green-600 rounded-2xl blur-xl opacity-20"></div>
-        
+
         <div className="relative bg-white backdrop-blur-xl rounded-2xl shadow-2xl border border-green-200 p-8">
           {/* Logo/Brand */}
           <div className="text-center mb-8">
@@ -63,7 +69,9 @@ export default function LoginPage() {
               <Lock className="w-8 h-8 text-white" />
             </div>
             <h1 className="text-3xl font-bold text-gray-800 mb-2">{brand}</h1>
-            <p className="text-gray-600 text-sm">Welcome back! Please login to continue</p>
+            <p className="text-gray-600 text-sm">
+              Welcome back! Please login to continue
+            </p>
           </div>
 
           {/* Error message */}
@@ -73,6 +81,26 @@ export default function LoginPage() {
               <p className="text-red-700 text-sm">{error}</p>
             </div>
           )}
+
+          <div className="flex rounded-lg border border-gray-200 p-1 bg-gray-50 mb-4">
+            {(["password", "pin"] as const).map((mode) => (
+              <button
+                key={mode}
+                type="button"
+                onClick={() => {
+                  setLoginMode(mode);
+                  setError("");
+                }}
+                className={`flex-1 py-2 text-sm font-medium rounded-md transition-all duration-200 capitalize ${
+                  loginMode === mode
+                    ? "bg-white text-emerald-700 shadow-sm border border-emerald-200"
+                    : "text-gray-500 hover:text-gray-700"
+                }`}
+              >
+                {mode === "pin" ? "PIN Code" : "Password"}
+              </button>
+            ))}
+          </div>
 
           {/* Login form */}
           <form onSubmit={handleLogin} className="space-y-5">
@@ -98,25 +126,72 @@ export default function LoginPage() {
             </div>
 
             {/* Password field */}
-            <div className="space-y-2">
-              <label className="text-gray-700 text-sm font-medium block">
-                Password
-              </label>
-              <div className="relative">
-                <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-                  <Lock className="h-5 w-5 text-gray-400" />
+            {loginMode === "password" ? (
+              <div className="space-y-2">
+                <label className="text-gray-700 text-sm font-medium block">
+                  Password
+                </label>
+                <div className="relative">
+                  <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                    <Lock className="h-5 w-5 text-gray-400" />
+                  </div>
+                  <Input
+                    type="password"
+                    placeholder="Enter your password"
+                    className="w-full pl-10 pr-4 py-3 bg-gray-50 border border-gray-300 rounded-lg focus:border-emerald-500 focus:ring-2 focus:ring-emerald-200 transition-all"
+                    value={password}
+                    onChange={(e) => setPassword(e.target.value)}
+                    disabled={isLoading}
+                    required
+                  />
                 </div>
-                <Input
-                  type="password"
-                  placeholder="Enter your password"
-                  className="w-full pl-10 pr-4 py-3 bg-gray-50 border border-gray-300 rounded-lg text-gray-900 placeholder:text-gray-500 focus:bg-white focus:border-emerald-500 focus:ring-2 focus:ring-emerald-200 transition-all duration-200"
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  disabled={isLoading}
-                  required
-                />
               </div>
-            </div>
+            ) : (
+              <div className="space-y-2">
+                <label className="text-gray-700 text-sm font-medium block">
+                  PIN Code
+                </label>
+                <div className="flex gap-2 justify-center">
+                  {[0, 1, 2, 3, 4, 5].map((i) => (
+                    <input
+                      key={i}
+                      type="password"
+                      inputMode="numeric"
+                      maxLength={1}
+                      value={pin[i] || ""}
+                      onChange={(e) => {
+                        const val = e.target.value.replace(/\D/, "");
+                        const arr = pin.split("");
+                        arr[i] = val;
+                        setPin(arr.join("").slice(0, 6));
+                        if (val && e.target.nextElementSibling) {
+                          (
+                            e.target.nextElementSibling as HTMLInputElement
+                          ).focus();
+                        }
+                      }}
+                      onKeyDown={(e) => {
+                        if (
+                          e.key === "Backspace" &&
+                          !pin[i] &&
+                          e.currentTarget.previousElementSibling
+                        ) {
+                          (
+                            e.currentTarget
+                              .previousElementSibling as HTMLInputElement
+                          ).focus();
+                        }
+                      }}
+                      className="w-12 h-14 text-center text-xl font-bold border-2 border-gray-300 rounded-lg focus:border-emerald-500 focus:ring-2 focus:ring-emerald-200 outline-none transition-all bg-gray-50"
+                      disabled={isLoading}
+                    />
+                  ))}
+                </div>
+                <p className="text-xs text-center text-gray-500">
+                  Enter your 4–6 digit PIN
+                </p>
+              </div>
+            )}
 
             {/* Submit button */}
             <Button
