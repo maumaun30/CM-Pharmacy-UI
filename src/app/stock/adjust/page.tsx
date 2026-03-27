@@ -42,7 +42,7 @@ interface Product {
   id: number;
   name: string;
   sku: string;
-  currentStock: number;
+  current_stock: number;
 }
 
 interface Branch {
@@ -54,10 +54,10 @@ interface Branch {
 interface User {
   id: number;
   role: string;
-  branchId: number;
-  currentBranchId: number | null;
+  branch_id: number;
+  current_branch_id: number | null;
   branch?: Branch;
-  currentBranch?: Branch;
+  current_branch?: Branch;
 }
 
 const StockAdjustPage = () => {
@@ -93,7 +93,7 @@ const StockAdjustPage = () => {
       const res = await api.get("/auth/me");
       setCurrentUser(res.data);
 
-      const branch = res.data.currentBranch || res.data.branch;
+      const branch = res.data.current_branch || res.data.branch;
       setActiveBranch(branch);
     } catch (error) {
       console.error("Error fetching user:", error);
@@ -190,12 +190,12 @@ const StockAdjustPage = () => {
 
   const adjustQuantity = parseInt(adjustFormData.quantity) || 0;
   const newAdjustStock = selectedAdjustProduct
-    ? selectedAdjustProduct.currentStock + adjustQuantity
+    ? selectedAdjustProduct.current_stock + adjustQuantity
     : 0;
 
   const lossQuantity = parseInt(lossFormData.quantity) || 0;
   const newLossStock = selectedLossProduct
-    ? Math.max(0, selectedLossProduct.currentStock - lossQuantity)
+    ? Math.max(0, selectedLossProduct.current_stock - lossQuantity)
     : 0;
 
   if (fetchLoading) {
@@ -356,7 +356,7 @@ const StockAdjustPage = () => {
                                 value={product.id.toString()}
                               >
                                 {product.name} ({product.sku}) - Stock:{" "}
-                                {product.currentStock}
+                                {product.current_stock}
                               </SelectItem>
                             ))}
                           </SelectContent>
@@ -370,7 +370,7 @@ const StockAdjustPage = () => {
                             Current Stock Level
                           </p>
                           <p className="text-3xl font-bold text-gray-800">
-                            {selectedAdjustProduct.currentStock}
+                            {selectedAdjustProduct.current_stock}
                           </p>
                         </div>
                       )}
@@ -629,7 +629,7 @@ const StockAdjustPage = () => {
                                 value={product.id.toString()}
                               >
                                 {product.name} ({product.sku}) - Stock:{" "}
-                                {product.currentStock}
+                                {product.current_stock}
                               </SelectItem>
                             ))}
                           </SelectContent>
@@ -645,7 +645,7 @@ const StockAdjustPage = () => {
                                 Current Stock
                               </p>
                               <p className="text-3xl font-bold text-gray-800">
-                                {selectedLossProduct.currentStock}
+                                {selectedLossProduct.current_stock}
                               </p>
                             </div>
                             {lossFormData.quantity && lossQuantity > 0 && (
@@ -677,7 +677,7 @@ const StockAdjustPage = () => {
                         <Input
                           type="number"
                           min="1"
-                          max={selectedLossProduct?.currentStock}
+                          max={selectedLossProduct?.current_stock}
                           value={lossFormData.quantity}
                           onChange={(e) =>
                             setLossFormData({

@@ -17,12 +17,12 @@ interface Branch {
   id: number;
   name: string;
   code: string;
-  isActive: boolean;
+  is_active: boolean;
 }
 
 interface User {
-  branchId: number;
-  currentBranchId: number | null;
+  branch_id: number;
+  current_branch_id: number | null;
   role: string;
   branch?: {
     id: number;
@@ -34,7 +34,7 @@ interface User {
 export default function BranchSwitcher() {
   const [branches, setBranches] = useState<Branch[]>([]);
   const [currentUser, setCurrentUser] = useState<User | null>(null);
-  const [activeBranchId, setActiveBranchId] = useState<number | null>(null);
+  const [activebranch_id, setActivebranch_id] = useState<number | null>(null);
   const [loading, setLoading] = useState(true);
   const [switching, setSwitching] = useState(false);
 
@@ -50,7 +50,7 @@ export default function BranchSwitcher() {
 
   const fetchBranches = async () => {
     try {
-      const res = await api.get("/branches?isActive=true");
+      const res = await api.get("/branches?is_active=true");
       setBranches(res.data);
     } catch (error) {
       console.error("Error fetching branches:", error);
@@ -63,7 +63,7 @@ export default function BranchSwitcher() {
       setLoading(true);
       const res = await api.get("/auth/me");
       setCurrentUser(res.data);
-      setActiveBranchId(res.data.currentBranchId || res.data.branchId);
+      setActivebranch_id(res.data.current_branch_id || res.data.branch_id);
     } catch (error) {
       console.error("Error fetching user:", error);
     } finally {
@@ -71,11 +71,11 @@ export default function BranchSwitcher() {
     }
   };
 
-  const handleBranchSwitch = async (branchId: string) => {
+  const handleBranchSwitch = async (branch_id: string) => {
     try {
       setSwitching(true);
-      await api.post("/auth/switch-branch", { branchId: parseInt(branchId) });
-      setActiveBranchId(parseInt(branchId));
+      await api.post("/auth/switch-branch", { branch_id: parseInt(branch_id) });
+      setActivebranch_id(parseInt(branch_id));
       
       toast.success("Branch switched successfully", {
         description: "Page will reload to update data",
@@ -102,7 +102,7 @@ export default function BranchSwitcher() {
 
   // Admin view - Branch switcher
   if (currentUser?.role === "admin") {
-    const activeBranch = branches.find((b) => b.id === activeBranchId);
+    const activeBranch = branches.find((b) => b.id === activebranch_id);
 
     return (
       <div className="flex items-center gap-2">
@@ -110,7 +110,7 @@ export default function BranchSwitcher() {
           <Building2 className="h-4 w-4 text-white" />
         </div>
         <Select
-          value={activeBranchId?.toString()}
+          value={activebranch_id?.toString()}
           onValueChange={handleBranchSwitch}
           disabled={switching}
         >
@@ -148,7 +148,7 @@ export default function BranchSwitcher() {
                     >
                       {branch.code}
                     </Badge>
-                    {/* {branch.id === activeBranchId && (
+                    {/* {branch.id === activebranch_id && (
                       <Check className="h-4 w-4 text-emerald-600" />
                     )} */}
                   </div>

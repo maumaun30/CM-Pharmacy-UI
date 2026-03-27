@@ -8,6 +8,7 @@ import { toast } from "sonner";
 import api from "@/lib/api";
 import ProtectedRoute from "@/components/ProtectedRoute";
 import SalesTrendChart from "@/components/SalesTrendChart";
+import { verifyToken } from "@/middleware/auth";
 import {
   ShoppingCart,
   TrendingUp,
@@ -34,6 +35,7 @@ import Link from "next/link";
 import { motion, AnimatePresence } from "framer-motion";
 import dayjs from "dayjs";
 import { io, Socket } from "socket.io-client";
+import { getFullName } from "@/lib/utils";
 
 interface DashboardStats {
   todaySales: number;
@@ -56,7 +58,8 @@ interface DashboardStats {
 interface User {
   id: number;
   role: string;
-  fullName: string;
+  first_name: string;
+  last_name: string;
   username: string;
   branchId: number;
   currentBranchId: number | null;
@@ -249,6 +252,13 @@ const HomePage = () => {
   };
 
   const fetchCurrentUser = async () => {
+    const user = await verifyToken();
+
+    if (!user) {
+      console.warn("User not authenticated");
+      return;
+    }
+
     try {
       const res = await api.get("/auth/me");
       setCurrentUser(res.data);
@@ -384,7 +394,7 @@ const HomePage = () => {
                 <div className="flex items-center gap-3">
                   <h1 className="text-3xl md:text-4xl font-bold bg-gradient-to-r from-emerald-600 to-green-600 bg-clip-text text-transparent">
                     Welcome back,{" "}
-                    {currentUser?.fullName || currentUser?.username}!
+                    {getFullName(currentUser) || currentUser?.username}!
                   </h1>
                   {/* Connection Status Indicator */}
                   <div className="flex items-center gap-2">
@@ -659,7 +669,8 @@ const HomePage = () => {
                                 </span>
                               </div>
                               <p className="text-xs text-gray-500 mt-1">
-                                By {sale.user.fullName || sale.user.username}
+                                By{" "}
+                                {sale.user?.fullName || sale.user.username}
                               </p>
                             </div>
                             <div className="text-right">

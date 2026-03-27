@@ -5,7 +5,6 @@ export interface User {
   username: string;
   email?: string;
   role: string;
-  fullName: string;
 }
 
 export async function verifyToken(): Promise<boolean> {

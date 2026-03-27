@@ -43,11 +43,14 @@
     "tailwind-merge": "^3.3.0"
   },
   "devDependencies": {
+    "@eslint/eslintrc": "^3.3.5",
     "@tailwindcss/postcss": "^4",
     "@types/node": "^20",
     "@types/react": "^19",
     "@types/react-dom": "^19",
     "@types/react-virtualized-auto-sizer": "^1.0.4",
+    "eslint": "^9.39.4",
+    "eslint-config-next": "^15.3.8",
     "tailwindcss": "^4.1.6",
     "tw-animate-css": "^1.3.4",
     "typescript": "^5"

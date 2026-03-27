@@ -2,6 +2,7 @@
 
 import { useAuth } from "@/hooks/useAuth";
 import api from "@/lib/api";
+import { getFullName } from "@/lib/utils";
 import ProtectedRoute from "@/components/ProtectedRoute";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -9,7 +10,6 @@ import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
 import { toast } from "sonner";
 import { useState, useEffect } from "react";
-import { useRouter } from "next/navigation";
 import {
   User,
   Mail,
@@ -27,7 +27,6 @@ import { motion } from "framer-motion";
 
 const AccountPage = () => {
   const { user } = useAuth();
-  const router = useRouter();
 
   const [username, setUsername] = useState("");
   const [email, setEmail] = useState("");
@@ -108,7 +107,7 @@ const AccountPage = () => {
         return;
       }
 
-      const res = await api.put("/auth/profile", updateData);
+      // await api.put("/auth/profile", updateData);
 
       toast.success("Profile updated successfully. Please log in again.");
 
@@ -116,8 +115,9 @@ const AccountPage = () => {
       setConfirmPassword("");
 
       window.location.reload();
-    } catch (error: any) {
-      toast.error(error.response?.data?.message || "Failed to update profile");
+    } catch (error: unknown) {
+      const err = error as { response?: { data?: { message?: string } } };
+      toast.error(err.response?.data?.message || "Failed to update profile");
     } finally {
       setIsLoading(false);
     }
@@ -132,8 +132,9 @@ const AccountPage = () => {
       await api.put("/auth/pin", { pin: pin || null });
       toast.success(pin ? "PIN saved" : "PIN removed");
       setPin("");
-    } catch (err: any) {
-      toast.error(err.response?.data?.message || "Failed to save PIN");
+    } catch (err: unknown) {
+      const error = err as { response?: { data?: { message?: string } } };
+      toast.error(error.response?.data?.message || "Failed to save PIN");
     }
   };
 
@@ -182,7 +183,7 @@ const AccountPage = () => {
                 </div>
                 <div className="flex-1">
                   <h2 className="text-xl font-bold text-gray-800">
-                    {user?.fullName || user?.username}
+                    {getFullName(user) || user?.username}
                   </h2>
                   <div className="flex items-center gap-2 mt-1">
                     <Badge className="text-white capitalize bg-emerald-600 hover:bg-emerald-600">

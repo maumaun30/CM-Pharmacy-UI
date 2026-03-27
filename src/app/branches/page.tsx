@@ -53,13 +53,13 @@ interface Branch {
   address: string;
   city: string;
   province: string;
-  postalCode: string;
+  postal_code: string;
   phone: string;
   email: string;
-  managerName: string;
-  isActive: boolean;
-  isMainBranch: boolean;
-  operatingHours: any;
+  manager_name: string;
+  is_active: boolean;
+  is_main_branch: boolean;
+  operating_hours: any;
 }
 
 const BranchesPage = () => {
@@ -78,12 +78,12 @@ const BranchesPage = () => {
     address: "",
     city: "",
     province: "",
-    postalCode: "",
+    postal_code: "",
     phone: "",
     email: "",
-    managerName: "",
-    isActive: true,
-    isMainBranch: false,
+    manager_name: "",
+    is_active: true,
+    is_main_branch: false,
   });
 
   useEffect(() => {
@@ -111,12 +111,12 @@ const BranchesPage = () => {
         address: branch.address || "",
         city: branch.city || "",
         province: branch.province || "",
-        postalCode: branch.postalCode || "",
+        postal_code: branch.postal_code || "",
         phone: branch.phone || "",
         email: branch.email || "",
-        managerName: branch.managerName || "",
-        isActive: branch.isActive,
-        isMainBranch: branch.isMainBranch,
+        manager_name: branch.manager_name || "",
+        is_active: branch.is_active,
+        is_main_branch: branch.is_main_branch,
       });
     } else {
       setEditingBranch(null);
@@ -126,12 +126,12 @@ const BranchesPage = () => {
         address: "",
         city: "",
         province: "",
-        postalCode: "",
+        postal_code: "",
         phone: "",
         email: "",
-        managerName: "",
-        isActive: true,
-        isMainBranch: false,
+        manager_name: "",
+        is_active: true,
+        is_main_branch: false,
       });
     }
     setModalOpen(true);
@@ -184,7 +184,7 @@ const BranchesPage = () => {
   const toggleBranchStatus = async (branch: Branch) => {
     try {
       await api.patch(`/branches/${branch.id}/toggle`);
-      toast.success(`Branch ${branch.isActive ? "deactivated" : "activated"}`);
+      toast.success(`Branch ${branch.is_active ? "deactivated" : "activated"}`);
       fetchBranches();
     } catch (error: any) {
       toast.error(
@@ -278,7 +278,7 @@ const BranchesPage = () => {
                       Active
                     </p>
                     <p className="text-3xl font-bold text-emerald-600 mt-1">
-                      {branches.filter((b) => b.isActive).length}
+                      {branches.filter((b) => b.is_active).length}
                     </p>
                   </div>
                   <div className="h-12 w-12 rounded-xl bg-gradient-to-br from-emerald-500 to-green-600 flex items-center justify-center">
@@ -294,7 +294,7 @@ const BranchesPage = () => {
                       Inactive
                     </p>
                     <p className="text-3xl font-bold text-red-600 mt-1">
-                      {branches.filter((b) => !b.isActive).length}
+                      {branches.filter((b) => !b.is_active).length}
                     </p>
                   </div>
                   <div className="h-12 w-12 rounded-xl bg-gray-400 flex items-center justify-center">
@@ -396,7 +396,7 @@ const BranchesPage = () => {
                                 >
                                   {branch.code}
                                 </Badge>
-                                {branch.isMainBranch && (
+                                {branch.is_main_branch && (
                                   <Star className="h-4 w-4 text-amber-500 fill-amber-500" />
                                 )}
                               </div>
@@ -438,15 +438,15 @@ const BranchesPage = () => {
                               </div>
                             </TableCell>
                             <TableCell>
-                              {branch.managerName && (
+                              {branch.manager_name && (
                                 <div className="flex items-center gap-2 text-sm text-gray-700">
                                   <User className="h-3 w-3 text-emerald-600" />
-                                  {branch.managerName}
+                                  {branch.manager_name}
                                 </div>
                               )}
                             </TableCell>
                             <TableCell>
-                              {branch.isActive ? (
+                              {branch.is_active ? (
                                 <Badge className="bg-emerald-100 text-emerald-800 hover:bg-emerald-100 border-emerald-200">
                                   Active
                                 </Badge>
@@ -464,7 +464,7 @@ const BranchesPage = () => {
                                   onClick={() => toggleBranchStatus(branch)}
                                   className="h-8 w-8 hover:bg-emerald-50"
                                 >
-                                  {branch.isActive ? (
+                                  {branch.is_active ? (
                                     <ToggleRight className="h-4 w-4 text-emerald-600" />
                                   ) : (
                                     <ToggleLeft className="h-4 w-4 text-gray-400" />
@@ -510,7 +510,7 @@ const BranchesPage = () => {
                               <h3 className="font-bold text-gray-800 text-lg">
                                 {branch.name}
                               </h3>
-                              {branch.isMainBranch && (
+                              {branch.is_main_branch && (
                                 <Star className="h-4 w-4 text-amber-500 fill-amber-500" />
                               )}
                             </div>
@@ -521,7 +521,7 @@ const BranchesPage = () => {
                               >
                                 {branch.code}
                               </Badge>
-                              {branch.isActive ? (
+                              {branch.is_active ? (
                                 <Badge className="bg-emerald-100 text-emerald-800 hover:bg-emerald-100 text-xs">
                                   Active
                                 </Badge>
@@ -561,11 +561,11 @@ const BranchesPage = () => {
                               </span>
                             </div>
                           )}
-                          {branch.managerName && (
+                          {branch.manager_name && (
                             <div className="flex items-center gap-2 text-sm">
                               <User className="h-4 w-4 text-emerald-600" />
                               <span className="text-gray-700">
-                                {branch.managerName}
+                                {branch.manager_name}
                               </span>
                             </div>
                           )}
@@ -578,7 +578,7 @@ const BranchesPage = () => {
                             onClick={() => toggleBranchStatus(branch)}
                             className="flex-1 border-emerald-300 hover:bg-emerald-50"
                           >
-                            {branch.isActive ? (
+                            {branch.is_active ? (
                               <>
                                 <ToggleRight className="h-4 w-4 mr-2 text-emerald-600" />
                                 Deactivate
@@ -706,9 +706,9 @@ const BranchesPage = () => {
                       Postal Code
                     </Label>
                     <Input
-                      value={formData.postalCode}
+                      value={formData.postal_code}
                       onChange={(e) =>
-                        setFormData({ ...formData, postalCode: e.target.value })
+                        setFormData({ ...formData, postal_code: e.target.value })
                       }
                       className="h-11 border-emerald-200 focus:border-emerald-500 focus:ring-2 focus:ring-emerald-200"
                     />
@@ -750,9 +750,9 @@ const BranchesPage = () => {
                     Manager Name
                   </Label>
                   <Input
-                    value={formData.managerName}
+                    value={formData.manager_name}
                     onChange={(e) =>
-                      setFormData({ ...formData, managerName: e.target.value })
+                      setFormData({ ...formData, manager_name: e.target.value })
                     }
                     placeholder="Branch manager"
                     className="h-11 border-emerald-200 focus:border-emerald-500 focus:ring-2 focus:ring-emerald-200"
@@ -762,15 +762,15 @@ const BranchesPage = () => {
                 <div className="flex flex-col sm:flex-row gap-4 p-4 bg-gradient-to-r from-emerald-50 to-green-50 rounded-xl border-2 border-emerald-200">
                   <div className="flex items-center space-x-2">
                     <Checkbox
-                      id="isActive"
-                      checked={formData.isActive}
+                      id="is_active"
+                      checked={formData.is_active}
                       onCheckedChange={(checked) =>
-                        setFormData({ ...formData, isActive: !!checked })
+                        setFormData({ ...formData, is_active: !!checked })
                       }
                       className="border-emerald-600 data-[state=checked]:bg-emerald-600"
                     />
                     <Label
-                      htmlFor="isActive"
+                      htmlFor="is_active"
                       className="cursor-pointer font-semibold text-gray-800"
                     >
                       Active Branch
@@ -779,15 +779,15 @@ const BranchesPage = () => {
 
                   <div className="flex items-center space-x-2">
                     <Checkbox
-                      id="isMainBranch"
-                      checked={formData.isMainBranch}
+                      id="is_main_branch"
+                      checked={formData.is_main_branch}
                       onCheckedChange={(checked) =>
-                        setFormData({ ...formData, isMainBranch: !!checked })
+                        setFormData({ ...formData, is_main_branch: !!checked })
                       }
                       className="border-amber-600 data-[state=checked]:bg-amber-600"
                     />
                     <Label
-                      htmlFor="isMainBranch"
+                      htmlFor="is_main_branch"
                       className="cursor-pointer font-semibold text-gray-800 flex items-center gap-1"
                     >
                       <Star className="h-4 w-4 text-amber-500" />

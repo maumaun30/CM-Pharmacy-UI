@@ -63,21 +63,21 @@ interface Discount {
   id: number;
   name: string;
   description: string;
-  discountType: "PERCENTAGE" | "FIXED_AMOUNT";
-  discountValue: number;
-  discountCategory:
+  discount_type: "PERCENTAGE" | "FIXED_AMOUNT";
+  discount_value: number;
+  discount_category:
     | "PWD"
     | "SENIOR_CITIZEN"
     | "PROMOTIONAL"
     | "SEASONAL"
     | "OTHER";
-  startDate: string | null;
-  endDate: string | null;
-  isEnabled: boolean;
-  requiresVerification: boolean;
-  applicableTo: "ALL_PRODUCTS" | "SPECIFIC_PRODUCTS" | "CATEGORIES";
-  minimumPurchaseAmount: number | null;
-  maximumDiscountAmount: number | null;
+  start_date: string | null;
+  end_date: string | null;
+  is_enabled: boolean;
+  requires_verification: boolean;
+  applicable_to: "ALL_PRODUCTS" | "SPECIFIC_PRODUCTS" | "CATEGORIES";
+  minimum_purchase_amount: number | null;
+  maximum_purchase_amount: number | null;
   priority: number;
   stackable: boolean;
   products?: Product[];
@@ -93,16 +93,16 @@ export default function DiscountList() {
   const [formData, setFormData] = useState({
     name: "",
     description: "",
-    discountType: "PERCENTAGE" as "PERCENTAGE" | "FIXED_AMOUNT",
-    discountValue: "",
-    discountCategory: "OTHER" as Discount["discountCategory"],
-    startDate: "",
-    endDate: "",
-    isEnabled: true,
-    requiresVerification: false,
-    applicableTo: "ALL_PRODUCTS" as Discount["applicableTo"],
-    minimumPurchaseAmount: "",
-    maximumDiscountAmount: "",
+    discount_type: "PERCENTAGE" as "PERCENTAGE" | "FIXED_AMOUNT",
+    discount_value: "",
+    discount_category: "OTHER" as Discount["discount_category"],
+    start_date: "",
+    end_date: "",
+    is_enabled: true,
+    requires_verification: false,
+    applicable_to: "ALL_PRODUCTS" as Discount["applicable_to"],
+    minimum_purchase_amount: "",
+    maximum_purchase_amount: "",
     priority: "0",
     stackable: false,
     productIds: [] as number[],
@@ -164,16 +164,16 @@ export default function DiscountList() {
       setFormData({
         name: discount.name,
         description: discount.description || "",
-        discountType: discount.discountType,
-        discountValue: discount.discountValue.toString(),
-        discountCategory: discount.discountCategory,
-        startDate: discount.startDate ? discount.startDate.split("T")[0] : "",
-        endDate: discount.endDate ? discount.endDate.split("T")[0] : "",
-        isEnabled: discount.isEnabled,
-        requiresVerification: discount.requiresVerification,
-        applicableTo: discount.applicableTo,
-        minimumPurchaseAmount: discount.minimumPurchaseAmount?.toString() || "",
-        maximumDiscountAmount: discount.maximumDiscountAmount?.toString() || "",
+        discount_type: discount.discount_type,
+        discount_value: discount.discount_value.toString(),
+        discount_category: discount.discount_category,
+        start_date: discount.start_date ? discount.start_date.split("T")[0] : "",
+        end_date: discount.end_date ? discount.end_date.split("T")[0] : "",
+        is_enabled: discount.is_enabled,
+        requires_verification: discount.requires_verification,
+        applicable_to: discount.applicable_to,
+        minimum_purchase_amount: discount.minimum_purchase_amount?.toString() || "",
+        maximum_purchase_amount: discount.maximum_purchase_amount?.toString() || "",
         priority: discount.priority.toString(),
         stackable: discount.stackable,
         productIds: discount.products?.map((p) => p.id) || [],
@@ -184,16 +184,16 @@ export default function DiscountList() {
       setFormData({
         name: "",
         description: "",
-        discountType: "PERCENTAGE",
-        discountValue: "",
-        discountCategory: "OTHER",
-        startDate: "",
-        endDate: "",
-        isEnabled: true,
-        requiresVerification: false,
-        applicableTo: "ALL_PRODUCTS",
-        minimumPurchaseAmount: "",
-        maximumDiscountAmount: "",
+        discount_type: "PERCENTAGE",
+        discount_value: "",
+        discount_category: "OTHER",
+        start_date: "",
+        end_date: "",
+        is_enabled: true,
+        requires_verification: false,
+        applicable_to: "ALL_PRODUCTS",
+        minimum_purchase_amount: "",
+        maximum_purchase_amount: "",
         priority: "0",
         stackable: false,
         productIds: [],
@@ -209,8 +209,8 @@ export default function DiscountList() {
   };
 
   const handleSubmit = async () => {
-    const { name, discountType, discountValue, discountCategory } = formData;
-    if (!name || !discountType || !discountValue || !discountCategory) {
+    const { name, discount_type, discount_value, discount_category } = formData;
+    if (!name || !discount_type || !discount_value || !discount_category) {
       return toast.error("Name, Type, Value and Category are required");
     }
 
@@ -219,28 +219,28 @@ export default function DiscountList() {
       const payload = {
         name,
         description: formData.description || null,
-        discountType,
-        discountValue: parseFloat(discountValue),
-        discountCategory,
-        startDate: formData.startDate || null,
-        endDate: formData.endDate || null,
-        isEnabled: formData.isEnabled,
-        requiresVerification: formData.requiresVerification,
-        applicableTo: formData.applicableTo,
-        minimumPurchaseAmount: formData.minimumPurchaseAmount
-          ? parseFloat(formData.minimumPurchaseAmount)
+        discount_type,
+        discount_value: parseFloat(discount_value),
+        discount_category,
+        start_date: formData.start_date || null,
+        end_date: formData.end_date || null,
+        is_enabled: formData.is_enabled,
+        requires_verification: formData.requires_verification,
+        applicable_to: formData.applicable_to,
+        minimum_purchase_amount: formData.minimum_purchase_amount
+          ? parseFloat(formData.minimum_purchase_amount)
           : null,
-        maximumDiscountAmount: formData.maximumDiscountAmount
-          ? parseFloat(formData.maximumDiscountAmount)
+        maximum_purchase_amount: formData.maximum_purchase_amount
+          ? parseFloat(formData.maximum_purchase_amount)
           : null,
         priority: parseInt(formData.priority),
         stackable: formData.stackable,
         productIds:
-          formData.applicableTo === "SPECIFIC_PRODUCTS"
+          formData.applicable_to === "SPECIFIC_PRODUCTS"
             ? formData.productIds
             : [],
         categoryIds:
-          formData.applicableTo === "CATEGORIES" ? formData.categoryIds : [],
+          formData.applicable_to === "CATEGORIES" ? formData.categoryIds : [],
       };
 
       if (editingDiscount) {
@@ -277,7 +277,7 @@ export default function DiscountList() {
   const toggleDiscountStatus = async (discount: Discount) => {
     try {
       await api.patch(`/discounts/${discount.id}/toggle`);
-      toast.success(`Discount ${!discount.isEnabled ? "enabled" : "disabled"}`);
+      toast.success(`Discount ${!discount.is_enabled ? "enabled" : "disabled"}`);
       fetchDiscounts();
     } catch (err: any) {
       toast.error(err.response?.data?.message || "Error toggling discount");
@@ -307,7 +307,7 @@ export default function DiscountList() {
       (d) =>
         d.name.toLowerCase().includes(search.toLowerCase()) ||
         d.description?.toLowerCase().includes(search.toLowerCase()) ||
-        d.discountCategory.toLowerCase().includes(search.toLowerCase()),
+        d.discount_category.toLowerCase().includes(search.toLowerCase()),
     );
     data = data.sort((a, b) => {
       const aVal = a[sortBy];
@@ -343,7 +343,7 @@ export default function DiscountList() {
     }
   };
 
-  const getCategoryBadgeColor = (category: Discount["discountCategory"]) => {
+  const getCategoryBadgeColor = (category: Discount["discount_category"]) => {
     const colors = {
       PWD: "bg-blue-100 text-blue-800 border-blue-200",
       SENIOR_CITIZEN: "bg-purple-100 text-purple-800 border-purple-200",
@@ -360,10 +360,10 @@ export default function DiscountList() {
   };
 
   const isActive = (discount: Discount) => {
-    if (!discount.isEnabled) return false;
+    if (!discount.is_enabled) return false;
     const now = new Date();
-    const start = discount.startDate ? new Date(discount.startDate) : null;
-    const end = discount.endDate ? new Date(discount.endDate) : null;
+    const start = discount.start_date ? new Date(discount.start_date) : null;
+    const end = discount.end_date ? new Date(discount.end_date) : null;
 
     if (start && start > now) return false;
     if (end && end < now) return false;
@@ -558,13 +558,13 @@ export default function DiscountList() {
                           {[
                             { key: "id", label: "ID" },
                             { key: "name", label: "Name" },
-                            { key: "discountCategory", label: "Category" },
-                            { key: "discountType", label: "Type" },
-                            { key: "discountValue", label: "Value" },
-                            { key: "applicableTo", label: "Applies To" },
-                            { key: "startDate", label: "Start" },
-                            { key: "endDate", label: "End" },
-                            { key: "isEnabled", label: "Status" },
+                            { key: "discount_category", label: "Category" },
+                            { key: "discount_type", label: "Type" },
+                            { key: "discount_value", label: "Value" },
+                            { key: "applicable_to", label: "Applies To" },
+                            { key: "start_date", label: "Start" },
+                            { key: "end_date", label: "End" },
+                            { key: "is_enabled", label: "Status" },
                           ].map((col) => (
                             <TableHead
                               key={col.key}
@@ -619,10 +619,10 @@ export default function DiscountList() {
                               <Badge
                                 variant="outline"
                                 className={getCategoryBadgeColor(
-                                  discount.discountCategory,
+                                  discount.discount_category,
                                 )}
                               >
-                                {discount.discountCategory.replace("_", " ")}
+                                {discount.discount_category.replace("_", " ")}
                               </Badge>
                             </TableCell>
                             <TableCell>
@@ -630,35 +630,35 @@ export default function DiscountList() {
                                 variant="outline"
                                 className="bg-blue-50 text-blue-700 border-blue-200"
                               >
-                                {discount.discountType === "PERCENTAGE"
+                                {discount.discount_type === "PERCENTAGE"
                                   ? "%"
                                   : "₱"}
                               </Badge>
                             </TableCell>
                             <TableCell className="font-bold text-emerald-600">
-                              {discount.discountType === "PERCENTAGE"
-                                ? `${discount.discountValue}%`
-                                : `₱${discount.discountValue}`}
+                              {discount.discount_type === "PERCENTAGE"
+                                ? `${discount.discount_value}%`
+                                : `₱${discount.discount_value}`}
                             </TableCell>
                             <TableCell>
                               <Badge
                                 variant="outline"
                                 className="text-xs bg-gray-50"
                               >
-                                {discount.applicableTo === "ALL_PRODUCTS" &&
+                                {discount.applicable_to === "ALL_PRODUCTS" &&
                                   "All Products"}
-                                {discount.applicableTo ===
+                                {discount.applicable_to ===
                                   "SPECIFIC_PRODUCTS" &&
                                   `${discount.products?.length || 0} Products`}
-                                {discount.applicableTo === "CATEGORIES" &&
+                                {discount.applicable_to === "CATEGORIES" &&
                                   `${discount.categories?.length || 0} Categories`}
                               </Badge>
                             </TableCell>
                             <TableCell className="text-sm text-gray-600">
-                              {formatDate(discount.startDate)}
+                              {formatDate(discount.start_date)}
                             </TableCell>
                             <TableCell className="text-sm text-gray-600">
-                              {formatDate(discount.endDate)}
+                              {formatDate(discount.end_date)}
                             </TableCell>
                             <TableCell>
                               {isActive(discount) ? (
@@ -679,7 +679,7 @@ export default function DiscountList() {
                                   onClick={() => toggleDiscountStatus(discount)}
                                   className="h-8 w-8 hover:bg-emerald-50"
                                 >
-                                  {discount.isEnabled ? (
+                                  {discount.is_enabled ? (
                                     <ToggleRight className="h-4 w-4 text-emerald-600" />
                                   ) : (
                                     <ToggleLeft className="h-4 w-4 text-gray-400" />
@@ -831,12 +831,12 @@ export default function DiscountList() {
                       </Label>
                       <select
                         className="w-full border-2 border-emerald-200 rounded-lg px-3 py-2.5 focus:border-emerald-500 focus:ring-2 focus:ring-emerald-200 outline-none"
-                        value={formData.discountCategory}
+                        value={formData.discount_category}
                         onChange={(e) =>
                           setFormData({
                             ...formData,
-                            discountCategory: e.target
-                              .value as Discount["discountCategory"],
+                            discount_category: e.target
+                              .value as Discount["discount_category"],
                           })
                         }
                       >
@@ -854,11 +854,11 @@ export default function DiscountList() {
                       </Label>
                       <select
                         className="w-full border-2 border-emerald-200 rounded-lg px-3 py-2.5 focus:border-emerald-500 focus:ring-2 focus:ring-emerald-200 outline-none"
-                        value={formData.discountType}
+                        value={formData.discount_type}
                         onChange={(e) =>
                           setFormData({
                             ...formData,
-                            discountType: e.target.value as
+                            discount_type: e.target.value as
                               | "PERCENTAGE"
                               | "FIXED_AMOUNT",
                           })
@@ -876,15 +876,15 @@ export default function DiscountList() {
                       <Input
                         type="number"
                         step="0.01"
-                        value={formData.discountValue}
+                        value={formData.discount_value}
                         onChange={(e) =>
                           setFormData({
                             ...formData,
-                            discountValue: e.target.value,
+                            discount_value: e.target.value,
                           })
                         }
                         placeholder={
-                          formData.discountType === "PERCENTAGE" ? "20" : "100"
+                          formData.discount_type === "PERCENTAGE" ? "20" : "100"
                         }
                         className="h-11 border-emerald-200 focus:border-emerald-500 focus:ring-2 focus:ring-emerald-200"
                       />
@@ -921,11 +921,11 @@ export default function DiscountList() {
                       </Label>
                       <Input
                         type="date"
-                        value={formData.startDate}
+                        value={formData.start_date}
                         onChange={(e) =>
                           setFormData({
                             ...formData,
-                            startDate: e.target.value,
+                            start_date: e.target.value,
                           })
                         }
                         className="h-11 border-emerald-200 focus:border-emerald-500 focus:ring-2 focus:ring-emerald-200"
@@ -938,9 +938,9 @@ export default function DiscountList() {
                       </Label>
                       <Input
                         type="date"
-                        value={formData.endDate}
+                        value={formData.end_date}
                         onChange={(e) =>
-                          setFormData({ ...formData, endDate: e.target.value })
+                          setFormData({ ...formData, end_date: e.target.value })
                         }
                         className="h-11 border-emerald-200 focus:border-emerald-500 focus:ring-2 focus:ring-emerald-200"
                       />
@@ -963,11 +963,11 @@ export default function DiscountList() {
                       <Input
                         type="number"
                         step="0.01"
-                        value={formData.minimumPurchaseAmount}
+                        value={formData.minimum_purchase_amount}
                         onChange={(e) =>
                           setFormData({
                             ...formData,
-                            minimumPurchaseAmount: e.target.value,
+                            minimum_purchase_amount: e.target.value,
                           })
                         }
                         placeholder="0.00"
@@ -982,11 +982,11 @@ export default function DiscountList() {
                       <Input
                         type="number"
                         step="0.01"
-                        value={formData.maximumDiscountAmount}
+                        value={formData.maximum_purchase_amount}
                         onChange={(e) =>
                           setFormData({
                             ...formData,
-                            maximumDiscountAmount: e.target.value,
+                            maximum_purchase_amount: e.target.value,
                           })
                         }
                         placeholder="0.00"
@@ -1006,12 +1006,12 @@ export default function DiscountList() {
                   <div>
                     <select
                       className="w-full border-2 border-emerald-200 rounded-lg px-3 py-2.5 focus:border-emerald-500 focus:ring-2 focus:ring-emerald-200 outline-none"
-                      value={formData.applicableTo}
+                      value={formData.applicable_to}
                       onChange={(e) =>
                         setFormData({
                           ...formData,
-                          applicableTo: e.target
-                            .value as Discount["applicableTo"],
+                          applicable_to: e.target
+                            .value as Discount["applicable_to"],
                           productIds: [],
                           categoryIds: [],
                         })
@@ -1026,7 +1026,7 @@ export default function DiscountList() {
                   </div>
 
                   {/* Product Selection */}
-                  {formData.applicableTo === "SPECIFIC_PRODUCTS" && (
+                  {formData.applicable_to === "SPECIFIC_PRODUCTS" && (
                     <div className="border-2 border-emerald-200 rounded-lg p-4 max-h-64 overflow-y-auto bg-emerald-50/30">
                       <Label className="mb-3 block font-bold text-gray-800">
                         Select Products ({formData.productIds.length} selected)
@@ -1071,7 +1071,7 @@ export default function DiscountList() {
                   )}
 
                   {/* Category Selection */}
-                  {formData.applicableTo === "CATEGORIES" && (
+                  {formData.applicable_to === "CATEGORIES" && (
                     <div className="border-2 border-emerald-200 rounded-lg p-4 max-h-64 overflow-y-auto bg-emerald-50/30">
                       <Label className="mb-3 block font-bold text-gray-800">
                         Select Categories ({formData.categoryIds.length}{" "}
@@ -1116,15 +1116,15 @@ export default function DiscountList() {
                 <div className="space-y-3 p-4 bg-gradient-to-r from-emerald-50 to-green-50 rounded-xl border-2 border-emerald-200">
                   <div className="flex items-center space-x-3">
                     <Checkbox
-                      id="isEnabled"
-                      checked={formData.isEnabled}
+                      id="is_enabled"
+                      checked={formData.is_enabled}
                       onCheckedChange={(checked) =>
-                        setFormData({ ...formData, isEnabled: !!checked })
+                        setFormData({ ...formData, is_enabled: !!checked })
                       }
                       className="border-emerald-600 data-[state=checked]:bg-emerald-600"
                     />
                     <label
-                      htmlFor="isEnabled"
+                      htmlFor="is_enabled"
                       className="text-sm font-semibold text-gray-800 cursor-pointer"
                     >
                       Enable this discount
@@ -1133,18 +1133,18 @@ export default function DiscountList() {
 
                   <div className="flex items-center space-x-3">
                     <Checkbox
-                      id="requiresVerification"
-                      checked={formData.requiresVerification}
+                      id="requires_verification"
+                      checked={formData.requires_verification}
                       onCheckedChange={(checked) =>
                         setFormData({
                           ...formData,
-                          requiresVerification: !!checked,
+                          requires_verification: !!checked,
                         })
                       }
                       className="border-blue-600 data-[state=checked]:bg-blue-600"
                     />
                     <label
-                      htmlFor="requiresVerification"
+                      htmlFor="requires_verification"
                       className="text-sm font-semibold text-gray-800 cursor-pointer"
                     >
                       Requires Verification (e.g., ID check for PWD/Senior)
