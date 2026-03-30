@@ -194,15 +194,15 @@ const SalesReportPage = () => {
   //     const transformed = res.data.map((sale: any) => ({
   //       ...sale,
   //       subtotal: sale.subtotal ? Number(sale.subtotal) : null,
-  //       total_discount: sale.totalDiscount ? Number(sale.totalDiscount) : 0,
-  //       total_amount: Number(sale.totalAmount),
+  //       total_discount: sale.total_discount ? Number(sale.total_discount) : 0,
+  //       total_amount: Number(sale.total_amount),
   //       cash_amount: sale.cash_amount ? Number(sale.cash_amount) : null,
   //       change_amount: sale.change_amount ? Number(sale.change_amount) : null,
   //       items: sale.items.map((item: any) => ({
   //         ...item,
   //         price: Number(item.price),
   //         quantity: Number(item.quantity),
-  //         discounted_price: item.discountedPrice ? Number(item.discountedPrice) : null,
+  //         discounted_price: item.discounted_price ? Number(item.discounted_price) : null,
   //         discount_amount: item.discount_amount ? Number(item.discount_amount) : 0,
   //       })),
   //     }));
@@ -218,7 +218,7 @@ const SalesReportPage = () => {
     try {
       setLoading(true);
       const res = await api.get("/sales");
-      // The backend now sends camelCase (totalAmount, totalDiscount, etc.)
+      // The backend now sends camelCase (total_amount, total_discount, etc.)
       setSales(res.data);
     } catch {
       toast.error("Failed to fetch sales");
@@ -298,7 +298,7 @@ const SalesReportPage = () => {
     return selectedSale.items.reduce((sum, item) => {
       if (!item.id) return sum;
       const qty = refundCart[item.id] || 0;
-      const unitPrice = item.discountedPrice ?? item.price;
+      const unitPrice = item.discounted_price ?? item.price;
       return sum + unitPrice * qty;
     }, 0);
   }, [refundCart, selectedSale]);
@@ -374,7 +374,7 @@ const SalesReportPage = () => {
 
     if (dateFrom) {
       filtered = filtered.filter(
-        (sale) => new Date(sale.soldAt).getTime() >= dateFrom.getTime(),
+        (sale) => new Date(sale.sold_at).getTime() >= dateFrom.getTime(),
       );
     }
 
@@ -382,7 +382,7 @@ const SalesReportPage = () => {
       const endOfDay = new Date(dateTo);
       endOfDay.setHours(23, 59, 59, 999);
       filtered = filtered.filter(
-        (sale) => new Date(sale.soldAt).getTime() <= endOfDay.getTime(),
+        (sale) => new Date(sale.sold_at).getTime() <= endOfDay.getTime(),
       );
     }
 
@@ -401,11 +401,11 @@ const SalesReportPage = () => {
 
   const summaryStats = useMemo(() => {
     const totalRevenue = filteredSales.reduce(
-      (s, sale) => s + (sale.totalAmount || 0),
+      (s, sale) => s + (sale.total_amount || 0),
       0,
     );
     const total_discount = filteredSales.reduce(
-      (s, sale) => s + (sale.totalDiscount || 0),
+      (s, sale) => s + (sale.total_discount || 0),
       0,
     );
     const totalTransactions = filteredSales.length;
@@ -432,7 +432,7 @@ const SalesReportPage = () => {
   const getTotalItems = (items: SaleItem[]) =>
     items.reduce((s, i) => s + (i.quantity || 0), 0);
   const getItemSubtotal = (item: SaleItem) =>
-    (item.discountedPrice ?? item.price ?? 0) * (item.quantity || 0);
+    (item.discounted_price ?? item.price ?? 0) * (item.quantity || 0);
   const hasDiscounts = (sale: Sale) =>
     sale.items.some((i) => i.discount || i.discounted_price);
 
@@ -853,7 +853,7 @@ const SalesReportPage = () => {
                             #{sale.id}
                           </TableCell>
                           <TableCell className="whitespace-nowrap text-gray-600">
-                            {dayjs(sale.soldAt).format("MMM D, YYYY h:mm A")}
+                            {dayjs(sale.sold_at).format("MMM D, YYYY h:mm A")}
                           </TableCell>
                           {isViewingAllBranches && (
                             <TableCell>
@@ -897,7 +897,7 @@ const SalesReportPage = () => {
                           </TableCell>
                           <TableCell className="font-bold text-emerald-600">
                             ₱
-                            {(sale.totalAmount || 0).toLocaleString(undefined, {
+                            {(sale.total_amount || 0).toLocaleString(undefined, {
                               minimumFractionDigits: 2,
                               maximumFractionDigits: 2,
                             })}
@@ -913,7 +913,7 @@ const SalesReportPage = () => {
                             )}
                           </TableCell>
                           <TableCell className="text-gray-600">
-                            {sale.seller?.name || sale.soldBy}
+                            {sale.seller?.name || sale.sold_by}
                           </TableCell>
                           <TableCell>
                             <ChevronRight className="h-5 w-5 text-emerald-600" />
@@ -942,7 +942,7 @@ const SalesReportPage = () => {
                             {getStatusBadge(sale.status)}
                           </div>
                           <p className="text-xs text-gray-500">
-                            {dayjs(sale.soldAt).format("MMM D, YYYY h:mm A")}
+                            {dayjs(sale.sold_at).format("MMM D, YYYY h:mm A")}
                           </p>
                         </div>
                         <ChevronRight className="h-5 w-5 text-emerald-600 flex-shrink-0" />
@@ -968,7 +968,7 @@ const SalesReportPage = () => {
                           </span>
                           <span className="text-lg font-bold text-emerald-600">
                             ₱
-                            {(sale.totalAmount || 0).toLocaleString(undefined, {
+                            {(sale.total_amount || 0).toLocaleString(undefined, {
                               minimumFractionDigits: 2,
                               maximumFractionDigits: 2,
                             })}
@@ -982,7 +982,7 @@ const SalesReportPage = () => {
                             </Badge>
                           )}
                           <span className="text-xs text-gray-500">
-                            by {sale.seller?.name || sale.soldBy}
+                            by {sale.seller?.name || sale.sold_by}
                           </span>
                         </div>
                       </div>
@@ -1016,7 +1016,7 @@ const SalesReportPage = () => {
                       </span>
                       <span>•</span>
                       <span>
-                        {dayjs(selectedSale.soldAt).format(
+                        {dayjs(selectedSale.sold_at).format(
                           "MMM D, YYYY h:mm A",
                         )}
                       </span>
@@ -1047,7 +1047,7 @@ const SalesReportPage = () => {
                         <div className="flex items-center gap-2">
                           <Users className="h-4 w-4 text-emerald-600" />
                           <p className="font-semibold text-gray-800">
-                            {selectedSale.seller?.name || selectedSale.soldBy}
+                            {selectedSale.seller?.name || selectedSale.sold_by}
                           </p>
                         </div>
                       </div>
@@ -1096,13 +1096,13 @@ const SalesReportPage = () => {
                                     {item.quantity || 0}
                                   </TableCell>
                                   <TableCell className="text-right">
-                                    {item.discountedPrice ? (
+                                    {item.discounted_price ? (
                                       <div className="space-y-1">
                                         <span className="block line-through text-gray-400 text-sm">
                                           ₱{(item.price || 0).toFixed(2)}
                                         </span>
                                         <span className="block text-emerald-600 font-bold">
-                                          ₱{item.discountedPrice.toFixed(2)}
+                                          ₱{item.discounted_price.toFixed(2)}
                                         </span>
                                       </div>
                                     ) : (
@@ -1161,12 +1161,12 @@ const SalesReportPage = () => {
                           </span>
                         </div>
                       )}
-                      {selectedSale.totalDiscount &&
-                        selectedSale.totalDiscount > 0 && (
+                      {selectedSale.total_discount &&
+                        selectedSale.total_discount > 0 && (
                           <div className="flex justify-between items-center text-emerald-600 font-semibold">
                             <span>Total Discount</span>
                             <span>
-                              -₱{selectedSale.totalDiscount.toFixed(2)}
+                              -₱{selectedSale.total_discount.toFixed(2)}
                             </span>
                           </div>
                         )}
@@ -1174,7 +1174,7 @@ const SalesReportPage = () => {
                         <p className="font-bold text-lg">Total Amount</p>
                         <p className="font-bold text-2xl">
                           ₱
-                          {(selectedSale.totalAmount || 0).toLocaleString(
+                          {(selectedSale.total_amount || 0).toLocaleString(
                             undefined,
                             {
                               minimumFractionDigits: 2,
@@ -1304,7 +1304,7 @@ const SalesReportPage = () => {
                                   <span>
                                     ₱
                                     {(
-                                      item.discountedPrice ?? item.price
+                                      item.discounted_price ?? item.price
                                     ).toFixed(2)}{" "}
                                     each
                                   </span>
@@ -1369,7 +1369,7 @@ const SalesReportPage = () => {
                                 <span className="font-bold text-amber-700">
                                   ₱
                                   {(
-                                    (item.discountedPrice ?? item.price) *
+                                    (item.discounted_price ?? item.price) *
                                     selected
                                   ).toFixed(2)}
                                 </span>

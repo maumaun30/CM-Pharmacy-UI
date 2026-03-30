@@ -363,18 +363,20 @@ export default function ProductList() {
         toast.success(parts.join(", "));
         fetchProducts();
       } catch (err: any) {
-        const msg = err.response?.data?.message || "";
-        if (msg.includes("already exists")) {
-          skipped++;
-        } else {
-          console.error(
-            `Failed: ${product.name} (SKU: ${product.sku}) — ${msg}`,
-          );
-          failed++;
-        }
-      } finally {
+        // const msg = err.response?.data?.message || "";
+        // if (msg.includes("already exists")) {
+        //   skipped++;
+        // } else {
+        //   console.error(
+        //     `Failed: ${product.name} (SKU: ${product.sku}) — ${msg}`,
+        //   );
+        //   failed++;
+        toast.error("Failed to read or parse CSV file");
         setImportLoading(false);
       }
+      // finally {
+      //   setImportLoading(false);
+      // }
     };
     reader.readAsText(file);
     e.target.value = "";

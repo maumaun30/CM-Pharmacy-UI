@@ -3,6 +3,7 @@
 import React, { useEffect, useState } from "react";
 
 import api from "@/lib/api";
+import { getFullName } from "@/lib/utils";
 import ProtectedRoute from "@/components/ProtectedRoute";
 import RoleProtectedRoute from "@/components/RoleProtectedRoute";
 
