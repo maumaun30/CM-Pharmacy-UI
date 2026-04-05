@@ -44,19 +44,19 @@ interface LowStockProduct {
   id: number;
   name: string;
   sku: string;
-  currentStock: number;
-  minimumStock: number;
-  reorderPoint: number;
+  current_stock: number;
+  minimum_stock: number;
+  reorder_point: number;
   price: number;
 }
 
 interface User {
   id: number;
   role: string;
-  branchId: number;
-  currentBranchId: number | null;
+  branch_id: number;
+  current_branch_id: number | null;
   branch?: Branch;
-  currentBranch?: Branch;
+  current_branch?: Branch;
 }
 
 const StockDashboard = () => {
@@ -89,7 +89,7 @@ const StockDashboard = () => {
       const res = await api.get("/auth/me");
       setCurrentUser(res.data);
 
-      const branch = res.data.currentBranch || res.data.branch;
+      const branch = res.data.current_branch || res.data.branch;
       setActiveBranch(branch);
     } catch (error) {
       console.error("Error fetching user:", error);
@@ -116,19 +116,19 @@ const StockDashboard = () => {
   };
 
   const getStockStatus = (product: LowStockProduct) => {
-    if (product.currentStock === 0) {
+    if (product.current_stock === 0) {
       return {
         label: "Out of Stock",
         color: "bg-red-100 text-red-800 border-red-200",
       };
     }
-    if (product.currentStock <= product.minimumStock) {
+    if (product.current_stock <= product.minimum_stock) {
       return {
         label: "Critical",
         color: "bg-orange-100 text-orange-800 border-orange-200",
       };
     }
-    if (product.currentStock <= product.reorderPoint) {
+    if (product.current_stock <= product.reorder_point) {
       return {
         label: "Low Stock",
         color: "bg-yellow-100 text-yellow-800 border-yellow-200",
@@ -141,7 +141,7 @@ const StockDashboard = () => {
   };
 
   const isViewingAllBranches =
-    currentUser?.role === "admin" && !currentUser?.currentBranchId;
+    currentUser?.role === "admin" && !currentUser?.current_branch_id;
 
   if (loading) {
     return (
@@ -401,7 +401,7 @@ const StockDashboard = () => {
                                   Current
                                 </p>
                                 <p className="text-lg font-bold text-gray-800">
-                                  {product.currentStock}
+                                  {product.current_stock}
                                 </p>
                               </div>
 
@@ -410,7 +410,7 @@ const StockDashboard = () => {
                                   Reorder
                                 </p>
                                 <p className="text-lg font-bold text-gray-800">
-                                  {product.reorderPoint}
+                                  {product.reorder_point}
                                 </p>
                               </div>
 

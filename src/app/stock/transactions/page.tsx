@@ -3,6 +3,7 @@
 import React, { useEffect, useState } from "react";
 
 import api from "@/lib/api";
+import { getFullName } from "@/lib/utils";
 import ProtectedRoute from "@/components/ProtectedRoute";
 import RoleProtectedRoute from "@/components/RoleProtectedRoute";
 
@@ -59,7 +60,6 @@ import { motion } from "framer-motion";
 interface User {
   id: number;
   username: string;
-  fullName: string;
 }
 
 interface Product {
@@ -76,18 +76,18 @@ interface Branch {
 
 interface StockTransaction {
   id: number;
-  productId: number;
-  transactionType: string;
+  product_id: number;
+  transaction_type: string;
   quantity: number;
-  quantityBefore: number;
-  quantityAfter: number;
-  unitCost: number | null;
-  totalCost: number | null;
-  batchNumber: string | null;
-  expiryDate: string | null;
+  quantity_before: number;
+  quantity_after: number;
+  unit_cost: number | null;
+  total_cost: number | null;
+  batch_number: string | null;
+  expiry_date: string | null;
   supplier: string | null;
   reason: string | null;
-  createdAt: string;
+  created_at: string;
   product: Product;
   user: User;
   branch?: Branch;
@@ -103,10 +103,10 @@ interface Pagination {
 interface CurrentUser {
   id: number;
   role: string;
-  branchId: number;
-  currentBranchId: number | null;
+  branch_id: number;
+  current_branch_id: number | null;
   branch?: Branch;
-  currentBranch?: Branch;
+  current_branch?: Branch;
 }
 
 const StockTransactionsPage = () => {
@@ -142,7 +142,7 @@ const StockTransactionsPage = () => {
       const res = await api.get("/auth/me");
       setCurrentUser(res.data);
 
-      const branch = res.data.currentBranch || res.data.branch;
+      const branch = res.data.current_branch || res.data.branch;
       setActiveBranch(branch);
     } catch (error) {
       console.error("Error fetching user:", error);
@@ -159,7 +159,7 @@ const StockTransactionsPage = () => {
       });
 
       if (search) params.append("search", search);
-      if (typeFilter !== "all") params.append("transactionType", typeFilter);
+      if (typeFilter !== "all") params.append("transaction_type", typeFilter);
       if (dateFrom) params.append("dateFrom", dateFrom.toISOString());
       if (dateTo) params.append("dateTo", dateTo.toISOString());
 
@@ -175,7 +175,7 @@ const StockTransactionsPage = () => {
     }
   };
 
-  const getTransactionTypeInfo = (type: string) => {
+  const gettransaction_typeInfo = (type: string) => {
     const types: Record<string, { label: string; color: string }> = {
       PURCHASE: {
         label: "Purchase",
@@ -219,7 +219,7 @@ const StockTransactionsPage = () => {
   };
 
   const isViewingAllBranches =
-    currentUser?.role === "admin" && !currentUser?.currentBranchId;
+    currentUser?.role === "admin" && !currentUser?.current_branch_id;
 
   if (initialLoading) {
     return (
@@ -505,8 +505,8 @@ const StockTransactionsPage = () => {
                       </TableHeader>
                       <TableBody>
                         {transactions.map((transaction) => {
-                          const typeInfo = getTransactionTypeInfo(
-                            transaction.transactionType,
+                          const typeInfo = gettransaction_typeInfo(
+                            transaction.transaction_type,
                           );
                           return (
                             <TableRow
@@ -518,12 +518,12 @@ const StockTransactionsPage = () => {
                                   <CalendarIcon className="h-4 w-4 text-gray-400" />
                                   <div>
                                     <div className="font-medium text-gray-800">
-                                      {dayjs(transaction.createdAt).format(
+                                      {dayjs(transaction.created_at).format(
                                         "MMM D, YYYY",
                                       )}
                                     </div>
                                     <div className="text-xs text-gray-500">
-                                      {dayjs(transaction.createdAt).format(
+                                      {dayjs(transaction.created_at).format(
                                         "h:mm A",
                                       )}
                                     </div>
@@ -585,10 +585,10 @@ const StockTransactionsPage = () => {
                                 </div>
                               </TableCell>
                               <TableCell className="text-right font-medium text-gray-700">
-                                {transaction.quantityBefore}
+                                {transaction.quantity_before}
                               </TableCell>
                               <TableCell className="text-right font-bold text-gray-800">
-                                {transaction.quantityAfter}
+                                {transaction.quantity_after}
                               </TableCell>
                               <TableCell className="max-w-xs">
                                 <div className="space-y-1 text-sm">
@@ -603,18 +603,18 @@ const StockTransactionsPage = () => {
                                       </span>
                                     </div>
                                   )}
-                                  {transaction.batchNumber && (
+                                  {transaction.batch_number && (
                                     <div className="flex items-center gap-1 truncate">
                                       <Package className="h-3 w-3 text-gray-400 flex-shrink-0" />
                                       <span className="text-gray-600">
                                         Batch:
                                       </span>
                                       <span className="font-medium text-gray-800 font-mono">
-                                        {transaction.batchNumber}
+                                        {transaction.batch_number}
                                       </span>
                                     </div>
                                   )}
-                                  {transaction.unitCost && (
+                                  {transaction.unit_cost && (
                                     <div className="flex items-center gap-1">
                                       <DollarSign className="h-3 w-3 text-emerald-500 flex-shrink-0" />
                                       <span className="text-gray-600">
@@ -623,7 +623,7 @@ const StockTransactionsPage = () => {
                                       <span className="font-semibold text-emerald-600">
                                         ₱
                                         {parseFloat(
-                                          transaction.unitCost.toString(),
+                                          transaction.unit_cost.toString(),
                                         ).toFixed(2)}
                                       </span>
                                     </div>
@@ -642,7 +642,7 @@ const StockTransactionsPage = () => {
                                 <div className="flex items-center gap-2">
                                   <User className="h-4 w-4 text-gray-400" />
                                   <span className="text-sm text-gray-700">
-                                    {transaction.user.fullName}
+                                    {getFullName(transaction.user)}
                                   </span>
                                 </div>
                               </TableCell>

@@ -3,6 +3,7 @@
 import React, { useEffect, useState } from "react";
 
 import api from "@/lib/api";
+import { getFullName } from "@/lib/utils";
 import ProtectedRoute from "@/components/ProtectedRoute";
 import RoleProtectedRoute from "@/components/RoleProtectedRoute";
 
@@ -54,7 +55,6 @@ interface User {
   username: string;
   email: string;
   role: string;
-  fullName: string;
 }
 
 interface Log {
@@ -548,7 +548,7 @@ const LogsPage = () => {
                               {log.user ? (
                                 <div>
                                   <div className="font-semibold text-gray-800">
-                                    {log.user.fullName}
+                                    {getFullName(log.user)}
                                   </div>
                                   <div className="text-xs text-gray-500">
                                     {log.user.username}
@@ -637,7 +637,7 @@ const LogsPage = () => {
                               <>
                                 <User className="h-3 w-3 text-emerald-600" />
                                 <span className="font-medium text-gray-800">
-                                  {log.user.fullName}
+                                  {getFullName(log.user)}
                                 </span>
                                 <Badge
                                   variant="outline"

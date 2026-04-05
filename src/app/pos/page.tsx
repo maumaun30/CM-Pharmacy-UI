@@ -54,7 +54,7 @@ interface Product {
   sku: string;
   barcode?: string;
   price: number;
-  currentStock: number;
+  current_stock: number;
   status: string;
 }
 
@@ -62,24 +62,24 @@ interface Discount {
   id: number;
   name: string;
   description: string;
-  discountType: "PERCENTAGE" | "FIXED_AMOUNT";
-  discountValue: number;
-  discountCategory:
+  discount_type: "PERCENTAGE" | "FIXED_AMOUNT";
+  discount_value: number;
+  discount_category:
     | "PWD"
     | "SENIOR_CITIZEN"
     | "PROMOTIONAL"
     | "SEASONAL"
     | "OTHER";
-  requiresVerification: boolean;
-  isEnabled: boolean;
-  maximumDiscountAmount: number;
+  requires_verification: boolean;
+  is_enabled: boolean;
+  maximum_discount_amount: number;
 }
 
 interface CartItem {
   product: Product;
   quantity: number;
-  appliedDiscount?: Discount | null;
-  discountedPrice?: number;
+  applied_discount?: Discount | null;
+  discounted_price?: number;
 }
 
 interface SaleReceipt {
@@ -107,11 +107,11 @@ interface Branch {
 interface User {
   id: number;
   username: string;
-  branchId: number;
-  currentBranchId: number | null;
+  branch_id: number;
+  current_branch_id: number | null;
   role: string;
   branch?: Branch;
-  currentBranch?: Branch;
+  current_branch?: Branch;
 }
 
 type ViewMode = "grid" | "list";
@@ -126,19 +126,19 @@ const GRID_PADDING = 12;
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
-function calculateDiscountedPrice(price: number, discount: Discount): number {
-  if (discount.discountType === "PERCENTAGE") {
-    const discountAmount = (price * discount.discountValue) / 100;
-    const finalDiscount = discount.maximumDiscountAmount
-      ? Math.min(discountAmount, discount.maximumDiscountAmount)
+function calculatediscounted_price(price: number, discount: Discount): number {
+  if (discount.discount_type === "PERCENTAGE") {
+    const discountAmount = (price * discount.discount_value) / 100;
+    const finalDiscount = discount.maximum_discount_amount
+      ? Math.min(discountAmount, discount.maximum_discount_amount)
       : discountAmount;
     return price - finalDiscount;
   }
-  return price - Math.min(discount.discountValue, price);
+  return price - Math.min(discount.discount_value, price);
 }
 
 function getItemTotal(item: CartItem): number {
-  const price = item.discountedPrice ?? item.product.price;
+  const price = item.discounted_price ?? item.product.price;
   return price * item.quantity;
 }
 
@@ -174,12 +174,12 @@ const CartItemDisplay = memo(
           <p className="text-xs text-gray-500">SKU: {item.product.sku}</p>
           <p
             className={`text-xs mt-1 ${
-              item.product.currentStock <= 10
+              item.product.current_stock <= 10
                 ? "text-orange-600 font-semibold"
                 : "text-gray-500"
             }`}
           >
-            Stock: {item.product.currentStock}
+            Stock: {item.product.current_stock}
           </p>
         </div>
         <Button
@@ -192,22 +192,22 @@ const CartItemDisplay = memo(
         </Button>
       </div>
 
-      {item.appliedDiscount && (
+      {item.applied_discount && (
         <Badge className="mb-2 bg-emerald-100 text-emerald-700 hover:bg-emerald-100 border-emerald-200">
           <Tag className="h-3 w-3 mr-1" />
-          {item.appliedDiscount.name}
+          {item.applied_discount.name}
         </Badge>
       )}
 
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2">
-          {item.appliedDiscount && item.discountedPrice ? (
+          {item.applied_discount && item.discounted_price ? (
             <div className="flex flex-col">
               <span className="text-xs line-through text-gray-400">
                 ₱{item.product.price.toFixed(2)}
               </span>
               <span className="text-sm font-bold text-emerald-600">
-                ₱{item.discountedPrice.toFixed(2)}
+                ₱{item.discounted_price.toFixed(2)}
               </span>
             </div>
           ) : (
@@ -238,10 +238,10 @@ const CartItemDisplay = memo(
             onClick={() =>
               onUpdateQty(
                 item.product.id,
-                Math.min(item.product.currentStock, item.quantity + 1),
+                Math.min(item.product.current_stock, item.quantity + 1),
               )
             }
-            disabled={item.quantity >= item.product.currentStock}
+            disabled={item.quantity >= item.product.current_stock}
           >
             <Plus className="h-3 w-3" />
           </Button>
@@ -259,7 +259,7 @@ const CartItemDisplay = memo(
         onClick={() => onOpenDiscount(item)}
       >
         <Tag className="h-3 w-3 mr-1" />
-        {item.appliedDiscount ? "Change Discount" : "Apply Discount"}
+        {item.applied_discount ? "Change Discount" : "Apply Discount"}
       </Button>
     </div>
   ),
@@ -306,10 +306,10 @@ const ProductGridCard = memo(
           <p className="text-xs text-gray-500 mb-1">Stock</p>
           <p
             className={`text-sm font-semibold ${
-              product.currentStock <= 10 ? "text-orange-600" : "text-gray-700"
+              product.current_stock <= 10 ? "text-orange-600" : "text-gray-700"
             }`}
           >
-            {product.currentStock}
+            {product.current_stock}
           </p>
         </div>
         <p className="text-lg font-bold text-emerald-600">
@@ -367,10 +367,10 @@ const ProductListCard = memo(
             <p className="text-xs text-gray-500 mb-1">Stock</p>
             <p
               className={`text-base font-semibold ${
-                product.currentStock <= 10 ? "text-orange-600" : "text-gray-700"
+                product.current_stock <= 10 ? "text-orange-600" : "text-gray-700"
               }`}
             >
-              {product.currentStock}
+              {product.current_stock}
             </p>
           </div>
           <p className="text-2xl font-bold text-emerald-600 min-w-[100px] text-right">
@@ -607,8 +607,8 @@ const POSPage = () => {
     let disc = 0;
     for (const item of cart) {
       sub += item.product.price * item.quantity;
-      if (item.appliedDiscount && item.discountedPrice != null) {
-        disc += (item.product.price - item.discountedPrice) * item.quantity;
+      if (item.applied_discount && item.discounted_price != null) {
+        disc += (item.product.price - item.discounted_price) * item.quantity;
       }
     }
     return { subtotal: sub, totalDiscount: disc, total: sub - disc };
@@ -622,13 +622,13 @@ const POSPage = () => {
 
   const fetchProducts = useCallback(async () => {
     try {
-      const branchId = activeBranch?.id ?? currentUser?.branchId;
-      const res = await api.get(`/products?branchId=${branchId}`);
+      const branch_id = activeBranch?.id ?? currentUser?.branch_id;
+      const res = await api.get(`/products?branchId=${branch_id}`);
       const parsed = res.data.map((p: any) => ({
         ...p,
         price: parseFloat(p.price) || 0,
         cost: parseFloat(p.cost) || 0,
-        currentStock: p.branchStocks?.[0]?.currentStock ?? 0,
+        current_stock: p.branch_stocks?.[0]?.current_stock ?? 0,
       }));
       setProducts(parsed);
     } catch {
@@ -651,7 +651,7 @@ const POSPage = () => {
         setLoading(true);
         const res = await api.get("/auth/me");
         setCurrentUser(res.data);
-        const branch = res.data.currentBranch ?? res.data.branch;
+        const branch = res.data.current_branch ?? res.data.branch;
         setActiveBranch(branch);
         if (!branch)
           toast.error("No branch assigned. Please contact administrator.");
@@ -692,7 +692,7 @@ const POSPage = () => {
       (data: { productId: number; newStock: number }) => {
         setProducts((prev) =>
           prev.map((p) =>
-            p.id === data.productId ? { ...p, currentStock: data.newStock } : p,
+            p.id === data.productId ? { ...p, current_stock: data.newStock } : p,
           ),
         );
         setCart((prev) =>
@@ -707,7 +707,7 @@ const POSPage = () => {
             return {
               ...item,
               quantity: newQty,
-              product: { ...item.product, currentStock: data.newStock },
+              product: { ...item.product, current_stock: data.newStock },
             };
           }),
         );
@@ -737,7 +737,7 @@ const POSPage = () => {
     showCheckoutDialog || showDiscountDialog || showReceiptDialog;
 
   const addToCart = useCallback(async (product: Product) => {
-    if (product.currentStock <= 0) {
+    if (product.current_stock <= 0) {
       toast.error(`${product.name} is out of stock`);
       return;
     }
@@ -746,7 +746,7 @@ const POSPage = () => {
     setCart((prev) => {
       const existing = prev.find((i) => i.product.id === product.id);
       if (existing) {
-        if (existing.quantity >= product.currentStock) {
+        if (existing.quantity >= product.current_stock) {
           toast.error(`Maximum stock reached for ${product.name}`);
           return prev;
         }
@@ -754,7 +754,7 @@ const POSPage = () => {
           i.product.id === product.id ? { ...i, quantity: i.quantity + 1 } : i,
         );
       }
-      return [...prev, { product, quantity: 1, appliedDiscount: null }];
+      return [...prev, { product, quantity: 1, applied_discount: null }];
     });
     setLoadingProductId(null);
   }, []);
@@ -848,14 +848,14 @@ const POSPage = () => {
           if (discount) {
             return {
               ...item,
-              appliedDiscount: discount,
-              discountedPrice: calculateDiscountedPrice(
+              applied_discount: discount,
+              discounted_price: calculatediscounted_price(
                 item.product.price,
                 discount,
               ),
             };
           }
-          return { ...item, appliedDiscount: null, discountedPrice: undefined };
+          return { ...item, applied_discount: null, discounted_price: undefined };
         }),
       );
       setShowDiscountDialog(false);
@@ -896,8 +896,8 @@ const POSPage = () => {
           productId: item.product.id,
           quantity: item.quantity,
           price: item.product.price,
-          discountId: item.appliedDiscount?.id ?? null,
-          discountedPrice: item.discountedPrice ?? null,
+          discountId: item.applied_discount?.id ?? null,
+          discountedPrice: item.discounted_price ?? null,
         })),
         subtotal,
         totalDiscount,
@@ -1283,7 +1283,7 @@ const POSPage = () => {
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-3 py-4">
-            {selectedCartItem?.appliedDiscount && (
+            {selectedCartItem?.applied_discount && (
               <Button
                 variant="outline"
                 className="w-full justify-start h-auto p-4 border-2 border-red-200 hover:bg-red-50"
@@ -1307,15 +1307,15 @@ const POSPage = () => {
             ) : (
               applicableDiscounts.map((discount) => {
                 const isApplied =
-                  selectedCartItem?.appliedDiscount?.id === discount.id;
-                const discountedPrice = selectedCartItem
-                  ? calculateDiscountedPrice(
+                  selectedCartItem?.applied_discount?.id === discount.id;
+                const discounted_price = selectedCartItem
+                  ? calculatediscounted_price(
                       selectedCartItem.product.price,
                       discount,
                     )
                   : 0;
                 const savings = selectedCartItem
-                  ? selectedCartItem.product.price - discountedPrice
+                  ? selectedCartItem.product.price - discounted_price
                   : 0;
                 return (
                   <Button
@@ -1339,9 +1339,9 @@ const POSPage = () => {
                           </p>
                         </div>
                         <Badge className="ml-3 bg-emerald-100 text-emerald-700 hover:bg-emerald-100 px-3 py-1">
-                          {discount.discountType === "PERCENTAGE"
-                            ? `${discount.discountValue}%`
-                            : `₱${discount.discountValue}`}
+                          {discount.discount_type === "PERCENTAGE"
+                            ? `${discount.discount_value}%`
+                            : `₱${discount.discount_value}`}
                         </Badge>
                       </div>
                       {selectedCartItem && (
@@ -1350,14 +1350,14 @@ const POSPage = () => {
                             ₱{selectedCartItem.product.price.toFixed(2)}
                           </span>
                           <span className="font-bold text-emerald-600">
-                            ₱{discountedPrice.toFixed(2)}
+                            ₱{discounted_price.toFixed(2)}
                           </span>
                           <span className="text-xs text-gray-600 ml-auto">
                             Save ₱{savings.toFixed(2)}
                           </span>
                         </div>
                       )}
-                      {discount.requiresVerification && (
+                      {discount.requires_verification && (
                         <Badge
                           variant="secondary"
                           className="text-xs bg-amber-50 text-amber-700 border-amber-200"
@@ -1542,17 +1542,17 @@ const POSPage = () => {
                         </p>
                         <p className="text-sm text-gray-600">
                           {item.quantity} × ₱
-                          {(item.discountedPrice ?? item.product.price).toFixed(2)}
+                          {(item.discounted_price ?? item.product.price).toFixed(2)}
                         </p>
                       </div>
                       <p className="font-bold text-gray-800">
                         ₱{getItemTotal(item).toFixed(2)}
                       </p>
                     </div>
-                    {item.appliedDiscount && (
+                    {item.applied_discount && (
                       <div className="flex items-center gap-1 text-xs text-emerald-600">
                         <Tag className="h-3 w-3" />
-                        <span>{item.appliedDiscount.name}</span>
+                        <span>{item.applied_discount.name}</span>
                       </div>
                     )}
                   </div>

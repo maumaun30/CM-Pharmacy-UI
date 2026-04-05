@@ -47,7 +47,7 @@ interface Product {
   name: string;
   sku: string;
   barcode?: string;
-  currentStock: number;
+  current_stock: number;
 }
 
 interface Branch {
@@ -59,10 +59,10 @@ interface Branch {
 interface User {
   id: number;
   role: string;
-  branchId: number;
-  currentBranchId: number | null;
+  branch_id: number;
+  current_branch_id: number | null;
   branch?: Branch;
-  currentBranch?: Branch;
+  current_branch?: Branch;
 }
 
 interface ImportPreviewRow {
@@ -97,7 +97,9 @@ const AddStockForm = () => {
 
   // CSV Import state
   const [importLoading, setImportLoading] = useState(false);
-  const [importPreview, setImportPreview] = useState<ImportPreviewRow[] | null>(null);
+  const [importPreview, setImportPreview] = useState<ImportPreviewRow[] | null>(
+    null,
+  );
   const [showUnmatched, setShowUnmatched] = useState(false);
   const [importConfirmLoading, setImportConfirmLoading] = useState(false);
 
@@ -110,7 +112,7 @@ const AddStockForm = () => {
     try {
       const res = await api.get("/auth/me");
       setCurrentUser(res.data);
-      const branch = res.data.currentBranch || res.data.branch;
+      const branch = res.data.current_branch || res.data.branch;
       setActiveBranch(branch);
     } catch (error) {
       console.error("Error fetching user:", error);
@@ -128,7 +130,7 @@ const AddStockForm = () => {
         name: p.name,
         sku: p.sku,
         barcode: p.barcode ?? p.barcode ?? undefined,
-        currentStock: p.totalStock ?? p.currentStock ?? 0,
+        current_stock: p.totalStock ?? p.current_stock ?? 0,
       }));
       setProducts(parsed);
       return parsed;
@@ -217,15 +219,18 @@ const AddStockForm = () => {
           return idx >= 0 ? (row[idx]?.replace(/"/g, "").trim() ?? "") : "";
         };
 
-        const parsedRows = lines.slice(1).map((line) => {
-          const row = parseCSVLine(line);
-          return {
-            name: getValue(row, "Name"),
-            sku: getValue(row, "SKU"),
-            barcode: getValue(row, "Barcode"),
-            totalStock: parseInt(getValue(row, "Total Stock")) || 0,
-          };
-        }).filter((r) => r.name || r.sku); // skip blank rows
+        const parsedRows = lines
+          .slice(1)
+          .map((line) => {
+            const row = parseCSVLine(line);
+            return {
+              name: getValue(row, "Name"),
+              sku: getValue(row, "SKU"),
+              barcode: getValue(row, "Barcode"),
+              totalStock: parseInt(getValue(row, "Total Stock")) || 0,
+            };
+          })
+          .filter((r) => r.name || r.sku); // skip blank rows
 
         // Always fetch fresh products to avoid stale closure
         const freshProducts = await fetchProducts();
@@ -249,7 +254,10 @@ const AddStockForm = () => {
           if (row.sku && bySkuMap.has(row.sku.toLowerCase())) {
             matchedProduct = bySkuMap.get(row.sku.toLowerCase())!;
             matchedBy = "sku";
-          } else if (row.barcode && byBarcodeMap.has(row.barcode.toLowerCase())) {
+          } else if (
+            row.barcode &&
+            byBarcodeMap.has(row.barcode.toLowerCase())
+          ) {
             matchedProduct = byBarcodeMap.get(row.barcode.toLowerCase())!;
             matchedBy = "barcode";
           } else if (row.name && byNameMap.has(row.name.toLowerCase())) {
@@ -283,7 +291,7 @@ const AddStockForm = () => {
     if (!importPreview || !activeBranch) return;
 
     const toImport = importPreview.filter(
-      (r) => r.status === "matched" && r.csvStock > 0
+      (r) => r.status === "matched" && r.csvStock > 0,
     );
 
     if (toImport.length === 0) {
@@ -310,8 +318,8 @@ const AddStockForm = () => {
             expiryDate: null,
             supplier: null,
             transactionType: "PURCHASE",
-          })
-        )
+          }),
+        ),
       );
 
       for (const result of results) {
@@ -337,7 +345,7 @@ const AddStockForm = () => {
       toast.error(`Import failed: ${firstError}`);
     } else if (failed > 0) {
       toast.warning(
-        `Imported ${success} products, ${failed} failed. First error: ${firstError}`
+        `Imported ${success} products, ${failed} failed. First error: ${firstError}`,
       );
       router.push("/stock");
     } else {
@@ -346,8 +354,10 @@ const AddStockForm = () => {
     }
   };
 
-  const matchedRows = importPreview?.filter((r) => r.status === "matched") ?? [];
-  const unmatchedRows = importPreview?.filter((r) => r.status === "unmatched") ?? [];
+  const matchedRows =
+    importPreview?.filter((r) => r.status === "matched") ?? [];
+  const unmatchedRows =
+    importPreview?.filter((r) => r.status === "unmatched") ?? [];
 
   const selectedProduct = products.find(
     (p) => p.id === parseInt(formData.productId),
@@ -360,7 +370,7 @@ const AddStockForm = () => {
 
   const newStock =
     selectedProduct && formData.quantity
-      ? selectedProduct.currentStock + parseInt(formData.quantity)
+      ? selectedProduct.current_stock + parseInt(formData.quantity)
       : 0;
 
   if (fetchLoading) {
@@ -451,7 +461,11 @@ const AddStockForm = () => {
                     <Upload className="h-5 w-5 text-emerald-600" />
                     Bulk Import via CSV
                   </h3>
-                  <label className={importLoading ? "pointer-events-none opacity-60" : ""}>
+                  <label
+                    className={
+                      importLoading ? "pointer-events-none opacity-60" : ""
+                    }
+                  >
                     <Button
                       variant="outline"
                       size="sm"
@@ -485,9 +499,16 @@ const AddStockForm = () => {
 
                 <div className="px-6 py-3">
                   <p className="text-xs text-gray-500">
-                    CSV must include a <span className="font-semibold text-gray-700">Total Stock</span> column.
-                    Products are matched by <span className="font-semibold text-gray-700">SKU</span> first,
-                    then <span className="font-semibold text-gray-700">Barcode</span>, then <span className="font-semibold text-gray-700">Name</span>.
+                    CSV must include a{" "}
+                    <span className="font-semibold text-gray-700">
+                      Total Stock
+                    </span>{" "}
+                    column. Products are matched by{" "}
+                    <span className="font-semibold text-gray-700">SKU</span>{" "}
+                    first, then{" "}
+                    <span className="font-semibold text-gray-700">Barcode</span>
+                    , then{" "}
+                    <span className="font-semibold text-gray-700">Name</span>.
                     Only rows with Total Stock &gt; 0 will be imported.
                   </p>
                 </div>
@@ -518,7 +539,8 @@ const AddStockForm = () => {
                         <div className="flex items-center gap-2">
                           <Package className="h-5 w-5 text-emerald-600" />
                           <span className="text-sm font-semibold text-gray-700">
-                            {matchedRows.filter((r) => r.csvStock > 0).length} will be imported
+                            {matchedRows.filter((r) => r.csvStock > 0).length}{" "}
+                            will be imported
                           </span>
                         </div>
                       </div>
@@ -534,15 +556,26 @@ const AddStockForm = () => {
                             <table className="w-full text-sm">
                               <thead className="bg-emerald-50 sticky top-0">
                                 <tr>
-                                  <th className="text-left px-3 py-2 font-semibold text-gray-700">Product</th>
-                                  <th className="text-left px-3 py-2 font-semibold text-gray-700">Matched By</th>
-                                  <th className="text-right px-3 py-2 font-semibold text-gray-700">Qty to Add</th>
+                                  <th className="text-left px-3 py-2 font-semibold text-gray-700">
+                                    Product
+                                  </th>
+                                  <th className="text-left px-3 py-2 font-semibold text-gray-700">
+                                    Matched By
+                                  </th>
+                                  <th className="text-right px-3 py-2 font-semibold text-gray-700">
+                                    Qty to Add
+                                  </th>
                                 </tr>
                               </thead>
                               <tbody>
                                 {matchedRows.map((row, i) => (
-                                  <tr key={i} className="border-t border-emerald-50 hover:bg-emerald-50/50">
-                                    <td className="px-3 py-2 text-gray-800 font-medium">{row.matchedProduct?.name}</td>
+                                  <tr
+                                    key={i}
+                                    className="border-t border-emerald-50 hover:bg-emerald-50/50"
+                                  >
+                                    <td className="px-3 py-2 text-gray-800 font-medium">
+                                      {row.matchedProduct?.name}
+                                    </td>
                                     <td className="px-3 py-2">
                                       <Badge
                                         variant="outline"
@@ -550,16 +583,20 @@ const AddStockForm = () => {
                                           row.matchedBy === "sku"
                                             ? "bg-blue-50 text-blue-700 border-blue-200 text-xs"
                                             : row.matchedBy === "barcode"
-                                            ? "bg-purple-50 text-purple-700 border-purple-200 text-xs"
-                                            : "bg-gray-50 text-gray-700 border-gray-200 text-xs"
+                                              ? "bg-purple-50 text-purple-700 border-purple-200 text-xs"
+                                              : "bg-gray-50 text-gray-700 border-gray-200 text-xs"
                                         }
                                       >
                                         {row.matchedBy?.toUpperCase()}
                                       </Badge>
                                     </td>
                                     <td className="px-3 py-2 text-right font-bold text-emerald-700">
-                                      {row.csvStock > 0 ? `+${row.csvStock}` : (
-                                        <span className="text-gray-400 font-normal">skipped (0)</span>
+                                      {row.csvStock > 0 ? (
+                                        `+${row.csvStock}`
+                                      ) : (
+                                        <span className="text-gray-400 font-normal">
+                                          skipped (0)
+                                        </span>
                                       )}
                                     </td>
                                   </tr>
@@ -579,7 +616,8 @@ const AddStockForm = () => {
                             className="text-sm font-semibold text-amber-600 flex items-center gap-1 hover:underline"
                           >
                             <AlertCircle className="h-4 w-4" />
-                            {unmatchedRows.length} unmatched rows (will be skipped)
+                            {unmatchedRows.length} unmatched rows (will be
+                            skipped)
                             {showUnmatched ? (
                               <ChevronUp className="h-4 w-4" />
                             ) : (
@@ -597,17 +635,32 @@ const AddStockForm = () => {
                                 <table className="w-full text-sm">
                                   <thead className="bg-amber-50 sticky top-0">
                                     <tr>
-                                      <th className="text-left px-3 py-2 font-semibold text-gray-700">CSV Name</th>
-                                      <th className="text-left px-3 py-2 font-semibold text-gray-700">SKU</th>
-                                      <th className="text-left px-3 py-2 font-semibold text-gray-700">Barcode</th>
+                                      <th className="text-left px-3 py-2 font-semibold text-gray-700">
+                                        CSV Name
+                                      </th>
+                                      <th className="text-left px-3 py-2 font-semibold text-gray-700">
+                                        SKU
+                                      </th>
+                                      <th className="text-left px-3 py-2 font-semibold text-gray-700">
+                                        Barcode
+                                      </th>
                                     </tr>
                                   </thead>
                                   <tbody>
                                     {unmatchedRows.map((row, i) => (
-                                      <tr key={i} className="border-t border-amber-50">
-                                        <td className="px-3 py-2 text-gray-600">{row.csvName || "—"}</td>
-                                        <td className="px-3 py-2 text-gray-500 font-mono text-xs">{row.csvSku || "—"}</td>
-                                        <td className="px-3 py-2 text-gray-500 font-mono text-xs">{row.csvBarcode || "—"}</td>
+                                      <tr
+                                        key={i}
+                                        className="border-t border-amber-50"
+                                      >
+                                        <td className="px-3 py-2 text-gray-600">
+                                          {row.csvName || "—"}
+                                        </td>
+                                        <td className="px-3 py-2 text-gray-500 font-mono text-xs">
+                                          {row.csvSku || "—"}
+                                        </td>
+                                        <td className="px-3 py-2 text-gray-500 font-mono text-xs">
+                                          {row.csvBarcode || "—"}
+                                        </td>
                                       </tr>
                                     ))}
                                   </tbody>
@@ -622,7 +675,11 @@ const AddStockForm = () => {
                       <div className="flex gap-3">
                         <Button
                           onClick={handleConfirmImport}
-                          disabled={importConfirmLoading || matchedRows.filter((r) => r.csvStock > 0).length === 0}
+                          disabled={
+                            importConfirmLoading ||
+                            matchedRows.filter((r) => r.csvStock > 0).length ===
+                              0
+                          }
                           className="flex-1 bg-gradient-to-r from-emerald-600 to-green-600 hover:from-emerald-700 hover:to-green-700 text-white font-bold"
                         >
                           {importConfirmLoading ? (
@@ -633,7 +690,11 @@ const AddStockForm = () => {
                           ) : (
                             <>
                               <PackagePlus className="h-4 w-4 mr-2" />
-                              Confirm Import ({matchedRows.filter((r) => r.csvStock > 0).length} products)
+                              Confirm Import (
+                              {
+                                matchedRows.filter((r) => r.csvStock > 0).length
+                              }{" "}
+                              products)
                             </>
                           )}
                         </Button>
@@ -656,7 +717,9 @@ const AddStockForm = () => {
             {/* Divider */}
             <div className="flex items-center gap-3">
               <div className="flex-1 h-px bg-emerald-100" />
-              <span className="text-sm font-semibold text-gray-400 uppercase tracking-wider">or add single product</span>
+              <span className="text-sm font-semibold text-gray-400 uppercase tracking-wider">
+                or add single product
+              </span>
               <div className="flex-1 h-px bg-emerald-100" />
             </div>
 
@@ -720,7 +783,7 @@ const AddStockForm = () => {
                             value={product.id.toString()}
                           >
                             {product.name} ({product.sku}) - Stock:{" "}
-                            {product.currentStock}
+                            {product.current_stock}
                           </SelectItem>
                         ))}
                       </SelectContent>
@@ -736,7 +799,7 @@ const AddStockForm = () => {
                             Current Stock
                           </p>
                           <p className="text-3xl font-bold text-gray-800">
-                            {selectedProduct.currentStock}
+                            {selectedProduct.current_stock}
                           </p>
                         </div>
                         {formData.quantity &&

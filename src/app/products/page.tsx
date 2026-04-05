@@ -70,36 +70,36 @@ interface Branch {
   code: string;
 }
 
-interface BranchStock {
+interface branch_stock {
   id: number;
-  branchId: number;
-  currentStock: number;
-  minimumStock: number;
-  maximumStock?: number;
-  reorderPoint: number;
+  branch_id: number;
+  current_stock: number;
+  minimum_stock: number;
+  maximum_stock?: number;
+  reorder_point: number;
   branch: Branch;
 }
 
 interface Product {
   id: number;
   name: string;
-  brandName: string;
-  genericName?: string;
+  brand_name: string;
+  generic_name?: string;
   sku: string;
   cost: number;
   price: number;
   dosage?: string;
   form?: string;
-  expiryDate?: string;
+  expiry_date?: string;
   barcode?: string;
-  requiresPrescription: boolean;
+  requires_prescription: boolean;
   status: "ACTIVE" | "INACTIVE";
-  categoryId: number;
+  category_id: number;
   category: Category;
-  branchStocks: BranchStock[];
+  branch_stocks: branch_stock[];
   totalStock: number;
-  marginPercentage?: number;
-  marginAmount?: number;
+  margin_percentage?: number;
+  margin_amount?: number;
 }
 
 export default function ProductList() {
@@ -111,18 +111,18 @@ export default function ProductList() {
   const [editingProduct, setEditingProduct] = useState<Product | null>(null);
   const [formData, setFormData] = useState({
     name: "",
-    brandName: "",
-    genericName: "",
+    brand_name: "",
+    generic_name: "",
     sku: "",
     barcode: "",
     cost: "",
     price: "",
     dosage: "",
     form: "",
-    expiryDate: "",
-    requiresPrescription: false,
+    expiry_date: "",
+    requires_prescription: false,
     status: "ACTIVE" as "ACTIVE" | "INACTIVE",
-    categoryId: "",
+    category_id: "",
   });
   const [loading, setLoading] = useState(false);
   const [fetchLoading, setFetchLoading] = useState(true);
@@ -183,8 +183,8 @@ export default function ProductList() {
     const rows = filtered.map((p) => ({
       ID: p.id,
       Name: p.name,
-      "Brand Name": p.brandName,
-      "Generic Name": p.genericName || "",
+      "Brand Name": p.brand_name,
+      "Generic Name": p.generic_name || "",
       SKU: p.sku,
       Barcode: p.barcode || "",
       Cost: p.cost.toFixed(2),
@@ -192,10 +192,10 @@ export default function ProductList() {
       Dosage: p.dosage || "",
       Form: p.form || "",
       Category: p.category?.name || "",
-      "Requires Prescription": p.requiresPrescription ? "Yes" : "No",
+      "Requires Prescription": p.requires_prescription ? "Yes" : "No",
       Status: p.status,
-      "Expiry Date": p.expiryDate
-        ? dayjs(p.expiryDate).format("YYYY-MM-DD")
+      "Expiry Date": p.expiry_date
+        ? dayjs(p.expiry_date).format("YYYY-MM-DD")
         : "",
       "Total Stock": p.totalStock,
     }));
@@ -271,16 +271,16 @@ export default function ProductList() {
           const row = parseCSVLine(line);
           return {
             name: getValue(row, "Name"),
-            brandName: getValue(row, "Brand Name"),
-            genericName: getValue(row, "Generic Name") || null,
+            brand_name: getValue(row, "Brand Name"),
+            generic_name: getValue(row, "Generic Name") || null,
             sku: getValue(row, "SKU"),
             barcode: getValue(row, "Barcode") || undefined,
             cost: parseFloat(getValue(row, "Cost")) || 0,
             price: parseFloat(getValue(row, "Price")) || 0,
             dosage: getValue(row, "Dosage") || null,
             form: getValue(row, "Form") || null,
-            expiryDate: getValue(row, "Expiry Date") || null,
-            requiresPrescription:
+            expiry_date: getValue(row, "Expiry Date") || null,
+            requires_prescription:
               getValue(row, "Requires Prescription") === "Yes",
             status:
               (getValue(row, "Status") as "ACTIVE" | "INACTIVE") || "ACTIVE",
@@ -335,7 +335,7 @@ export default function ProductList() {
             if (matchedCat) {
               await api.post("/products", {
                 ...productData,
-                categoryId: matchedCat.id,
+                category_id: matchedCat.id,
               });
             } else {
               // Handle the error: category was not found
@@ -363,18 +363,20 @@ export default function ProductList() {
         toast.success(parts.join(", "));
         fetchProducts();
       } catch (err: any) {
-        const msg = err.response?.data?.message || "";
-        if (msg.includes("already exists")) {
-          skipped++;
-        } else {
-          console.error(
-            `Failed: ${product.name} (SKU: ${product.sku}) — ${msg}`,
-          );
-          failed++;
-        }
-      } finally {
+        // const msg = err.response?.data?.message || "";
+        // if (msg.includes("already exists")) {
+        //   skipped++;
+        // } else {
+        //   console.error(
+        //     `Failed: ${product.name} (SKU: ${product.sku}) — ${msg}`,
+        //   );
+        //   failed++;
+        toast.error("Failed to read or parse CSV file");
         setImportLoading(false);
       }
+      // finally {
+      //   setImportLoading(false);
+      // }
     };
     reader.readAsText(file);
     e.target.value = "";
@@ -385,7 +387,7 @@ export default function ProductList() {
       setFetchLoading(true);
       const params: any = {};
       if (selectedBranch) {
-        params.branchId = selectedBranch;
+        params.branch_id = selectedBranch;
       }
 
       const res = await api.get("/products", { params });
@@ -394,7 +396,7 @@ export default function ProductList() {
         cost: parseFloat(p.cost),
         price: parseFloat(p.price),
         totalStock: p.totalStock || 0,
-        requiresPrescription: Boolean(p.requiresPrescription),
+        requires_prescription: Boolean(p.requires_prescription),
       }));
       setProducts(parsed);
     } catch (err) {
@@ -433,37 +435,37 @@ export default function ProductList() {
       setEditingProduct(product);
       setFormData({
         name: product.name,
-        brandName: product.brandName,
-        genericName: product.genericName || "",
+        brand_name: product.brand_name,
+        generic_name: product.generic_name || "",
         sku: product.sku,
         barcode: product.barcode || "",
         cost: product.cost.toString(),
         price: product.price.toString(),
         dosage: product.dosage || "",
         form: product.form || "",
-        expiryDate: product.expiryDate
-          ? dayjs(product.expiryDate).format("YYYY-MM-DD")
+        expiry_date: product.expiry_date
+          ? dayjs(product.expiry_date).format("YYYY-MM-DD")
           : "",
-        requiresPrescription: product.requiresPrescription || false,
+        requires_prescription: product.requires_prescription || false,
         status: product.status,
-        categoryId: product.categoryId.toString(),
+        category_id: product.category_id.toString(),
       });
     } else {
       setEditingProduct(null);
       setFormData({
         name: "",
-        brandName: "",
-        genericName: "",
+        brand_name: "",
+        generic_name: "",
         sku: "",
         barcode: "",
         cost: "",
         price: "",
         dosage: "",
         form: "",
-        expiryDate: "",
-        requiresPrescription: false,
+        expiry_date: "",
+        requires_prescription: false,
         status: "ACTIVE",
-        categoryId: "",
+        category_id: "",
       });
     }
     setModalOpen(true);
@@ -477,21 +479,21 @@ export default function ProductList() {
   const handleSubmit = async () => {
     const {
       name,
-      brandName,
-      genericName,
+      brand_name,
+      generic_name,
       sku,
       barcode,
       cost,
       price,
       dosage,
       form,
-      expiryDate,
-      requiresPrescription,
+      expiry_date,
+      requires_prescription,
       status,
-      categoryId,
+      category_id,
     } = formData;
 
-    if (!name || !brandName || !sku || !cost || !price || !categoryId) {
+    if (!name || !brand_name || !sku || !cost || !price || !category_id) {
       return toast.error(
         "Name, Brand Name, SKU, Cost, Price and Category are required",
       );
@@ -501,18 +503,18 @@ export default function ProductList() {
       setLoading(true);
       const payload = {
         name,
-        brandName,
-        genericName: genericName || null,
+        brand_name,
+        generic_name: generic_name || null,
         sku,
         barcode: formData.barcode || null,
         cost: parseFloat(cost),
         price: parseFloat(price),
         dosage: dosage || null,
         form: form || null,
-        expiryDate: expiryDate || null,
-        requiresPrescription,
+        expiry_date: expiry_date || null,
+        requires_prescription,
         status,
-        categoryId: parseInt(categoryId),
+        category_id: parseInt(category_id),
       };
 
       if (editingProduct) {
@@ -579,18 +581,18 @@ export default function ProductList() {
     return ((price - cost) / cost) * 100;
   };
 
-  const getStockForBranch = (product: Product, branchId: number | null) => {
-    if (!branchId) {
+  const getStockForBranch = (product: Product, branch_id: number | null) => {
+    if (!branch_id) {
       return product.totalStock || 0;
     }
-    const branchStock = product.branchStocks?.find(
-      (bs) => bs.branchId === branchId,
+    const branch_stock = product.branch_stocks?.find(
+      (bs) => bs.branch_id === branch_id,
     );
-    return branchStock?.currentStock || 0;
+    return branch_stock?.current_stock || 0;
   };
 
-  const getStockStatus = (product: Product, branchId: number | null) => {
-    if (!branchId) {
+  const getStockStatus = (product: Product, branch_id: number | null) => {
+    if (!branch_id) {
       // Overall stock status
       const totalStock = product.totalStock || 0;
       if (totalStock === 0) {
@@ -600,8 +602,8 @@ export default function ProductList() {
         };
       }
       // Check if any branch is low
-      const hasLowStock = product.branchStocks?.some(
-        (bs) => bs.currentStock > 0 && bs.currentStock <= bs.reorderPoint,
+      const hasLowStock = product.branch_stocks?.some(
+        (bs) => bs.current_stock > 0 && bs.current_stock <= bs.reorder_point,
       );
       if (hasLowStock) {
         return {
@@ -615,19 +617,19 @@ export default function ProductList() {
       };
     }
 
-    const branchStock = product.branchStocks?.find(
-      (bs) => bs.branchId === branchId,
+    const branch_stock = product.branch_stocks?.find(
+      (bs) => bs.branch_id === branch_id,
     );
-    if (!branchStock) {
+    if (!branch_stock) {
       return {
         label: "Not Available",
         color: "bg-gray-100 text-gray-800 border-gray-200",
       };
     }
 
-    const stock = branchStock.currentStock || 0;
-    const reorder = branchStock.reorderPoint || 20;
-    const minimum = branchStock.minimumStock || 10;
+    const stock = branch_stock.current_stock || 0;
+    const reorder = branch_stock.reorder_point || 20;
+    const minimum = branch_stock.minimum_stock || 10;
 
     if (stock === 0) {
       return {
@@ -653,44 +655,46 @@ export default function ProductList() {
     };
   };
 
-  const isExpiringSoon = (expiryDate?: string) => {
-    if (!expiryDate) return false;
+  const isExpiringSoon = (expiry_date?: string) => {
+    if (!expiry_date) return false;
     const today = dayjs();
-    const expiry = dayjs(expiryDate);
+    const expiry = dayjs(expiry_date);
     const daysUntilExpiry = expiry.diff(today, "days");
     return daysUntilExpiry <= 30 && daysUntilExpiry >= 0;
   };
 
-  const isExpired = (expiryDate?: string) => {
-    if (!expiryDate) return false;
-    return dayjs(expiryDate).isBefore(dayjs());
+  const isExpired = (expiry_date?: string) => {
+    if (!expiry_date) return false;
+    return dayjs(expiry_date).isBefore(dayjs());
   };
 
   const filtered = useMemo(() => {
     let data = products.filter((p) => {
       const matchesSearch =
         p.name.toLowerCase().includes(search.toLowerCase()) ||
-        p.brandName.toLowerCase().includes(search.toLowerCase()) ||
-        p.genericName?.toLowerCase().includes(search.toLowerCase()) ||
+        p.brand_name.toLowerCase().includes(search.toLowerCase()) ||
+        p.generic_name?.toLowerCase().includes(search.toLowerCase()) ||
         p.sku.toLowerCase().includes(search.toLowerCase()) ||
         p.category?.name.toLowerCase().includes(search.toLowerCase());
 
       const matchesCategory =
-        !filterCategory || p.categoryId === filterCategory;
+        !filterCategory || p.category_id === filterCategory;
 
       const matchesStatus = !filterStatus || p.status === filterStatus;
 
       const matchesStockStatus = (() => {
         if (!filterStockStatus) return true;
         const stock = getStockForBranch(p, selectedBranch);
-        const reorderPoint = selectedBranch
-          ? (p.branchStocks?.find((bs) => bs.branchId === selectedBranch)
-              ?.reorderPoint ?? 20)
-          : Math.min(...(p.branchStocks?.map((bs) => bs.reorderPoint) ?? [20]));
+        const reorder_point = selectedBranch
+          ? (p.branch_stocks?.find((bs) => bs.branch_id === selectedBranch)
+              ?.reorder_point ?? 20)
+          : Math.min(
+              ...(p.branch_stocks?.map((bs) => bs.reorder_point) ?? [20]),
+            );
         if (filterStockStatus === "out") return stock === 0;
         if (filterStockStatus === "low")
-          return stock > 0 && stock <= reorderPoint;
-        if (filterStockStatus === "in") return stock > reorderPoint;
+          return stock > 0 && stock <= reorder_point;
+        if (filterStockStatus === "in") return stock > reorder_point;
         return true;
       })();
 
@@ -747,7 +751,7 @@ export default function ProductList() {
       await Promise.all(
         Array.from(selectedIds).map((id) =>
           api.put(`/products/${id}`, {
-            categoryId: parseInt(bulkEditCategoryId),
+            category_id: parseInt(bulkEditCategoryId),
           }),
         ),
       );
@@ -764,15 +768,16 @@ export default function ProductList() {
   const activeCount = products.filter((p) => p.status === "ACTIVE").length;
   const lowStockCount = selectedBranch
     ? products.filter((p) => {
-        const branchStock = p.branchStocks?.find(
-          (bs) => bs.branchId === selectedBranch,
+        const branch_stock = p.branch_stocks?.find(
+          (bs) => bs.branch_id === selectedBranch,
         );
         return (
-          branchStock && branchStock.currentStock <= branchStock.reorderPoint
+          branch_stock &&
+          branch_stock.current_stock <= branch_stock.reorder_point
         );
       }).length
     : products.filter((p) =>
-        p.branchStocks?.some((bs) => bs.currentStock <= bs.reorderPoint),
+        p.branch_stocks?.some((bs) => bs.current_stock <= bs.reorder_point),
       ).length;
 
   const totalValue = products.reduce((sum, p) => {
@@ -1324,8 +1329,8 @@ export default function ProductList() {
                             prod,
                             selectedBranch,
                           );
-                          const expiringSoon = isExpiringSoon(prod.expiryDate);
-                          const expired = isExpired(prod.expiryDate);
+                          const expiringSoon = isExpiringSoon(prod.expiry_date);
+                          const expired = isExpired(prod.expiry_date);
 
                           return (
                             <TableRow
@@ -1361,10 +1366,10 @@ export default function ProductList() {
                                     {prod.name}
                                   </div>
                                   <div className="text-xs text-gray-600">
-                                    {prod.brandName}
+                                    {prod.brand_name}
                                   </div>
                                   <div className="flex flex-wrap gap-1 mt-1">
-                                    {prod.requiresPrescription && (
+                                    {prod.requires_prescription && (
                                       <Badge
                                         variant="outline"
                                         className="text-xs bg-blue-50 text-blue-700 border-blue-200"
@@ -1604,11 +1609,11 @@ export default function ProductList() {
                         Brand Name *
                       </Label>
                       <Input
-                        value={formData.brandName}
+                        value={formData.brand_name}
                         onChange={(e) =>
                           setFormData({
                             ...formData,
-                            brandName: e.target.value,
+                            brand_name: e.target.value,
                           })
                         }
                         placeholder="e.g., Biogesic"
@@ -1620,11 +1625,11 @@ export default function ProductList() {
                         Generic Name
                       </Label>
                       <Input
-                        value={formData.genericName}
+                        value={formData.generic_name}
                         onChange={(e) =>
                           setFormData({
                             ...formData,
-                            genericName: e.target.value,
+                            generic_name: e.target.value,
                           })
                         }
                         placeholder="e.g., Acetaminophen"
@@ -1761,11 +1766,11 @@ export default function ProductList() {
                       </Label>
                       <Input
                         type="date"
-                        value={formData.expiryDate}
+                        value={formData.expiry_date}
                         onChange={(e) =>
                           setFormData({
                             ...formData,
-                            expiryDate: e.target.value,
+                            expiry_date: e.target.value,
                           })
                         }
                         min={new Date().toISOString().split("T")[0]}
@@ -1778,11 +1783,11 @@ export default function ProductList() {
                       </Label>
                       <select
                         className="w-full border-2 border-emerald-200 rounded-lg px-3 py-2.5 focus:border-emerald-500 focus:ring-2 focus:ring-emerald-200 outline-none"
-                        value={formData.categoryId}
+                        value={formData.category_id}
                         onChange={(e) =>
                           setFormData({
                             ...formData,
-                            categoryId: e.target.value,
+                            category_id: e.target.value,
                           })
                         }
                       >
@@ -1796,21 +1801,21 @@ export default function ProductList() {
                     </div>
                   </div>
 
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 p-4 bg-gradient-to-r from-emerald-50 to-green-50 rounded-xl border-2 border-emerald-200">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 p-4 bg-linear-to-r from-emerald-50 to-green-50 rounded-xl border-2 border-emerald-200">
                     <div className="flex items-center space-x-3">
                       <Checkbox
-                        id="requiresPrescription"
-                        checked={formData.requiresPrescription}
+                        id="requires_prescription"
+                        checked={formData.requires_prescription}
                         onCheckedChange={(checked) =>
                           setFormData({
                             ...formData,
-                            requiresPrescription: !!checked,
+                            requires_prescription: !!checked,
                           })
                         }
                         className="border-blue-600 data-[state=checked]:bg-blue-600"
                       />
                       <Label
-                        htmlFor="requiresPrescription"
+                        htmlFor="requires_prescription"
                         className="cursor-pointer font-semibold text-gray-800"
                       >
                         Requires Prescription
@@ -1851,7 +1856,7 @@ export default function ProductList() {
                 <Button
                   onClick={handleSubmit}
                   disabled={loading}
-                  className="w-full sm:w-auto bg-gradient-to-r from-emerald-600 to-green-600 hover:from-emerald-700 hover:to-green-700 text-white"
+                  className="w-full sm:w-auto bg-linear-to-r from-emerald-600 to-green-600 hover:from-emerald-700 hover:to-green-700 text-white"
                 >
                   {loading ? (
                     <>
@@ -1877,21 +1882,21 @@ export default function ProductList() {
               </DialogHeader>
 
               <div className="py-4 space-y-3">
-                {selectedProductForStock?.branchStocks &&
-                selectedProductForStock.branchStocks.length > 0 ? (
-                  selectedProductForStock.branchStocks.map((bs) => {
+                {selectedProductForStock?.branch_stocks &&
+                selectedProductForStock.branch_stocks.length > 0 ? (
+                  selectedProductForStock.branch_stocks.map((bs) => {
                     const stockStatus =
-                      bs.currentStock === 0
+                      bs.current_stock === 0
                         ? {
                             label: "Out of Stock",
                             color: "bg-red-100 text-red-800",
                           }
-                        : bs.currentStock <= bs.minimumStock
+                        : bs.current_stock <= bs.minimum_stock
                           ? {
                               label: "Critical",
                               color: "bg-orange-100 text-orange-800",
                             }
-                          : bs.currentStock <= bs.reorderPoint
+                          : bs.current_stock <= bs.reorder_point
                             ? {
                                 label: "Low Stock",
                                 color: "bg-yellow-100 text-yellow-800",
@@ -1923,10 +1928,10 @@ export default function ProductList() {
                           <div className="flex items-center gap-4">
                             <div className="text-right">
                               <p className="text-2xl font-bold text-gray-800">
-                                {bs.currentStock}
+                                {bs.current_stock}
                               </p>
                               <p className="text-xs text-gray-600">
-                                Reorder at: {bs.reorderPoint}
+                                Reorder at: {bs.reorder_point}
                               </p>
                             </div>
                             <Badge
@@ -1979,7 +1984,7 @@ export default function ProductList() {
                 </p>
                 <div className="p-4 bg-red-50 border-2 border-red-200 rounded-lg">
                   <div className="flex items-start gap-2 text-sm text-red-800">
-                    <AlertCircle className="h-4 w-4 flex-shrink-0 mt-0.5" />
+                    <AlertCircle className="h-4 w-4 shrink-0 mt-0.5" />
                     <span>
                       This action cannot be undone. This will delete the product
                       and all its branch stock records.
@@ -2030,7 +2035,7 @@ export default function ProductList() {
                 </p>
                 <div className="p-4 bg-red-50 border-2 border-red-200 rounded-lg">
                   <div className="flex items-start gap-2 text-sm text-red-800">
-                    <AlertCircle className="h-4 w-4 flex-shrink-0 mt-0.5" />
+                    <AlertCircle className="h-4 w-4 shrink-0 mt-0.5" />
                     <span>
                       This action cannot be undone. All selected products and
                       their branch stock records will be permanently deleted.
@@ -2109,7 +2114,7 @@ export default function ProductList() {
                 <Button
                   onClick={handleBulkEditCategory}
                   disabled={!bulkEditCategoryId}
-                  className="w-full sm:w-auto bg-gradient-to-r from-emerald-600 to-green-600 hover:from-emerald-700 hover:to-green-700 text-white"
+                  className="w-full sm:w-auto bg-linear-to-r from-emerald-600 to-green-600 hover:from-emerald-700 hover:to-green-700 text-white"
                 >
                   Apply to {selectedIds.size} Products
                 </Button>

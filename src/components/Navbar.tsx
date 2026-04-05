@@ -4,6 +4,7 @@ import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import BranchSwitcher from "@/components/BranchSwitcher";
+import { getFullName } from "@/lib/utils";
 
 import {
   User,
@@ -253,7 +254,7 @@ export default function Navbar() {
                     >
                       <UserCircle className="w-4 h-4 mr-2" />
                       <span className="max-w-[120px] truncate">
-                        {user.fullName || user.username}
+                        {getFullName(user) || user.username}
                       </span>
                     </Button>
                   </DropdownMenuTrigger>
@@ -265,7 +266,7 @@ export default function Navbar() {
                     <DropdownMenuLabel className="text-emerald-700">
                       <div className="flex flex-col">
                         <span className="font-bold">
-                          {user.fullName || user.username}
+                          {getFullName(user) || user.username}
                         </span>
                         <span className="text-xs text-gray-500 font-normal capitalize">
                           {user.role}
@@ -366,7 +367,7 @@ export default function Navbar() {
                         </div>
                         <div className="flex-1 min-w-0">
                           <p className="font-bold text-gray-800 truncate">
-                            {user.fullName || user.username}
+                            {getFullName(user) || user.username}
                           </p>
                           <p className="text-xs text-gray-500 capitalize">
                             {user.role}
@@ -561,7 +562,7 @@ export default function Navbar() {
                       </div>
                       <div className="flex-1 min-w-0">
                         <p className="font-bold text-gray-800 truncate">
-                          {user.fullName || user.username}
+                          {getFullName(user) || user.username}
                         </p>
                         <p className="text-xs text-gray-500 capitalize">
                           {user.role}

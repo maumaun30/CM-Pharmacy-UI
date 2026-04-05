@@ -64,11 +64,11 @@ type User = {
   username: string;
   email: string;
   role: string;
-  firstName: string;
-  lastName: string;
-  contactNumber: string;
-  branchId: number | null;
-  isActive: boolean;
+  first_name: string;
+  last_name: string;
+  contact_number: string;
+  branch_id: number | null;
+  is_active: boolean;
   branch: Branch | null;
 };
 
@@ -82,11 +82,11 @@ export default function UsersPage() {
     username: "",
     email: "",
     role: "",
-    firstName: "",
-    lastName: "",
-    contactNumber: "",
-    isActive: false,
-    branchId: "",
+    first_name: "",
+    last_name: "",
+    contact_number: "",
+    is_active: false,
+    branch_id: "",
   });
   const [loading, setLoading] = useState(false);
   const [fetchLoading, setFetchLoading] = useState(true);
@@ -114,7 +114,7 @@ export default function UsersPage() {
 
   const fetchBranches = async () => {
     try {
-      const res = await api.get("/branches?isActive=true");
+      const res = await api.get("/branches?is_active=true");
       setBranches(res.data);
     } catch (error) {
       console.error("Error fetching branches:", error);
@@ -133,11 +133,11 @@ export default function UsersPage() {
         username: user.username,
         email: user.email,
         role: user.role,
-        firstName: user.firstName,
-        lastName: user.lastName,
-        contactNumber: user.contactNumber,
-        isActive: user.isActive,
-        branchId: user.branchId ? String(user.branchId) : "",
+        first_name: user.first_name,
+        last_name: user.last_name,
+        contact_number: user.contact_number,
+        is_active: user.is_active,
+        branch_id: user.branch_id ? String(user.branch_id) : "",
       });
     } else {
       setEditingUser(null);
@@ -145,11 +145,11 @@ export default function UsersPage() {
         username: "",
         email: "",
         role: "",
-        firstName: "",
-        lastName: "",
-        contactNumber: "",
-        isActive: true,
-        branchId: "",
+        first_name: "",
+        last_name: "",
+        contact_number: "",
+        is_active: true,
+        branch_id: "",
       });
     }
     setModalOpen(true);
@@ -165,15 +165,15 @@ export default function UsersPage() {
       username,
       email,
       role,
-      firstName,
-      lastName,
-      contactNumber,
-      isActive,
-      branchId,
+      first_name,
+      last_name,
+      contact_number,
+      is_active,
+      branch_id,
     } = formData;
     if (!username.trim()) return toast.error("Username is required");
     if (!role) return toast.error("Role is required");
-    if (!branchId) return toast.error("Branch is required");
+    if (!branch_id) return toast.error("Branch is required");
 
     try {
       setLoading(true);
@@ -181,11 +181,11 @@ export default function UsersPage() {
         username,
         email,
         role,
-        firstName,
-        lastName,
-        contactNumber,
-        isActive,
-        branchId: parseInt(branchId),
+        first_name,
+        last_name,
+        contact_number,
+        is_active,
+        branch_id: parseInt(branch_id),
       };
 
       if (editingUser) {
@@ -223,8 +223,8 @@ export default function UsersPage() {
     let data = users.filter(
       (u) =>
         u.username.toLowerCase().includes(search.toLowerCase()) ||
-        u.firstName.toLowerCase().includes(search.toLowerCase()) ||
-        u.lastName.toLowerCase().includes(search.toLowerCase()) ||
+        u.first_name.toLowerCase().includes(search.toLowerCase()) ||
+        u.last_name.toLowerCase().includes(search.toLowerCase()) ||
         u.email.toLowerCase().includes(search.toLowerCase()) ||
         u.branch?.name.toLowerCase().includes(search.toLowerCase()) ||
         u.branch?.code.toLowerCase().includes(search.toLowerCase()),
@@ -271,7 +271,7 @@ export default function UsersPage() {
     }
   };
 
-  const activeCount = users.filter((u) => u.isActive).length;
+  const activeCount = users.filter((u) => u.is_active).length;
   const inactiveCount = users.length - activeCount;
 
   if (fetchLoading) {
@@ -463,7 +463,7 @@ export default function UsersPage() {
                             { key: "email", label: "Email" },
                             { key: "role", label: "Role" },
                             { key: "branch", label: "Branch" },
-                            { key: "isActive", label: "Status" },
+                            { key: "is_active", label: "Status" },
                           ].map((col) => (
                             <TableHead
                               key={col.key}
@@ -503,12 +503,12 @@ export default function UsersPage() {
                             <TableCell>
                               <div>
                                 <div className="font-semibold text-gray-800">
-                                  {user.firstName} {user.lastName}
+                                  {user.first_name} {user.last_name}
                                 </div>
-                                {user.contactNumber && (
+                                {user.contact_number && (
                                   <div className="text-xs text-gray-500 flex items-center gap-1 mt-1">
                                     <Phone className="h-3 w-3" />
-                                    {user.contactNumber}
+                                    {user.contact_number}
                                   </div>
                                 )}
                               </div>
@@ -534,7 +534,7 @@ export default function UsersPage() {
                             <TableCell>
                               {(() => {
                                 const branch = branches.find(
-                                  (b) => b.id === user.branchId,
+                                  (b) => b.id === user.branch_id,
                                 );
 
                                 return branch ? (
@@ -557,7 +557,7 @@ export default function UsersPage() {
                               })()}
                             </TableCell>
                             <TableCell>
-                              {user.isActive ? (
+                              {user.is_active ? (
                                 <Badge className="bg-emerald-100 text-emerald-800 hover:bg-emerald-100 border-emerald-200">
                                   Active
                                 </Badge>
@@ -688,9 +688,9 @@ export default function UsersPage() {
                       First Name
                     </Label>
                     <Input
-                      value={formData.firstName}
+                      value={formData.first_name}
                       onChange={(e) =>
-                        setFormData({ ...formData, firstName: e.target.value })
+                        setFormData({ ...formData, first_name: e.target.value })
                       }
                       placeholder="John"
                       className="h-11 border-emerald-200 focus:border-emerald-500 focus:ring-2 focus:ring-emerald-200"
@@ -701,9 +701,9 @@ export default function UsersPage() {
                       Last Name
                     </Label>
                     <Input
-                      value={formData.lastName}
+                      value={formData.last_name}
                       onChange={(e) =>
-                        setFormData({ ...formData, lastName: e.target.value })
+                        setFormData({ ...formData, last_name: e.target.value })
                       }
                       placeholder="Doe"
                       className="h-11 border-emerald-200 focus:border-emerald-500 focus:ring-2 focus:ring-emerald-200"
@@ -731,12 +731,12 @@ export default function UsersPage() {
                       Contact Number
                     </Label>
                     <Input
-                      value={formData.contactNumber}
+                      value={formData.contact_number}
                       type="tel"
                       onChange={(e) =>
                         setFormData({
                           ...formData,
-                          contactNumber: e.target.value,
+                          contact_number: e.target.value,
                         })
                       }
                       placeholder="+63 XXX XXX XXXX"
@@ -772,9 +772,9 @@ export default function UsersPage() {
                       Status
                     </Label>
                     <Select
-                      value={String(formData.isActive)}
+                      value={String(formData.is_active)}
                       onValueChange={(value) =>
-                        setFormData({ ...formData, isActive: value === "true" })
+                        setFormData({ ...formData, is_active: value === "true" })
                       }
                     >
                       <SelectTrigger className="h-11 border-emerald-200 focus:border-emerald-500 focus:ring-2 focus:ring-emerald-200">
@@ -793,9 +793,9 @@ export default function UsersPage() {
                     Branch *
                   </Label>
                   <Select
-                    value={formData.branchId}
+                    value={formData.branch_id}
                     onValueChange={(value) =>
-                      setFormData({ ...formData, branchId: value })
+                      setFormData({ ...formData, branch_id: value })
                     }
                   >
                     <SelectTrigger className="h-11 border-emerald-200 focus:border-emerald-500 focus:ring-2 focus:ring-emerald-200">
