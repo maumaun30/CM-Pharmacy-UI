@@ -89,7 +89,7 @@ const StockDashboard = () => {
       const res = await api.get("/auth/me");
       setCurrentUser(res.data);
 
-      const branch = res.data.currentBranch || res.data.branch;
+      const branch = res.data.current_branch || res.data.branch;
       setActiveBranch(branch);
     } catch (error) {
       console.error("Error fetching user:", error);
@@ -141,7 +141,7 @@ const StockDashboard = () => {
   };
 
   const isViewingAllBranches =
-    currentUser?.role === "admin" && !currentUser?.currentBranchId;
+    currentUser?.role === "admin" && !currentUser?.current_branch_id;
 
   if (loading) {
     return (
@@ -401,7 +401,7 @@ const StockDashboard = () => {
                                   Current
                                 </p>
                                 <p className="text-lg font-bold text-gray-800">
-                                  {product.currentStock}
+                                  {product.current_stock}
                                 </p>
                               </div>
 
@@ -410,7 +410,7 @@ const StockDashboard = () => {
                                   Reorder
                                 </p>
                                 <p className="text-lg font-bold text-gray-800">
-                                  {product.reorderPoint}
+                                  {product.reorder_point}
                                 </p>
                               </div>
 
