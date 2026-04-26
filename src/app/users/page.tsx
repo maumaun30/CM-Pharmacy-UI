@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useEffect, useState, useMemo } from "react";
+import React, { useEffect, useState, useMemo, useCallback } from "react";
 
 import api from "@/lib/api";
 import ProtectedRoute from "@/components/ProtectedRoute";
@@ -72,6 +72,15 @@ type User = {
   branch: Branch | null;
 };
 
+function getRoleBadgeColor(role: string): string {
+  switch (role.toLowerCase()) {
+    case "admin":   return "bg-purple-100 text-purple-800 border-purple-200";
+    case "manager": return "bg-blue-100 text-blue-800 border-blue-200";
+    case "cashier": return "bg-emerald-100 text-emerald-800 border-emerald-200";
+    default:        return "bg-gray-100 text-gray-800 border-gray-200";
+  }
+}
+
 export default function UsersPage() {
   const [users, setUsers] = useState<User[]>([]);
   const [branches, setBranches] = useState<Branch[]>([]);
@@ -100,7 +109,7 @@ export default function UsersPage() {
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [userToDelete, setUserToDelete] = useState<User | null>(null);
 
-  const fetchUsers = async () => {
+  const fetchUsers = useCallback(async () => {
     try {
       setFetchLoading(true);
       const res = await api.get("/users");
@@ -110,23 +119,23 @@ export default function UsersPage() {
     } finally {
       setFetchLoading(false);
     }
-  };
+  }, []);
 
-  const fetchBranches = async () => {
+  const fetchBranches = useCallback(async () => {
     try {
       const res = await api.get("/branches?is_active=true");
       setBranches(res.data);
     } catch (error) {
       console.error("Error fetching branches:", error);
     }
-  };
+  }, []);
 
   useEffect(() => {
     fetchUsers();
     fetchBranches();
-  }, []);
+  }, [fetchUsers, fetchBranches]);
 
-  const handleOpenModal = (user?: User) => {
+  const handleOpenModal = useCallback((user?: User) => {
     if (user) {
       setEditingUser(user);
       setFormData({
@@ -153,41 +162,22 @@ export default function UsersPage() {
       });
     }
     setModalOpen(true);
-  };
+  }, []);
 
-  const handleCloseModal = () => {
+  const handleCloseModal = useCallback(() => {
     setModalOpen(false);
     setEditingUser(null);
-  };
+  }, []);
 
-  const handleSubmit = async () => {
-    const {
-      username,
-      email,
-      role,
-      first_name,
-      last_name,
-      contact_number,
-      is_active,
-      branch_id,
-    } = formData;
+  const handleSubmit = useCallback(async () => {
+    const { username, email, role, first_name, last_name, contact_number, is_active, branch_id } = formData;
     if (!username.trim()) return toast.error("Username is required");
     if (!role) return toast.error("Role is required");
     if (!branch_id) return toast.error("Branch is required");
 
     try {
       setLoading(true);
-      const payload = {
-        username,
-        email,
-        role,
-        first_name,
-        last_name,
-        contact_number,
-        is_active,
-        branch_id: parseInt(branch_id),
-      };
-
+      const payload = { username, email, role, first_name, last_name, contact_number, is_active, branch_id: parseInt(branch_id) };
       if (editingUser) {
         await api.put(`/users/${editingUser.id}`, payload);
         toast.success("User updated successfully");
@@ -202,11 +192,10 @@ export default function UsersPage() {
     } finally {
       setLoading(false);
     }
-  };
+  }, [editingUser, formData, handleCloseModal, fetchUsers]);
 
-  const confirmDelete = async () => {
+  const confirmDelete = useCallback(async () => {
     if (!userToDelete) return;
-
     try {
       await api.delete(`/users/${userToDelete.id}`);
       toast.success("User deleted successfully");
@@ -217,7 +206,7 @@ export default function UsersPage() {
       setDeleteOpen(false);
       setUserToDelete(null);
     }
-  };
+  }, [userToDelete, fetchUsers]);
 
   const filtered = useMemo(() => {
     let data = users.filter(
@@ -249,30 +238,19 @@ export default function UsersPage() {
 
   const totalPages = Math.ceil(filtered.length / perPage);
 
-  const handleSort = (key: keyof User) => {
+  const handleSort = useCallback((key: keyof User) => {
     if (sortBy === key) {
-      setSortDir(sortDir === "asc" ? "desc" : "asc");
+      setSortDir((d) => (d === "asc" ? "desc" : "asc"));
     } else {
       setSortBy(key);
       setSortDir("asc");
     }
-  };
+  }, [sortBy]);
 
-  const getRoleBadgeColor = (role: string) => {
-    switch (role.toLowerCase()) {
-      case "admin":
-        return "bg-purple-100 text-purple-800 border-purple-200";
-      case "manager":
-        return "bg-blue-100 text-blue-800 border-blue-200";
-      case "cashier":
-        return "bg-emerald-100 text-emerald-800 border-emerald-200";
-      default:
-        return "bg-gray-100 text-gray-800 border-gray-200";
-    }
-  };
-
-  const activeCount = users.filter((u) => u.is_active).length;
-  const inactiveCount = users.length - activeCount;
+  const { activeCount, inactiveCount } = useMemo(() => {
+    const active = users.filter((u) => u.is_active).length;
+    return { activeCount: active, inactiveCount: users.length - active };
+  }, [users]);
 
   if (fetchLoading) {
     return (

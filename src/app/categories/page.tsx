@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useEffect, useState, useMemo } from "react";
+import React, { useEffect, useState, useMemo, useCallback } from "react";
 
 import api from "@/lib/api";
 import ProtectedRoute from "@/components/ProtectedRoute";
@@ -66,7 +66,7 @@ export default function CategoriesPage() {
     null,
   );
 
-  const fetchCategories = async () => {
+  const fetchCategories = useCallback(async () => {
     try {
       setFetchLoading(true);
       const res = await api.get("/categories");
@@ -76,13 +76,13 @@ export default function CategoriesPage() {
     } finally {
       setFetchLoading(false);
     }
-  };
+  }, []);
 
   useEffect(() => {
     fetchCategories();
-  }, []);
+  }, [fetchCategories]);
 
-  const handleOpenModal = (category?: Category) => {
+  const handleOpenModal = useCallback((category?: Category) => {
     if (category) {
       setEditingCategory(category);
       setFormData({ name: category.name, description: category.description });
@@ -91,30 +91,24 @@ export default function CategoriesPage() {
       setFormData({ name: "", description: "" });
     }
     setModalOpen(true);
-  };
+  }, []);
 
-  const handleCloseModal = () => {
+  const handleCloseModal = useCallback(() => {
     setModalOpen(false);
     setEditingCategory(null);
     setFormData({ name: "", description: "" });
-  };
+  }, []);
 
-  const handleSubmit = async () => {
+  const handleSubmit = useCallback(async () => {
     const { name, description } = formData;
     if (!name.trim()) return toast.error("Category name is required");
     try {
       setLoading(true);
       if (editingCategory) {
-        await api.put(`/categories/${editingCategory.id}`, {
-          name,
-          description,
-        });
+        await api.put(`/categories/${editingCategory.id}`, { name, description });
         toast.success("Category updated successfully");
       } else {
-        await api.post("/categories", {
-          name,
-          description,
-        });
+        await api.post("/categories", { name, description });
         toast.success("Category created successfully");
       }
       handleCloseModal();
@@ -124,9 +118,9 @@ export default function CategoriesPage() {
     } finally {
       setLoading(false);
     }
-  };
+  }, [editingCategory, formData, handleCloseModal, fetchCategories]);
 
-  const confirmDelete = async () => {
+  const confirmDelete = useCallback(async () => {
     if (!categoryToDelete) return;
 
     try {
@@ -139,7 +133,7 @@ export default function CategoriesPage() {
       setDeleteOpen(false);
       setCategoryToDelete(null);
     }
-  };
+  }, [categoryToDelete, fetchCategories]);
 
   const filtered = useMemo(() => {
     let data = categories.filter((c) =>
@@ -165,14 +159,14 @@ export default function CategoriesPage() {
 
   const totalPages = Math.ceil(filtered.length / perPage);
 
-  const handleSort = (key: keyof Category) => {
+  const handleSort = useCallback((key: keyof Category) => {
     if (sortBy === key) {
-      setSortDir(sortDir === "asc" ? "desc" : "asc");
+      setSortDir((d) => (d === "asc" ? "desc" : "asc"));
     } else {
       setSortBy(key);
       setSortDir("asc");
     }
-  };
+  }, [sortBy]);
 
   if (fetchLoading) {
     return (
