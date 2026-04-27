@@ -2,10 +2,12 @@
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import axios from "@/lib/api";
-import { verifyToken } from "@/middleware/auth";
+import { useAuth } from "@/hooks/useAuth";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Loader, Lock, User, AlertCircle } from "lucide-react";
+
+const BRAND = process.env.NEXT_PUBLIC_SITE_NAME || "Brand Logo";
 
 export default function LoginPage() {
   const [username, setUsername] = useState("");
@@ -17,15 +19,12 @@ export default function LoginPage() {
   const [loginMode, setLoginMode] = useState<"password" | "pin">("password");
   const [pin, setPin] = useState("");
 
-  const brand = process.env.NEXT_PUBLIC_SITE_NAME
-    ? process.env.NEXT_PUBLIC_SITE_NAME
-    : "Brand Logo";
+  const { user, loading: authLoading } = useAuth();
 
+  // Redirect if already authenticated — reads from shared context, no extra API call
   useEffect(() => {
-    verifyToken().then((valid) => {
-      if (valid) router.replace("/");
-    });
-  }, [router]);
+    if (!authLoading && user) router.replace("/");
+  }, [authLoading, user, router]);
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -68,7 +67,7 @@ export default function LoginPage() {
             <div className="inline-flex items-center justify-center w-16 h-16 rounded-full bg-gradient-to-r from-emerald-500 to-green-600 mb-4 shadow-lg">
               <Lock className="w-8 h-8 text-white" />
             </div>
-            <h1 className="text-3xl font-bold text-gray-800 mb-2">{brand}</h1>
+            <h1 className="text-3xl font-bold text-gray-800 mb-2">{BRAND}</h1>
             <p className="text-gray-600 text-sm">
               Welcome back! Please login to continue
             </p>
