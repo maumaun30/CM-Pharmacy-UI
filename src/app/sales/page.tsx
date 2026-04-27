@@ -95,17 +95,18 @@ interface Branch {
 
 interface RefundItem {
   id: number;
+  saleItemId: number;
   product: { id: number; name: string };
   quantity: number;
-  refund_amount: number;
+  refundAmount: number;
 }
 
 interface Refund {
   id: number;
-  total_refund: number;
+  totalRefund: number;
   reason: string | null;
-  created_at: string;
-  refunded_by: { id: number; name: string } | null;
+  createdAt: string;
+  refundedBy: { id: number; name: string } | null;
   items: RefundItem[];
 }
 
@@ -216,7 +217,7 @@ const SalesReportPage = () => {
       const map: Record<number, number> = {};
       for (const refund of refunds) {
         for (const item of refund.items) {
-          map[item.id] = (map[item.id] || 0) + item.quantity;
+          map[item.saleItemId] = (map[item.saleItemId] || 0) + item.quantity;
         }
       }
       setAlreadyRefunded(map);
@@ -1297,11 +1298,11 @@ const SalesReportPage = () => {
                             <div>
                               <p className="font-bold text-gray-800">Refund #{refund.id}</p>
                               <p className="text-sm text-gray-500">
-                                {dayjs(refund.created_at).format("MMM D, YYYY h:mm A")}
+                                {dayjs(refund.createdAt).format("MMM D, YYYY h:mm A")}
                               </p>
-                              {refund.refunded_by && (
+                              {refund.refundedBy && (
                                 <p className="text-sm text-gray-600">
-                                  By: {refund.refunded_by.name}
+                                  By: {refund.refundedBy.name}
                                 </p>
                               )}
                               {refund.reason && (
@@ -1313,7 +1314,7 @@ const SalesReportPage = () => {
                             <div className="text-right shrink-0">
                               <p className="text-xs text-gray-500">Total Refund</p>
                               <p className="text-xl font-bold text-amber-600">
-                                ₱{Number(refund.total_refund).toFixed(2)}
+                                ₱{Number(refund.totalRefund).toFixed(2)}
                               </p>
                             </div>
                           </div>
@@ -1327,7 +1328,7 @@ const SalesReportPage = () => {
                                   {item.product.name} × {item.quantity}
                                 </span>
                                 <span className="font-semibold text-gray-800">
-                                  ₱{Number(item.refund_amount).toFixed(2)}
+                                  ₱{Number(item.refundAmount).toFixed(2)}
                                 </span>
                               </div>
                             ))}
