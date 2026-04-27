@@ -48,7 +48,7 @@ export default function BranchSwitcher() {
   const handleBranchSwitch = async (branch_id: string) => {
     try {
       setSwitching(true);
-      await api.post("/auth/switch-branch", { branch_id: parseInt(branch_id) });
+      await api.post("/auth/switch-branch", { branchId: parseInt(branch_id) });
       setActiveBranchId(parseInt(branch_id));
       toast.success("Branch switched successfully", {
         description: "Page will reload to update data",
