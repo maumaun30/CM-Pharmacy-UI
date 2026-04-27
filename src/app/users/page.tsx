@@ -177,7 +177,7 @@ export default function UsersPage() {
 
     try {
       setLoading(true);
-      const payload = { username, email, role, first_name, last_name, contact_number, is_active, branch_id: parseInt(branch_id) };
+      const payload = { username, email, role, firstName: first_name, lastName: last_name, contactNumber: contact_number, isActive: is_active, branchId: parseInt(branch_id) };
       if (editingUser) {
         await api.put(`/users/${editingUser.id}`, payload);
         toast.success("User updated successfully");
