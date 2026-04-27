@@ -4,6 +4,7 @@ import React, { useEffect, useState, useCallback } from "react";
 
 import api from "@/lib/api";
 import { getFullName } from "@/lib/utils";
+import { useDebounce } from "@/hooks/useDebounce";
 import ProtectedRoute from "@/components/ProtectedRoute";
 import RoleProtectedRoute from "@/components/RoleProtectedRoute";
 
@@ -109,11 +110,13 @@ const LogsPage = () => {
   const [dateFrom, setDateFrom] = useState<Date | undefined>();
   const [dateTo, setDateTo] = useState<Date | undefined>();
 
+  const debouncedSearch = useDebounce(search);
+
   const fetchLogs = useCallback(async (page = 1) => {
     try {
       setLoading(true);
       const params = new URLSearchParams({ page: page.toString(), limit: LIMIT.toString() });
-      if (search) params.append("search", search);
+      if (debouncedSearch) params.append("search", debouncedSearch);
       if (actionFilter !== "all") params.append("action", actionFilter);
       if (moduleFilter !== "all") params.append("module", moduleFilter);
       if (dateFrom) params.append("dateFrom", dateFrom.toISOString());
@@ -127,7 +130,7 @@ const LogsPage = () => {
     } finally {
       setLoading(false);
     }
-  }, [search, actionFilter, moduleFilter, dateFrom, dateTo]);
+  }, [debouncedSearch, actionFilter, moduleFilter, dateFrom, dateTo]);
 
   useEffect(() => {
     fetchLogs();

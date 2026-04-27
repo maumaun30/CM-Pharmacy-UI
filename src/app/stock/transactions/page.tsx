@@ -5,6 +5,7 @@ import React, { useEffect, useState, useCallback } from "react";
 import api from "@/lib/api";
 import { useAuth } from "@/hooks/useAuth";
 import { getFullName } from "@/lib/utils";
+import { useDebounce } from "@/hooks/useDebounce";
 import ProtectedRoute from "@/components/ProtectedRoute";
 import RoleProtectedRoute from "@/components/RoleProtectedRoute";
 
@@ -139,11 +140,13 @@ const StockTransactionsPage = () => {
   const [dateFrom, setDateFrom] = useState<Date | undefined>();
   const [dateTo, setDateTo] = useState<Date | undefined>();
 
+  const debouncedSearch = useDebounce(search);
+
   const fetchTransactions = useCallback(async (page = 1) => {
     try {
       setLoading(true);
       const params = new URLSearchParams({ page: page.toString(), limit: LIMIT.toString() });
-      if (search) params.append("search", search);
+      if (debouncedSearch) params.append("search", debouncedSearch);
       if (typeFilter !== "all") params.append("transaction_type", typeFilter);
       if (dateFrom) params.append("dateFrom", dateFrom.toISOString());
       if (dateTo) params.append("dateTo", dateTo.toISOString());
@@ -157,7 +160,7 @@ const StockTransactionsPage = () => {
       setLoading(false);
       setInitialLoading(false);
     }
-  }, [search, typeFilter, dateFrom, dateTo]);
+  }, [debouncedSearch, typeFilter, dateFrom, dateTo]);
 
   useEffect(() => {
     if (!authLoading) fetchTransactions();
