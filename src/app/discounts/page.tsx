@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useMemo } from "react";
+import { useEffect, useState, useMemo, useCallback } from "react";
 
 import api from "@/lib/api";
 import ProtectedRoute from "@/components/ProtectedRoute";
@@ -84,6 +84,35 @@ interface Discount {
   categories?: Category[];
 }
 
+// ─── Pure helpers (outside component) ───────────────────────────────────────
+
+const CATEGORY_BADGE_COLORS: Record<Discount["discount_category"], string> = {
+  PWD: "bg-blue-100 text-blue-800 border-blue-200",
+  SENIOR_CITIZEN: "bg-purple-100 text-purple-800 border-purple-200",
+  PROMOTIONAL: "bg-emerald-100 text-emerald-800 border-emerald-200",
+  SEASONAL: "bg-amber-100 text-amber-800 border-amber-200",
+  OTHER: "bg-gray-100 text-gray-800 border-gray-200",
+};
+
+function getCategoryBadgeColor(category: Discount["discount_category"]): string {
+  return CATEGORY_BADGE_COLORS[category];
+}
+
+function formatDate(date: string | null): string {
+  if (!date) return "Indefinite";
+  return new Date(date).toLocaleDateString();
+}
+
+function isActive(discount: Discount): boolean {
+  if (!discount.is_enabled) return false;
+  const now = new Date();
+  const start = discount.start_date ? new Date(discount.start_date) : null;
+  const end = discount.end_date ? new Date(discount.end_date) : null;
+  if (start && start > now) return false;
+  if (end && end < now) return false;
+  return true;
+}
+
 export default function DiscountList() {
   const [discounts, setDiscounts] = useState<Discount[]>([]);
   const [products, setProducts] = useState<Product[]>([]);
@@ -122,7 +151,7 @@ export default function DiscountList() {
     null,
   );
 
-  const fetchDiscounts = async () => {
+  const fetchDiscounts = useCallback(async () => {
     try {
       setFetchLoading(true);
       const res = await api.get("/discounts");
@@ -132,31 +161,31 @@ export default function DiscountList() {
     } finally {
       setFetchLoading(false);
     }
-  };
+  }, []);
 
-  const fetchProducts = async () => {
+  const fetchProducts = useCallback(async () => {
     try {
       const res = await api.get("/products");
       setProducts(res.data);
     } catch {
       toast.error("Failed to load products");
     }
-  };
+  }, []);
 
-  const fetchCategories = async () => {
+  const fetchCategories = useCallback(async () => {
     try {
       const res = await api.get("/categories");
       setCategories(res.data);
     } catch {
       toast.error("Failed to load categories");
     }
-  };
+  }, []);
 
   useEffect(() => {
     fetchDiscounts();
     fetchProducts();
     fetchCategories();
-  }, []);
+  }, [fetchDiscounts, fetchProducts, fetchCategories]);
 
   const handleOpenModal = (discount?: Discount) => {
     if (discount) {
@@ -274,7 +303,7 @@ export default function DiscountList() {
     }
   };
 
-  const toggleDiscountStatus = async (discount: Discount) => {
+  const toggleDiscountStatus = useCallback(async (discount: Discount) => {
     try {
       await api.patch(`/discounts/${discount.id}/toggle`);
       toast.success(`Discount ${!discount.is_enabled ? "enabled" : "disabled"}`);
@@ -282,25 +311,25 @@ export default function DiscountList() {
     } catch (err: any) {
       toast.error(err.response?.data?.message || "Error toggling discount");
     }
-  };
+  }, [fetchDiscounts]);
 
-  const handleProductSelection = (productId: number) => {
+  const handleProductSelection = useCallback((productId: number) => {
     setFormData((prev) => ({
       ...prev,
       productIds: prev.productIds.includes(productId)
         ? prev.productIds.filter((id) => id !== productId)
         : [...prev.productIds, productId],
     }));
-  };
+  }, []);
 
-  const handleCategorySelection = (categoryId: number) => {
+  const handleCategorySelection = useCallback((categoryId: number) => {
     setFormData((prev) => ({
       ...prev,
       categoryIds: prev.categoryIds.includes(categoryId)
         ? prev.categoryIds.filter((id) => id !== categoryId)
         : [...prev.categoryIds, categoryId],
     }));
-  };
+  }, []);
 
   const filtered = useMemo(() => {
     let data = discounts.filter(
@@ -334,44 +363,19 @@ export default function DiscountList() {
 
   const totalPages = Math.ceil(filtered.length / perPage);
 
-  const handleSort = (key: keyof Discount) => {
+  const handleSort = useCallback((key: keyof Discount) => {
     if (sortBy === key) {
-      setSortDir(sortDir === "asc" ? "desc" : "asc");
+      setSortDir((d) => (d === "asc" ? "desc" : "asc"));
     } else {
       setSortBy(key);
       setSortDir("asc");
     }
-  };
+  }, [sortBy]);
 
-  const getCategoryBadgeColor = (category: Discount["discount_category"]) => {
-    const colors = {
-      PWD: "bg-blue-100 text-blue-800 border-blue-200",
-      SENIOR_CITIZEN: "bg-purple-100 text-purple-800 border-purple-200",
-      PROMOTIONAL: "bg-emerald-100 text-emerald-800 border-emerald-200",
-      SEASONAL: "bg-amber-100 text-amber-800 border-amber-200",
-      OTHER: "bg-gray-100 text-gray-800 border-gray-200",
-    };
-    return colors[category];
-  };
-
-  const formatDate = (date: string | null) => {
-    if (!date) return "Indefinite";
-    return new Date(date).toLocaleDateString();
-  };
-
-  const isActive = (discount: Discount) => {
-    if (!discount.is_enabled) return false;
-    const now = new Date();
-    const start = discount.start_date ? new Date(discount.start_date) : null;
-    const end = discount.end_date ? new Date(discount.end_date) : null;
-
-    if (start && start > now) return false;
-    if (end && end < now) return false;
-    return true;
-  };
-
-  const activeCount = discounts.filter(isActive).length;
-  const inactiveCount = discounts.length - activeCount;
+  const { activeCount, inactiveCount } = useMemo(() => {
+    const active = discounts.filter(isActive).length;
+    return { activeCount: active, inactiveCount: discounts.length - active };
+  }, [discounts]);
 
   if (fetchLoading) {
     return (

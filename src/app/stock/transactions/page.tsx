@@ -1,9 +1,11 @@
 "use client";
 
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useState, useCallback } from "react";
 
 import api from "@/lib/api";
+import { useAuth } from "@/hooks/useAuth";
 import { getFullName } from "@/lib/utils";
+import { useDebounce } from "@/hooks/useDebounce";
 import ProtectedRoute from "@/components/ProtectedRoute";
 import RoleProtectedRoute from "@/components/RoleProtectedRoute";
 
@@ -100,25 +102,36 @@ interface Pagination {
   totalPages: number;
 }
 
-interface CurrentUser {
-  id: number;
-  role: string;
-  branch_id: number;
-  current_branch_id: number | null;
-  branch?: Branch;
-  current_branch?: Branch;
-}
+const TRANSACTION_TYPE_INFO: Record<string, { label: string; color: string }> = {
+  PURCHASE: { label: "Purchase", color: "bg-emerald-100 text-emerald-800 border-emerald-200" },
+  INITIAL_STOCK: { label: "Initial Stock", color: "bg-blue-100 text-blue-800 border-blue-200" },
+  RETURN: { label: "Return", color: "bg-purple-100 text-purple-800 border-purple-200" },
+  SALE: { label: "Sale", color: "bg-yellow-100 text-yellow-800 border-yellow-200" },
+  ADJUSTMENT: { label: "Adjustment", color: "bg-amber-100 text-amber-800 border-amber-200" },
+  DAMAGE: { label: "Damage", color: "bg-red-100 text-red-800 border-red-200" },
+  EXPIRED: { label: "Expired", color: "bg-orange-100 text-orange-800 border-orange-200" },
+};
+
+const getTransactionTypeInfo = (type: string) =>
+  TRANSACTION_TYPE_INFO[type] ?? {
+    label: type.replace("_", " "),
+    color: "bg-gray-100 text-gray-800 border-gray-200",
+  };
+
+const LIMIT = 50;
 
 const StockTransactionsPage = () => {
+  const { user, loading: authLoading } = useAuth();
+  const activeBranch = user?.currentBranch ?? user?.branch ?? null;
+  const isViewingAllBranches = user?.role === "admin" && !user?.current_branch_id;
+
   const [transactions, setTransactions] = useState<StockTransaction[]>([]);
   const [pagination, setPagination] = useState<Pagination>({
     total: 0,
     page: 1,
-    limit: 50,
+    limit: LIMIT,
     totalPages: 0,
   });
-  const [currentUser, setCurrentUser] = useState<CurrentUser | null>(null);
-  const [activeBranch, setActiveBranch] = useState<Branch | null>(null);
   const [loading, setLoading] = useState(false);
   const [initialLoading, setInitialLoading] = useState(true);
 
@@ -127,38 +140,13 @@ const StockTransactionsPage = () => {
   const [dateFrom, setDateFrom] = useState<Date | undefined>();
   const [dateTo, setDateTo] = useState<Date | undefined>();
 
-  useEffect(() => {
-    fetchCurrentUser();
-  }, []);
+  const debouncedSearch = useDebounce(search);
 
-  useEffect(() => {
-    if (currentUser) {
-      fetchTransactions();
-    }
-  }, [search, typeFilter, dateFrom, dateTo, currentUser]);
-
-  const fetchCurrentUser = async () => {
-    try {
-      const res = await api.get("/auth/me");
-      setCurrentUser(res.data);
-
-      const branch = res.data.current_branch || res.data.branch;
-      setActiveBranch(branch);
-    } catch (error) {
-      console.error("Error fetching user:", error);
-      toast.error("Failed to fetch user information");
-    }
-  };
-
-  const fetchTransactions = async (page = 1) => {
+  const fetchTransactions = useCallback(async (page = 1) => {
     try {
       setLoading(true);
-      const params = new URLSearchParams({
-        page: page.toString(),
-        limit: pagination.limit.toString(),
-      });
-
-      if (search) params.append("search", search);
+      const params = new URLSearchParams({ page: page.toString(), limit: LIMIT.toString() });
+      if (debouncedSearch) params.append("search", debouncedSearch);
       if (typeFilter !== "all") params.append("transaction_type", typeFilter);
       if (dateFrom) params.append("dateFrom", dateFrom.toISOString());
       if (dateTo) params.append("dateTo", dateTo.toISOString());
@@ -166,62 +154,23 @@ const StockTransactionsPage = () => {
       const res = await api.get(`/stock/transactions?${params.toString()}`);
       setTransactions(res.data.stocks);
       setPagination(res.data.pagination);
-    } catch (error) {
-      console.error("Fetch transactions error:", error);
+    } catch {
       toast.error("Failed to fetch transactions");
     } finally {
       setLoading(false);
       setInitialLoading(false);
     }
-  };
+  }, [debouncedSearch, typeFilter, dateFrom, dateTo]);
 
-  const gettransaction_typeInfo = (type: string) => {
-    const types: Record<string, { label: string; color: string }> = {
-      PURCHASE: {
-        label: "Purchase",
-        color: "bg-emerald-100 text-emerald-800 border-emerald-200",
-      },
-      INITIAL_STOCK: {
-        label: "Initial Stock",
-        color: "bg-blue-100 text-blue-800 border-blue-200",
-      },
-      RETURN: {
-        label: "Return",
-        color: "bg-purple-100 text-purple-800 border-purple-200",
-      },
-      SALE: {
-        label: "Sale",
-        color: "bg-yellow-100 text-yellow-800 border-yellow-200",
-      },
-      ADJUSTMENT: {
-        label: "Adjustment",
-        color: "bg-amber-100 text-amber-800 border-amber-200",
-      },
-      DAMAGE: {
-        label: "Damage",
-        color: "bg-red-100 text-red-800 border-red-200",
-      },
-      EXPIRED: {
-        label: "Expired",
-        color: "bg-orange-100 text-orange-800 border-orange-200",
-      },
-    };
-    return (
-      types[type] || {
-        label: type.replace("_", " "),
-        color: "bg-gray-100 text-gray-800 border-gray-200",
-      }
-    );
-  };
+  useEffect(() => {
+    if (!authLoading) fetchTransactions();
+  }, [authLoading, fetchTransactions]);
 
   const handlePageChange = (newPage: number) => {
     fetchTransactions(newPage);
   };
 
-  const isViewingAllBranches =
-    currentUser?.role === "admin" && !currentUser?.current_branch_id;
-
-  if (initialLoading) {
+  if (authLoading || initialLoading) {
     return (
       <RoleProtectedRoute allowedRoles={["admin"]}>
         <ProtectedRoute>
@@ -505,7 +454,7 @@ const StockTransactionsPage = () => {
                       </TableHeader>
                       <TableBody>
                         {transactions.map((transaction) => {
-                          const typeInfo = gettransaction_typeInfo(
+                          const typeInfo = getTransactionTypeInfo(
                             transaction.transaction_type,
                           );
                           return (

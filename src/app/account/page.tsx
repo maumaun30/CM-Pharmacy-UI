@@ -9,7 +9,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
 import { toast } from "sonner";
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import {
   User,
   Mail,
@@ -24,6 +24,13 @@ import {
   AlertCircle,
 } from "lucide-react";
 import { motion } from "framer-motion";
+
+function validatePassword(pwd: string) {
+  if (pwd.length === 0) return { valid: true, message: "" };
+  if (pwd.length < 6)
+    return { valid: false, message: "At least 6 characters required" };
+  return { valid: true, message: "Strong password" };
+}
 
 const AccountPage = () => {
   const { user } = useAuth();
@@ -44,22 +51,15 @@ const AccountPage = () => {
     }
   }, [user]);
 
-  const hasChanges = () => {
-    return (
+  const hasChanges = useMemo(
+    () =>
       username !== user?.username ||
       email !== user?.email ||
-      password.length > 0
-    );
-  };
+      password.length > 0,
+    [username, email, password, user?.username, user?.email],
+  );
 
-  const validatePassword = (pwd: string) => {
-    if (pwd.length === 0) return { valid: true, message: "" };
-    if (pwd.length < 6)
-      return { valid: false, message: "At least 6 characters required" };
-    return { valid: true, message: "Strong password" };
-  };
-
-  const passwordValidation = validatePassword(password);
+  const passwordValidation = useMemo(() => validatePassword(password), [password]);
   const passwordsMatch = password === confirmPassword;
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -467,7 +467,7 @@ const AccountPage = () => {
                 <div className="flex flex-col sm:flex-row gap-3 pt-4">
                   <Button
                     type="submit"
-                    disabled={isLoading || !hasChanges()}
+                    disabled={isLoading || !hasChanges}
                     className="flex-1 h-12 bg-gradient-to-r from-emerald-600 to-green-600 hover:from-emerald-700 hover:to-green-700 text-white font-bold shadow-lg hover:shadow-xl transition-all disabled:opacity-50 disabled:cursor-not-allowed"
                   >
                     {isLoading ? (
@@ -486,7 +486,7 @@ const AccountPage = () => {
                     type="button"
                     variant="outline"
                     onClick={handleCancel}
-                    disabled={isLoading || !hasChanges()}
+                    disabled={isLoading || !hasChanges}
                     className="flex-1 sm:flex-none h-12 border-2 border-gray-300 hover:bg-gray-50 font-semibold disabled:opacity-50 disabled:cursor-not-allowed"
                   >
                     <X className="w-5 h-5 mr-2" />
@@ -495,7 +495,7 @@ const AccountPage = () => {
                 </div>
 
                 {/* Change Indicator */}
-                {hasChanges() && !isLoading && (
+                {hasChanges && !isLoading && (
                   <motion.div
                     initial={{ opacity: 0, y: -10 }}
                     animate={{ opacity: 1, y: 0 }}

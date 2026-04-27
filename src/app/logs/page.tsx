@@ -1,9 +1,10 @@
 "use client";
 
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useState, useCallback } from "react";
 
 import api from "@/lib/api";
 import { getFullName } from "@/lib/utils";
+import { useDebounce } from "@/hooks/useDebounce";
 import ProtectedRoute from "@/components/ProtectedRoute";
 import RoleProtectedRoute from "@/components/RoleProtectedRoute";
 
@@ -77,6 +78,20 @@ interface Pagination {
   totalPages: number;
 }
 
+const ACTION_COLORS: Record<string, string> = {
+  CREATE: "bg-emerald-100 text-emerald-800 border-emerald-200",
+  UPDATE: "bg-blue-100 text-blue-800 border-blue-200",
+  DELETE: "bg-red-100 text-red-800 border-red-200",
+  LOGIN: "bg-purple-100 text-purple-800 border-purple-200",
+  LOGOUT: "bg-gray-100 text-gray-800 border-gray-200",
+  SALE: "bg-amber-100 text-amber-800 border-amber-200",
+};
+
+const getActionColor = (action: string) =>
+  ACTION_COLORS[action] ?? "bg-gray-100 text-gray-800 border-gray-200";
+
+const LIMIT = 50;
+
 const LogsPage = () => {
   const [logs, setLogs] = useState<Log[]>([]);
   const [pagination, setPagination] = useState<Pagination>({
@@ -95,15 +110,13 @@ const LogsPage = () => {
   const [dateFrom, setDateFrom] = useState<Date | undefined>();
   const [dateTo, setDateTo] = useState<Date | undefined>();
 
-  const fetchLogs = async (page = 1) => {
+  const debouncedSearch = useDebounce(search);
+
+  const fetchLogs = useCallback(async (page = 1) => {
     try {
       setLoading(true);
-      const params = new URLSearchParams({
-        page: page.toString(),
-        limit: pagination.limit.toString(),
-      });
-
-      if (search) params.append("search", search);
+      const params = new URLSearchParams({ page: page.toString(), limit: LIMIT.toString() });
+      if (debouncedSearch) params.append("search", debouncedSearch);
       if (actionFilter !== "all") params.append("action", actionFilter);
       if (moduleFilter !== "all") params.append("module", moduleFilter);
       if (dateFrom) params.append("dateFrom", dateFrom.toISOString());
@@ -112,29 +125,16 @@ const LogsPage = () => {
       const res = await api.get(`/logs?${params.toString()}`);
       setLogs(res.data.logs);
       setPagination(res.data.pagination);
-    } catch (error) {
-      console.error("Fetch logs error:", error);
+    } catch {
       toast.error("Failed to fetch logs");
     } finally {
       setLoading(false);
     }
-  };
+  }, [debouncedSearch, actionFilter, moduleFilter, dateFrom, dateTo]);
 
   useEffect(() => {
     fetchLogs();
-  }, [search, actionFilter, moduleFilter, dateFrom, dateTo]);
-
-  const getActionColor = (action: string) => {
-    const colors: Record<string, string> = {
-      CREATE: "bg-emerald-100 text-emerald-800 border-emerald-200",
-      UPDATE: "bg-blue-100 text-blue-800 border-blue-200",
-      DELETE: "bg-red-100 text-red-800 border-red-200",
-      LOGIN: "bg-purple-100 text-purple-800 border-purple-200",
-      LOGOUT: "bg-gray-100 text-gray-800 border-gray-200",
-      SALE: "bg-amber-100 text-amber-800 border-amber-200",
-    };
-    return colors[action] || "bg-gray-100 text-gray-800 border-gray-200";
-  };
+  }, [fetchLogs]);
 
   const handlePageChange = (newPage: number) => {
     fetchLogs(newPage);
@@ -147,13 +147,13 @@ const LogsPage = () => {
     dateFrom ||
     dateTo;
 
-  const clearFilters = () => {
+  const clearFilters = useCallback(() => {
     setSearch("");
     setActionFilter("all");
     setModuleFilter("all");
     setDateFrom(undefined);
     setDateTo(undefined);
-  };
+  }, []);
 
   if (loading && logs.length === 0) {
     return (

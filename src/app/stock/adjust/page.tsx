@@ -1,8 +1,9 @@
 "use client";
 
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useCallback } from "react";
 
 import api from "@/lib/api";
+import { useAuth } from "@/hooks/useAuth";
 import ProtectedRoute from "@/components/ProtectedRoute";
 import RoleProtectedRoute from "@/components/RoleProtectedRoute";
 
@@ -51,20 +52,12 @@ interface Branch {
   code: string;
 }
 
-interface User {
-  id: number;
-  role: string;
-  branch_id: number;
-  current_branch_id: number | null;
-  branch?: Branch;
-  current_branch?: Branch;
-}
-
 const StockAdjustPage = () => {
   const router = useRouter();
+  const { user, loading: authLoading } = useAuth();
+  const activeBranch = user?.currentBranch ?? user?.branch ?? null;
+
   const [products, setProducts] = useState<Product[]>([]);
-  const [currentUser, setCurrentUser] = useState<User | null>(null);
-  const [activeBranch, setActiveBranch] = useState<Branch | null>(null);
   const [loading, setLoading] = useState(false);
   const [fetchLoading, setFetchLoading] = useState(true);
   const [activeTab, setActiveTab] = useState("adjust");
@@ -83,34 +76,20 @@ const StockAdjustPage = () => {
     batchNumber: "",
   });
 
-  useEffect(() => {
-    fetchCurrentUser();
-    fetchProducts();
-  }, []);
-
-  const fetchCurrentUser = async () => {
-    try {
-      const res = await api.get("/auth/me");
-      setCurrentUser(res.data);
-
-      const branch = res.data.current_branch || res.data.branch;
-      setActiveBranch(branch);
-    } catch (error) {
-      console.error("Error fetching user:", error);
-      toast.error("Failed to fetch user information");
-    } finally {
-      setFetchLoading(false);
-    }
-  };
-
-  const fetchProducts = async () => {
+  const fetchProducts = useCallback(async () => {
     try {
       const res = await api.get("/products");
       setProducts(res.data);
-    } catch (error) {
+    } catch {
       toast.error("Failed to fetch products");
+    } finally {
+      setFetchLoading(false);
     }
-  };
+  }, []);
+
+  useEffect(() => {
+    fetchProducts();
+  }, [fetchProducts]);
 
   const handleAdjustSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -198,7 +177,7 @@ const StockAdjustPage = () => {
     ? Math.max(0, selectedLossProduct.current_stock - lossQuantity)
     : 0;
 
-  if (fetchLoading) {
+  if (authLoading || fetchLoading) {
     return (
       <RoleProtectedRoute allowedRoles={["admin"]}>
         <ProtectedRoute>
