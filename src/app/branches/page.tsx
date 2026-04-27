@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useState, useCallback, useMemo } from "react";
 
 import api from "@/lib/api";
 import ProtectedRoute from "@/components/ProtectedRoute";
@@ -86,11 +86,7 @@ const BranchesPage = () => {
     is_main_branch: false,
   });
 
-  useEffect(() => {
-    fetchBranches();
-  }, []);
-
-  const fetchBranches = async () => {
+  const fetchBranches = useCallback(async () => {
     try {
       setFetchLoading(true);
       const res = await api.get("/branches");
@@ -100,9 +96,13 @@ const BranchesPage = () => {
     } finally {
       setFetchLoading(false);
     }
-  };
+  }, []);
 
-  const handleOpenModal = (branch?: Branch) => {
+  useEffect(() => {
+    fetchBranches();
+  }, [fetchBranches]);
+
+  const handleOpenModal = useCallback((branch?: Branch) => {
     if (branch) {
       setEditingBranch(branch);
       setFormData({
@@ -135,14 +135,14 @@ const BranchesPage = () => {
       });
     }
     setModalOpen(true);
-  };
+  }, []);
 
-  const handleCloseModal = () => {
+  const handleCloseModal = useCallback(() => {
     setModalOpen(false);
     setEditingBranch(null);
-  };
+  }, []);
 
-  const handleSubmit = async () => {
+  const handleSubmit = useCallback(async () => {
     if (!formData.name || !formData.code) {
       toast.error("Name and code are required");
       return;
@@ -164,9 +164,9 @@ const BranchesPage = () => {
     } finally {
       setLoading(false);
     }
-  };
+  }, [editingBranch, formData, handleCloseModal, fetchBranches]);
 
-  const confirmDelete = async () => {
+  const confirmDelete = useCallback(async () => {
     if (!branchToDelete) return;
 
     try {
@@ -179,9 +179,9 @@ const BranchesPage = () => {
       setDeleteOpen(false);
       setBranchToDelete(null);
     }
-  };
+  }, [branchToDelete, fetchBranches]);
 
-  const toggleBranchStatus = async (branch: Branch) => {
+  const toggleBranchStatus = useCallback(async (branch: Branch) => {
     try {
       await api.patch(`/branches/${branch.id}/toggle`);
       toast.success(`Branch ${branch.is_active ? "deactivated" : "activated"}`);
@@ -191,13 +191,17 @@ const BranchesPage = () => {
         error.response?.data?.message || "Error toggling branch status",
       );
     }
-  };
+  }, [fetchBranches]);
 
-  const filteredBranches = branches.filter(
-    (branch) =>
-      branch.name.toLowerCase().includes(search.toLowerCase()) ||
-      branch.code.toLowerCase().includes(search.toLowerCase()) ||
-      branch.city?.toLowerCase().includes(search.toLowerCase()),
+  const filteredBranches = useMemo(
+    () =>
+      branches.filter(
+        (branch) =>
+          branch.name.toLowerCase().includes(search.toLowerCase()) ||
+          branch.code.toLowerCase().includes(search.toLowerCase()) ||
+          branch.city?.toLowerCase().includes(search.toLowerCase()),
+      ),
+    [branches, search],
   );
 
   if (fetchLoading) {

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useMemo } from "react";
+import { useEffect, useState, useMemo, useCallback } from "react";
 
 import api from "@/lib/api";
 import ProtectedRoute from "@/components/ProtectedRoute";
@@ -102,6 +102,55 @@ interface Product {
   margin_amount?: number;
 }
 
+const calculateMargin = (price: number, cost: number) => {
+  if (cost === 0) return 0;
+  return ((price - cost) / cost) * 100;
+};
+
+const getStockForBranch = (product: Product, branch_id: number | null) => {
+  if (!branch_id) return product.totalStock || 0;
+  const bs = product.branch_stocks?.find((bs) => bs.branch_id === branch_id);
+  return bs?.current_stock || 0;
+};
+
+const getStockStatus = (product: Product, branch_id: number | null) => {
+  if (!branch_id) {
+    const totalStock = product.totalStock || 0;
+    if (totalStock === 0)
+      return { label: "Out of Stock", color: "bg-red-100 text-red-800 border-red-200" };
+    const hasLowStock = product.branch_stocks?.some(
+      (bs) => bs.current_stock > 0 && bs.current_stock <= bs.reorder_point,
+    );
+    if (hasLowStock)
+      return { label: "Low in Some Branches", color: "bg-yellow-100 text-yellow-800 border-yellow-200" };
+    return { label: "In Stock", color: "bg-emerald-100 text-emerald-800 border-emerald-200" };
+  }
+
+  const branch_stock = product.branch_stocks?.find((bs) => bs.branch_id === branch_id);
+  if (!branch_stock)
+    return { label: "Not Available", color: "bg-gray-100 text-gray-800 border-gray-200" };
+
+  const stock = branch_stock.current_stock || 0;
+  const reorder = branch_stock.reorder_point || 20;
+  const minimum = branch_stock.minimum_stock || 10;
+
+  if (stock === 0) return { label: "Out of Stock", color: "bg-red-100 text-red-800 border-red-200" };
+  if (stock <= minimum) return { label: "Critical", color: "bg-orange-100 text-orange-800 border-orange-200" };
+  if (stock <= reorder) return { label: "Low Stock", color: "bg-yellow-100 text-yellow-800 border-yellow-200" };
+  return { label: "In Stock", color: "bg-emerald-100 text-emerald-800 border-emerald-200" };
+};
+
+const isExpiringSoon = (expiry_date?: string) => {
+  if (!expiry_date) return false;
+  const daysUntilExpiry = dayjs(expiry_date).diff(dayjs(), "days");
+  return daysUntilExpiry <= 30 && daysUntilExpiry >= 0;
+};
+
+const isExpired = (expiry_date?: string) => {
+  if (!expiry_date) return false;
+  return dayjs(expiry_date).isBefore(dayjs());
+};
+
 export default function ProductList() {
   const [products, setProducts] = useState<Product[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
@@ -171,13 +220,13 @@ export default function ProductList() {
     }
   };
 
-  const toggleSelectOne = (id: number) => {
+  const toggleSelectOne = useCallback((id: number) => {
     setSelectedIds((prev) => {
       const next = new Set(prev);
       next.has(id) ? next.delete(id) : next.add(id);
       return next;
     });
-  };
+  }, []);
 
   const handleExportCSV = () => {
     const rows = filtered.map((p) => ({
@@ -382,14 +431,11 @@ export default function ProductList() {
     e.target.value = "";
   };
 
-  const fetchProducts = async () => {
+  const fetchProducts = useCallback(async () => {
     try {
       setFetchLoading(true);
       const params: any = {};
-      if (selectedBranch) {
-        params.branch_id = selectedBranch;
-      }
-
+      if (selectedBranch) params.branch_id = selectedBranch;
       const res = await api.get("/products", { params });
       const parsed = res.data.map((p: any) => ({
         ...p,
@@ -399,38 +445,41 @@ export default function ProductList() {
         requires_prescription: Boolean(p.requires_prescription),
       }));
       setProducts(parsed);
-    } catch (err) {
+    } catch {
       toast.error("Failed to fetch products");
     } finally {
       setFetchLoading(false);
     }
-  };
+  }, [selectedBranch]);
 
-  const fetchCategories = async () => {
+  const fetchCategories = useCallback(async () => {
     try {
       const res = await api.get("/categories");
       setCategories(res.data);
     } catch {
       toast.error("Failed to load categories");
     }
-  };
+  }, []);
 
-  const fetchBranches = async () => {
+  const fetchBranches = useCallback(async () => {
     try {
       const res = await api.get("/branches");
       setBranches(res.data);
     } catch {
       toast.error("Failed to load branches");
     }
-  };
+  }, []);
 
   useEffect(() => {
     fetchProducts();
+  }, [fetchProducts]);
+
+  useEffect(() => {
     fetchCategories();
     fetchBranches();
-  }, [selectedBranch]);
+  }, [fetchCategories, fetchBranches]);
 
-  const handleOpenModal = (product?: Product) => {
+  const handleOpenModal = useCallback((product?: Product) => {
     if (product) {
       setEditingProduct(product);
       setFormData({
@@ -469,14 +518,14 @@ export default function ProductList() {
       });
     }
     setModalOpen(true);
-  };
+  }, []);
 
-  const handleCloseModal = () => {
+  const handleCloseModal = useCallback(() => {
     setModalOpen(false);
     setEditingProduct(null);
-  };
+  }, []);
 
-  const handleSubmit = async () => {
+  const handleSubmit = useCallback(async () => {
     const {
       name,
       brand_name,
@@ -531,11 +580,10 @@ export default function ProductList() {
     } finally {
       setLoading(false);
     }
-  };
+  }, [editingProduct, formData, handleCloseModal, fetchProducts]);
 
-  const confirmDelete = async () => {
+  const confirmDelete = useCallback(async () => {
     if (!productToDelete) return;
-
     try {
       await api.delete(`/products/${productToDelete.id}`);
       toast.success("Product deleted successfully");
@@ -546,9 +594,9 @@ export default function ProductList() {
       setDeleteOpen(false);
       setProductToDelete(null);
     }
-  };
+  }, [productToDelete, fetchProducts]);
 
-  const handleBulkDelete = async () => {
+  const handleBulkDelete = useCallback(async () => {
     try {
       await Promise.all(
         Array.from(selectedIds).map((id) => api.delete(`/products/${id}`)),
@@ -560,9 +608,9 @@ export default function ProductList() {
     } catch (err: any) {
       toast.error(err.response?.data?.message || "Error deleting products");
     }
-  };
+  }, [selectedIds, fetchProducts]);
 
-  const toggleProductStatus = async (product: Product) => {
+  const toggleProductStatus = useCallback(async (product: Product) => {
     try {
       await api.patch(`/products/${product.id}/toggle-status`);
       toast.success(
@@ -570,103 +618,9 @@ export default function ProductList() {
       );
       fetchProducts();
     } catch (err: any) {
-      toast.error(
-        err.response?.data?.message || "Error toggling product status",
-      );
+      toast.error(err.response?.data?.message || "Error toggling product status");
     }
-  };
-
-  const calculateMargin = (price: number, cost: number) => {
-    if (cost === 0) return 0;
-    return ((price - cost) / cost) * 100;
-  };
-
-  const getStockForBranch = (product: Product, branch_id: number | null) => {
-    if (!branch_id) {
-      return product.totalStock || 0;
-    }
-    const branch_stock = product.branch_stocks?.find(
-      (bs) => bs.branch_id === branch_id,
-    );
-    return branch_stock?.current_stock || 0;
-  };
-
-  const getStockStatus = (product: Product, branch_id: number | null) => {
-    if (!branch_id) {
-      // Overall stock status
-      const totalStock = product.totalStock || 0;
-      if (totalStock === 0) {
-        return {
-          label: "Out of Stock",
-          color: "bg-red-100 text-red-800 border-red-200",
-        };
-      }
-      // Check if any branch is low
-      const hasLowStock = product.branch_stocks?.some(
-        (bs) => bs.current_stock > 0 && bs.current_stock <= bs.reorder_point,
-      );
-      if (hasLowStock) {
-        return {
-          label: "Low in Some Branches",
-          color: "bg-yellow-100 text-yellow-800 border-yellow-200",
-        };
-      }
-      return {
-        label: "In Stock",
-        color: "bg-emerald-100 text-emerald-800 border-emerald-200",
-      };
-    }
-
-    const branch_stock = product.branch_stocks?.find(
-      (bs) => bs.branch_id === branch_id,
-    );
-    if (!branch_stock) {
-      return {
-        label: "Not Available",
-        color: "bg-gray-100 text-gray-800 border-gray-200",
-      };
-    }
-
-    const stock = branch_stock.current_stock || 0;
-    const reorder = branch_stock.reorder_point || 20;
-    const minimum = branch_stock.minimum_stock || 10;
-
-    if (stock === 0) {
-      return {
-        label: "Out of Stock",
-        color: "bg-red-100 text-red-800 border-red-200",
-      };
-    }
-    if (stock <= minimum) {
-      return {
-        label: "Critical",
-        color: "bg-orange-100 text-orange-800 border-orange-200",
-      };
-    }
-    if (stock <= reorder) {
-      return {
-        label: "Low Stock",
-        color: "bg-yellow-100 text-yellow-800 border-yellow-200",
-      };
-    }
-    return {
-      label: "In Stock",
-      color: "bg-emerald-100 text-emerald-800 border-emerald-200",
-    };
-  };
-
-  const isExpiringSoon = (expiry_date?: string) => {
-    if (!expiry_date) return false;
-    const today = dayjs();
-    const expiry = dayjs(expiry_date);
-    const daysUntilExpiry = expiry.diff(today, "days");
-    return daysUntilExpiry <= 30 && daysUntilExpiry >= 0;
-  };
-
-  const isExpired = (expiry_date?: string) => {
-    if (!expiry_date) return false;
-    return dayjs(expiry_date).isBefore(dayjs());
-  };
+  }, [fetchProducts]);
 
   const filtered = useMemo(() => {
     let data = products.filter((p) => {
@@ -736,23 +690,21 @@ export default function ProductList() {
     paginated.length > 0 && paginated.every((p) => selectedIds.has(p.id));
   const someSelected = selectedIds.size > 0;
 
-  const handleSort = (key: keyof Product) => {
+  const handleSort = useCallback((key: keyof Product) => {
     if (sortBy === key) {
-      setSortDir(sortDir === "asc" ? "desc" : "asc");
+      setSortDir((d) => (d === "asc" ? "desc" : "asc"));
     } else {
       setSortBy(key);
       setSortDir("asc");
     }
-  };
+  }, [sortBy]);
 
-  const handleBulkEditCategory = async () => {
+  const handleBulkEditCategory = useCallback(async () => {
     if (!bulkEditCategoryId) return;
     try {
       await Promise.all(
         Array.from(selectedIds).map((id) =>
-          api.put(`/products/${id}`, {
-            category_id: parseInt(bulkEditCategoryId),
-          }),
+          api.put(`/products/${id}`, { category_id: parseInt(bulkEditCategoryId) }),
         ),
       );
       toast.success(`Updated category for ${selectedIds.size} products`);
@@ -763,29 +715,24 @@ export default function ProductList() {
     } catch (err: any) {
       toast.error(err.response?.data?.message || "Error updating categories");
     }
-  };
+  }, [bulkEditCategoryId, selectedIds, fetchProducts]);
 
-  const activeCount = products.filter((p) => p.status === "ACTIVE").length;
-  const lowStockCount = selectedBranch
-    ? products.filter((p) => {
-        const branch_stock = p.branch_stocks?.find(
-          (bs) => bs.branch_id === selectedBranch,
-        );
-        return (
-          branch_stock &&
-          branch_stock.current_stock <= branch_stock.reorder_point
-        );
-      }).length
-    : products.filter((p) =>
-        p.branch_stocks?.some((bs) => bs.current_stock <= bs.reorder_point),
-      ).length;
-
-  const totalValue = products.reduce((sum, p) => {
-    const stock = selectedBranch
-      ? getStockForBranch(p, selectedBranch)
-      : p.totalStock;
-    return sum + p.price * stock;
-  }, 0);
+  const { activeCount, lowStockCount, totalValue } = useMemo(() => {
+    const activeCount = products.filter((p) => p.status === "ACTIVE").length;
+    const lowStockCount = selectedBranch
+      ? products.filter((p) => {
+          const bs = p.branch_stocks?.find((bs) => bs.branch_id === selectedBranch);
+          return bs && bs.current_stock <= bs.reorder_point;
+        }).length
+      : products.filter((p) =>
+          p.branch_stocks?.some((bs) => bs.current_stock <= bs.reorder_point),
+        ).length;
+    const totalValue = products.reduce((sum, p) => {
+      const stock = selectedBranch ? getStockForBranch(p, selectedBranch) : p.totalStock;
+      return sum + p.price * stock;
+    }, 0);
+    return { activeCount, lowStockCount, totalValue };
+  }, [products, selectedBranch]);
 
   if (fetchLoading) {
     return (

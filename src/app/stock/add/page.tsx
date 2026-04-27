@@ -1,8 +1,9 @@
 "use client";
 
-import React, { useState, useEffect, Suspense } from "react";
+import React, { useState, useEffect, useCallback, Suspense } from "react";
 
 import api from "@/lib/api";
+import { useAuth } from "@/hooks/useAuth";
 import ProtectedRoute from "@/components/ProtectedRoute";
 import RoleProtectedRoute from "@/components/RoleProtectedRoute";
 
@@ -56,15 +57,6 @@ interface Branch {
   code: string;
 }
 
-interface User {
-  id: number;
-  role: string;
-  branch_id: number;
-  current_branch_id: number | null;
-  branch?: Branch;
-  current_branch?: Branch;
-}
-
 interface ImportPreviewRow {
   csvName: string;
   csvSku: string;
@@ -75,14 +67,35 @@ interface ImportPreviewRow {
   status: "matched" | "unmatched";
 }
 
+const parseCSVLine = (line: string): string[] => {
+  const result: string[] = [];
+  let current = "";
+  let inQuotes = false;
+  for (let i = 0; i < line.length; i++) {
+    const char = line[i];
+    if (char === '"') {
+      if (inQuotes && line[i + 1] === '"') { current += '"'; i++; }
+      else inQuotes = !inQuotes;
+    } else if (char === "," && !inQuotes) {
+      result.push(current.trim());
+      current = "";
+    } else {
+      current += char;
+    }
+  }
+  result.push(current.trim());
+  return result;
+};
+
 const AddStockForm = () => {
   const router = useRouter();
   const searchParams = useSearchParams();
   const preselectedProductId = searchParams.get("productId");
 
+  const { user, loading: authLoading } = useAuth();
+  const activeBranch = user?.currentBranch ?? user?.branch ?? null;
+
   const [products, setProducts] = useState<Product[]>([]);
-  const [currentUser, setCurrentUser] = useState<User | null>(null);
-  const [activeBranch, setActiveBranch] = useState<Branch | null>(null);
   const [loading, setLoading] = useState(false);
   const [fetchLoading, setFetchLoading] = useState(true);
   const [formData, setFormData] = useState({
@@ -97,48 +110,33 @@ const AddStockForm = () => {
 
   // CSV Import state
   const [importLoading, setImportLoading] = useState(false);
-  const [importPreview, setImportPreview] = useState<ImportPreviewRow[] | null>(
-    null,
-  );
+  const [importPreview, setImportPreview] = useState<ImportPreviewRow[] | null>(null);
   const [showUnmatched, setShowUnmatched] = useState(false);
   const [importConfirmLoading, setImportConfirmLoading] = useState(false);
 
-  useEffect(() => {
-    fetchCurrentUser();
-    fetchProducts();
-  }, []);
-
-  const fetchCurrentUser = async () => {
-    try {
-      const res = await api.get("/auth/me");
-      setCurrentUser(res.data);
-      const branch = res.data.current_branch || res.data.branch;
-      setActiveBranch(branch);
-    } catch (error) {
-      console.error("Error fetching user:", error);
-      toast.error("Failed to fetch user information");
-    } finally {
-      setFetchLoading(false);
-    }
-  };
-
-  const fetchProducts = async (): Promise<Product[]> => {
+  const fetchProducts = useCallback(async (): Promise<Product[]> => {
     try {
       const res = await api.get("/products");
       const parsed: Product[] = res.data.map((p: any) => ({
         id: p.id,
         name: p.name,
         sku: p.sku,
-        barcode: p.barcode ?? p.barcode ?? undefined,
+        barcode: p.barcode ?? undefined,
         current_stock: p.totalStock ?? p.current_stock ?? 0,
       }));
       setProducts(parsed);
       return parsed;
-    } catch (error) {
+    } catch {
       toast.error("Failed to fetch products");
       return [];
+    } finally {
+      setFetchLoading(false);
     }
-  };
+  }, []);
+
+  useEffect(() => {
+    fetchProducts();
+  }, [fetchProducts]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -172,32 +170,6 @@ const AddStockForm = () => {
     } finally {
       setLoading(false);
     }
-  };
-
-  // --- CSV Import Logic ---
-
-  const parseCSVLine = (line: string): string[] => {
-    const result: string[] = [];
-    let current = "";
-    let inQuotes = false;
-    for (let i = 0; i < line.length; i++) {
-      const char = line[i];
-      if (char === '"') {
-        if (inQuotes && line[i + 1] === '"') {
-          current += '"';
-          i++;
-        } else {
-          inQuotes = !inQuotes;
-        }
-      } else if (char === "," && !inQuotes) {
-        result.push(current.trim());
-        current = "";
-      } else {
-        current += char;
-      }
-    }
-    result.push(current.trim());
-    return result;
   };
 
   const handleImportCSV = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -373,7 +345,7 @@ const AddStockForm = () => {
       ? selectedProduct.current_stock + parseInt(formData.quantity)
       : 0;
 
-  if (fetchLoading) {
+  if (authLoading || fetchLoading) {
     return (
       <div className="flex items-center justify-center h-screen bg-gradient-to-br from-emerald-50 to-green-50">
         <div className="text-center">

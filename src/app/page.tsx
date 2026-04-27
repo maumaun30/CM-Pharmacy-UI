@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useEffect, useState, useRef } from "react";
+import React, { useEffect, useState, useRef, useMemo, memo } from "react";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -8,7 +8,7 @@ import { toast } from "sonner";
 import api from "@/lib/api";
 import ProtectedRoute from "@/components/ProtectedRoute";
 import SalesTrendChart from "@/components/SalesTrendChart";
-import { verifyToken } from "@/middleware/auth";
+import { useAuth } from "@/hooks/useAuth";
 import {
   ShoppingCart,
   TrendingUp,
@@ -22,12 +22,10 @@ import {
   Calendar,
   Clock,
   Loader2,
-  PackageX,
   ChartNoAxesCombined,
   Percent,
   List,
   History,
-  PackagePlus,
   Wifi,
   WifiOff,
 } from "lucide-react";
@@ -36,6 +34,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import dayjs from "dayjs";
 import { io, Socket } from "socket.io-client";
 import { getFullName } from "@/lib/utils";
+import type { AuthUser } from "@/context/AuthContext";
 
 interface DashboardStats {
   todaySales: number;
@@ -55,27 +54,39 @@ interface DashboardStats {
   criticalStockCount?: number;
 }
 
-interface User {
-  id: number;
-  role: string;
-  first_name: string;
-  last_name: string;
-  username: string;
-  branchId: number;
-  currentBranchId: number | null;
-  branch?: {
-    id: number;
-    name: string;
-    code: string;
-  };
-  currentBranch?: {
-    id: number;
-    name: string;
-    code: string;
-  };
-}
+// Isolated clock component — prevents parent re-render every second
+const LiveClock = memo(() => {
+  const [time, setTime] = useState(new Date());
+  useEffect(() => {
+    const timer = setInterval(() => setTime(new Date()), 1000);
+    return () => clearInterval(timer);
+  }, []);
+  return (
+    <div className="flex flex-col items-start md:items-end gap-1">
+      <div className="flex items-center gap-2 text-sm text-gray-600">
+        <Calendar className="h-4 w-4 text-emerald-600" />
+        <span className="font-medium">{dayjs(time).format("MMMM DD, YYYY")}</span>
+      </div>
+      <div className="flex items-center gap-2 text-sm text-gray-600">
+        <Clock className="h-4 w-4 text-emerald-600" />
+        <span className="font-medium">{dayjs(time).format("h:mm:ss A")}</span>
+      </div>
+    </div>
+  );
+});
+LiveClock.displayName = "LiveClock";
+
+// Static — defined outside component to avoid recreation on every render
+const adminActions = [
+  { title: "Products", icon: Package, href: "/products", color: "text-emerald-600" },
+  { title: "Categories", icon: List, href: "/categories", color: "text-blue-600" },
+  { title: "Discounts", icon: Percent, href: "/discounts", color: "text-purple-600" },
+  { title: "Users", icon: Users, href: "/users", color: "text-amber-600" },
+  { title: "Branches", icon: Building2, href: "/branches", color: "text-pink-600" },
+];
 
 const HomePage = () => {
+  const { user: currentUser, loading: authLoading } = useAuth();
   const [stats, setStats] = useState<DashboardStats>({
     todaySales: 0,
     todayTransactions: 0,
@@ -83,10 +94,7 @@ const HomePage = () => {
     totalProducts: 0,
     recentSales: [],
   });
-  const [currentUser, setCurrentUser] = useState<User | null>(null);
-  const [activeBranch, setActiveBranch] = useState<any>(null);
-  const [loading, setLoading] = useState(true);
-  const [currentTime, setCurrentTime] = useState(new Date());
+  const [statsLoading, setStatsLoading] = useState(true);
   const [isConnected, setIsConnected] = useState(false);
   const [newSaleAnimation, setNewSaleAnimation] = useState(false);
   const [latestSaleEvent, setLatestSaleEvent] = useState<{
@@ -97,38 +105,23 @@ const HomePage = () => {
   } | null>(null);
 
   const socketRef = useRef<Socket | null>(null);
+  const animationTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  useEffect(() => {
-    fetchCurrentUser();
-    const timer = setInterval(() => setCurrentTime(new Date()), 1000);
-    return () => clearInterval(timer);
-  }, []);
-
-  useEffect(() => {
-    if (currentUser) {
-      fetchDashboardStats();
-      initializeSocket();
+  // Background refresh — no loading spinner, called from socket handlers
+  const fetchDashboardStats = async () => {
+    try {
+      const res = await api.get("/dashboard/stats");
+      setStats(res.data);
+    } catch (error) {
+      console.error("Error fetching dashboard stats:", error);
+      toast.error("Failed to fetch dashboard data");
     }
+  };
 
-    return () => {
-      if (socketRef.current) {
-        // console.log("Cleaning up socket connection");
-        socketRef.current.disconnect();
-        socketRef.current = null;
-      }
-    };
-  }, [currentUser]);
+  const initializeSocket = (user: AuthUser) => {
+    if (socketRef.current) return;
 
-  const initializeSocket = () => {
-    if (socketRef.current) {
-      // console.log("Socket already initialized");
-      return;
-    }
-
-    const socketUrl =
-      process.env.NEXT_PUBLIC_SOCKET_URL || "http://localhost:3000";
-    console.log("Connecting to Socket.IO server:", socketUrl);
-
+    const socketUrl = process.env.NEXT_PUBLIC_SOCKET_URL || "http://localhost:3000";
     const newSocket = io(socketUrl, {
       transports: ["websocket", "polling"],
       reconnection: true,
@@ -137,60 +130,29 @@ const HomePage = () => {
     });
 
     newSocket.on("connect", () => {
-      // console.log("✅ Socket connected:", newSocket.id);
       setIsConnected(true);
-      // toast.success("Real-time updates connected", {
-      //   icon: <Wifi className="h-4 w-4" />,
-      // });
-
-      // Join branch-specific room
-      if (currentUser) {
-        const isViewingAllBranches =
-          currentUser.role === "admin" && !currentUser.currentBranchId;
-
-        if (isViewingAllBranches) {
-          // console.log("Admin viewing all branches - joining admin-all room");
-          newSocket.emit("join-branch", null);
-        } else {
-          const branchId = currentUser.currentBranchId || currentUser.branchId;
-          console.log("Joining branch room:", branchId);
-          newSocket.emit("join-branch", branchId);
-        }
+      const isViewingAllBranches = user.role === "admin" && !user.current_branch_id;
+      if (isViewingAllBranches) {
+        newSocket.emit("join-branch", null);
+      } else {
+        const branchId = user.current_branch_id || user.branch_id;
+        newSocket.emit("join-branch", branchId);
       }
     });
 
-    newSocket.on("connect_error", (error) => {
-      console.error("❌ Socket connection error:", error);
-      setIsConnected(false);
-    });
+    newSocket.on("connect_error", () => setIsConnected(false));
+    newSocket.on("disconnect", () => setIsConnected(false));
 
-    newSocket.on("disconnect", (reason) => {
-      // console.log("Socket disconnected:", reason);
-      setIsConnected(false);
-      // toast.error("Real-time updates disconnected", {
-      //   icon: <WifiOff className="h-4 w-4" />,
-      // });
-    });
-
-    // Listen for new sales
     newSocket.on("sale:new", (saleData) => {
-      // console.log("🛒 New sale received:", saleData);
-
-      // Trigger animation
+      if (animationTimerRef.current) clearTimeout(animationTimerRef.current);
       setNewSaleAnimation(true);
-      setTimeout(() => setNewSaleAnimation(false), 1000);
+      animationTimerRef.current = setTimeout(() => setNewSaleAnimation(false), 1000);
 
-      // Show notification
       toast.success(
-        `New sale: ₱${parseFloat(saleData.totalAmount).toLocaleString(
-          undefined,
-          {
-            minimumFractionDigits: 2,
-          },
-        )}`,
-        {
-          icon: <ShoppingCart className="h-4 w-4" />,
-        },
+        `New sale: ₱${parseFloat(saleData.totalAmount).toLocaleString(undefined, {
+          minimumFractionDigits: 2,
+        })}`,
+        { icon: <ShoppingCart className="h-4 w-4" /> },
       );
 
       setLatestSaleEvent({
@@ -200,7 +162,6 @@ const HomePage = () => {
         branchId: saleData.branchId,
       });
 
-      // Update stats with deduplication
       setStats((prev) => {
         const newSale = {
           id: saleData.id,
@@ -208,12 +169,7 @@ const HomePage = () => {
           totalAmount: parseFloat(saleData.totalAmount),
           user: saleData.user,
         };
-
-        // Remove duplicate if it exists
-        const existingSales = prev.recentSales.filter(
-          (sale) => sale.id !== saleData.id,
-        );
-
+        const existingSales = prev.recentSales.filter((sale) => sale.id !== saleData.id);
         return {
           ...prev,
           todaySales: prev.todaySales + parseFloat(saleData.totalAmount),
@@ -223,150 +179,103 @@ const HomePage = () => {
       });
     });
 
-    // Listen for stock updates
-    newSocket.on("stock:update", (stockData) => {
-      // console.log("📦 Stock update received:", stockData);
-      fetchDashboardStats();
-    });
-
-    // Listen for low stock alerts
+    newSocket.on("stock:update", () => fetchDashboardStats());
     newSocket.on("stock:low-alert", (productData) => {
-      // console.log("⚠️ Low stock alert:", productData);
       toast.warning(
         `Low stock alert: ${productData.name} (${productData.currentStock} remaining)`,
-        {
-          icon: <AlertTriangle className="h-4 w-4" />,
-          duration: 5000,
-        },
+        { icon: <AlertTriangle className="h-4 w-4" />, duration: 5000 },
       );
       fetchDashboardStats();
     });
-
-    // Listen for dashboard refresh requests
-    newSocket.on("dashboard:refresh", () => {
-      // console.log("🔄 Dashboard refresh requested");
-      fetchDashboardStats();
-    });
+    newSocket.on("dashboard:refresh", () => fetchDashboardStats());
 
     socketRef.current = newSocket;
   };
 
-  const fetchCurrentUser = async () => {
-    const user = await verifyToken();
+  // Fetch dashboard stats as soon as the component mounts — runs in parallel with auth
+  useEffect(() => {
+    const load = async () => {
+      setStatsLoading(true);
+      try {
+        const res = await api.get("/dashboard/stats");
+        setStats(res.data);
+      } catch (error) {
+        console.error("Error fetching dashboard stats:", error);
+        toast.error("Failed to fetch dashboard data");
+      } finally {
+        setStatsLoading(false);
+      }
+    };
 
-    if (!user) {
-      console.warn("User not authenticated");
-      return;
-    }
+    load();
 
-    try {
-      const res = await api.get("/auth/me");
-      setCurrentUser(res.data);
-      const branch = res.data.currentBranch || res.data.branch;
-      setActiveBranch(branch);
-    } catch (error) {
-      console.error("Error fetching user:", error);
-      toast.error("Failed to fetch user information");
-    }
-  };
+    return () => {
+      if (animationTimerRef.current) clearTimeout(animationTimerRef.current);
+      if (socketRef.current) {
+        socketRef.current.disconnect();
+        socketRef.current = null;
+      }
+    };
+  }, []);
 
-  const fetchDashboardStats = async () => {
-    try {
-      setLoading(true);
-      const res = await api.get("/dashboard/stats");
-      // console.log("📊 Dashboard stats fetched:", res.data);
-      setStats(res.data);
-    } catch (error) {
-      console.error("Error fetching dashboard stats:", error);
-      toast.error("Failed to fetch dashboard data");
-    } finally {
-      setLoading(false);
-    }
-  };
+  // Initialize socket once auth resolves and user is available
+  useEffect(() => {
+    if (currentUser) initializeSocket(currentUser);
+  }, [currentUser]);
 
   const isViewingAllBranches =
-    currentUser?.role === "admin" && !currentUser?.currentBranchId;
-
+    currentUser?.role === "admin" && !currentUser?.current_branch_id;
   const isAdmin = currentUser?.role === "admin";
+  const activeBranch = currentUser?.currentBranch || currentUser?.branch;
 
-  // Quick actions based on user role
-  const quickActions = [
-    {
-      title: "Point of Sale",
-      description: "Process new transactions",
-      icon: ShoppingCart,
-      href: "/pos",
-      color: "from-emerald-500 to-green-600",
-      bgColor: "bg-emerald-50",
-      borderColor: "border-emerald-200",
-      roles: ["admin", "manager", "cashier"], // Available to all
-    },
-    {
-      title: "Sales Report",
-      description: "View sales analytics",
-      icon: TrendingUp,
-      href: "/sales",
-      color: "from-blue-500 to-blue-600",
-      bgColor: "bg-blue-50",
-      borderColor: "border-blue-200",
-      roles: ["admin", "manager", "cashier"], // Available to all
-    },
-    {
-      title: "Stock Management",
-      description: "Manage inventory levels",
-      icon: Package,
-      href: "/stock",
-      color: "from-purple-500 to-purple-600",
-      bgColor: "bg-purple-50",
-      borderColor: "border-purple-200",
-      roles: ["admin"], // Admin only
-    },
-    {
-      title: "Activity Logs",
-      description: "Track system activities",
-      icon: Activity,
-      href: "/logs",
-      color: "from-amber-500 to-orange-600",
-      bgColor: "bg-amber-50",
-      borderColor: "border-amber-200",
-      roles: ["admin"], // Admin only
-    },
-  ].filter((action) => action.roles.includes(currentUser?.role || ""));
+  const quickActions = useMemo(
+    () =>
+      [
+        {
+          title: "Point of Sale",
+          description: "Process new transactions",
+          icon: ShoppingCart,
+          href: "/pos",
+          color: "from-emerald-500 to-green-600",
+          bgColor: "bg-emerald-50",
+          borderColor: "border-emerald-200",
+          roles: ["admin", "manager", "cashier"],
+        },
+        {
+          title: "Sales Report",
+          description: "View sales analytics",
+          icon: TrendingUp,
+          href: "/sales",
+          color: "from-blue-500 to-blue-600",
+          bgColor: "bg-blue-50",
+          borderColor: "border-blue-200",
+          roles: ["admin", "manager", "cashier"],
+        },
+        {
+          title: "Stock Management",
+          description: "Manage inventory levels",
+          icon: Package,
+          href: "/stock",
+          color: "from-purple-500 to-purple-600",
+          bgColor: "bg-purple-50",
+          borderColor: "border-purple-200",
+          roles: ["admin"],
+        },
+        {
+          title: "Activity Logs",
+          description: "Track system activities",
+          icon: Activity,
+          href: "/logs",
+          color: "from-amber-500 to-orange-600",
+          bgColor: "bg-amber-50",
+          borderColor: "border-amber-200",
+          roles: ["admin"],
+        },
+      ].filter((action) => action.roles.includes(currentUser?.role || "")),
+    [currentUser?.role],
+  );
 
-  const adminActions = [
-    {
-      title: "Products",
-      icon: Package,
-      href: "/products",
-      color: "text-emerald-600",
-    },
-    {
-      title: "Categories",
-      icon: List,
-      href: "/categories",
-      color: "text-blue-600",
-    },
-    {
-      title: "Discounts",
-      icon: Percent,
-      href: "/discounts",
-      color: "text-purple-600",
-    },
-    {
-      title: "Users",
-      icon: Users,
-      href: "/users",
-      color: "text-amber-600",
-    },
-    {
-      title: "Branches",
-      icon: Building2,
-      href: "/branches",
-      color: "text-pink-600",
-    },
-  ];
-
-  if (loading) {
+  if (authLoading || statsLoading) {
     return (
       <ProtectedRoute>
         <div className="flex items-center justify-center h-screen bg-gradient-to-br from-emerald-50 to-green-50">
@@ -396,7 +305,6 @@ const HomePage = () => {
                     Welcome back,{" "}
                     {getFullName(currentUser) || currentUser?.username}!
                   </h1>
-                  {/* Connection Status Indicator */}
                   <div className="flex items-center gap-2">
                     {isConnected ? (
                       <div className="relative">
@@ -411,27 +319,11 @@ const HomePage = () => {
                 <p className="text-gray-600 mt-1">
                   Here's what's happening with your store today
                   {isConnected && (
-                    <span className="text-emerald-600 font-semibold">
-                      {" "}
-                      • Live
-                    </span>
+                    <span className="text-emerald-600 font-semibold"> • Live</span>
                   )}
                 </p>
               </div>
-              <div className="flex flex-col items-start md:items-end gap-1">
-                <div className="flex items-center gap-2 text-sm text-gray-600">
-                  <Calendar className="h-4 w-4 text-emerald-600" />
-                  <span className="font-medium">
-                    {dayjs(currentTime).format("MMMM DD, YYYY")}
-                  </span>
-                </div>
-                <div className="flex items-center gap-2 text-sm text-gray-600">
-                  <Clock className="h-4 w-4 text-emerald-600" />
-                  <span className="font-medium">
-                    {dayjs(currentTime).format("h:mm:ss A")}
-                  </span>
-                </div>
-              </div>
+              <LiveClock />
             </div>
 
             {/* Branch Info */}
@@ -440,9 +332,7 @@ const HomePage = () => {
                 <Building2 className="h-4 w-4 text-emerald-600" />
                 <span>
                   {isViewingAllBranches ? (
-                    <span className="font-semibold text-emerald-700">
-                      Viewing All Branches
-                    </span>
+                    <span className="font-semibold text-emerald-700">Viewing All Branches</span>
                   ) : (
                     <>
                       Currently at:{" "}
@@ -456,7 +346,7 @@ const HomePage = () => {
             )}
           </motion.div>
 
-          {/* Stats Cards with Animation */}
+          {/* Stats Cards */}
           <motion.div
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
@@ -508,7 +398,6 @@ const HomePage = () => {
               </div>
             </Card>
 
-            {/* Show stock stats only for admins */}
             {isAdmin && (
               <>
                 <Card className="p-5 border-2 border-orange-100 hover:border-orange-300 hover:shadow-lg transition-all">
@@ -520,9 +409,7 @@ const HomePage = () => {
                       <p className="text-3xl font-bold text-orange-600 mt-2">
                         {stats.lowStockCount}
                       </p>
-                      <p className="text-xs text-gray-500 mt-1">
-                        Needs attention
-                      </p>
+                      <p className="text-xs text-gray-500 mt-1">Needs attention</p>
                     </div>
                     <div className="h-12 w-12 rounded-xl bg-orange-500 flex items-center justify-center">
                       <AlertTriangle className="h-6 w-6 text-white" />
@@ -550,15 +437,13 @@ const HomePage = () => {
             )}
           </motion.div>
 
-          {/* Quick Actions - Role-based filtering */}
+          {/* Quick Actions */}
           <motion.div
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ delay: 0.2 }}
           >
-            <h2 className="text-xl font-bold text-gray-800 mb-4">
-              Quick Actions
-            </h2>
+            <h2 className="text-xl font-bold text-gray-800 mb-4">Quick Actions</h2>
             <div
               className={`grid grid-cols-1 sm:grid-cols-2 ${isAdmin ? "lg:grid-cols-4" : "lg:grid-cols-2"} gap-4`}
             >
@@ -576,12 +461,8 @@ const HomePage = () => {
                           <Icon className="h-7 w-7 text-white" />
                         </div>
                         <div className="flex-1 min-w-0">
-                          <p className="font-bold text-gray-800 text-lg truncate">
-                            {action.title}
-                          </p>
-                          <p className="text-sm text-gray-600 line-clamp-2">
-                            {action.description}
-                          </p>
+                          <p className="font-bold text-gray-800 text-lg truncate">{action.title}</p>
+                          <p className="text-sm text-gray-600 line-clamp-2">{action.description}</p>
                         </div>
                       </div>
                       <div className="mt-3 flex items-center text-emerald-600 text-sm font-semibold group-hover:gap-2 transition-all">
@@ -600,15 +481,11 @@ const HomePage = () => {
             animate={{ opacity: 1, y: 0 }}
             transition={{ delay: 0.25 }}
           >
-            <SalesTrendChart
-              isConnected={isConnected}
-              latestSale={latestSaleEvent}
-            />
+            <SalesTrendChart isConnected={isConnected} latestSale={latestSaleEvent} />
           </motion.div>
 
-          {/* Recent Sales and Admin Panel / Stock Alert */}
+          {/* Recent Sales and Admin Panel */}
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-            {/* Recent Sales */}
             <motion.div
               initial={{ opacity: 0, y: 20 }}
               animate={{ opacity: 1, y: 0 }}
@@ -669,8 +546,7 @@ const HomePage = () => {
                                 </span>
                               </div>
                               <p className="text-xs text-gray-500 mt-1">
-                                By{" "}
-                                {sale.user?.fullName || sale.user.username}
+                                By {sale.user?.fullName || sale.user.username}
                               </p>
                             </div>
                             <div className="text-right">
@@ -690,7 +566,6 @@ const HomePage = () => {
               </Card>
             </motion.div>
 
-            {/* Admin Management Panel or Stock Alert (for non-admin) */}
             {isAdmin ? (
               <motion.div
                 initial={{ opacity: 0, y: 20 }}
@@ -728,7 +603,6 @@ const HomePage = () => {
                 </Card>
               </motion.div>
             ) : (
-              /* Performance Summary for Non-Admin Users */
               <motion.div
                 initial={{ opacity: 0, y: 20 }}
                 animate={{ opacity: 1, y: 0 }}
@@ -747,9 +621,7 @@ const HomePage = () => {
                         <div className="inline-flex items-center justify-center w-20 h-20 rounded-full bg-gradient-to-br from-emerald-100 to-green-100 mb-4">
                           <DollarSign className="h-10 w-10 text-emerald-600" />
                         </div>
-                        <p className="text-sm text-gray-600 mb-2">
-                          Today's Sales
-                        </p>
+                        <p className="text-sm text-gray-600 mb-2">Today's Sales</p>
                         <p className="text-3xl font-bold text-emerald-600">
                           ₱
                           {stats.todaySales.toLocaleString(undefined, {

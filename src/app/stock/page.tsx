@@ -1,8 +1,9 @@
 "use client";
 
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useState, useCallback } from "react";
 
 import api from "@/lib/api";
+import { useAuth } from "@/hooks/useAuth";
 import ProtectedRoute from "@/components/ProtectedRoute";
 import RoleProtectedRoute from "@/components/RoleProtectedRoute";
 
@@ -50,16 +51,18 @@ interface LowStockProduct {
   price: number;
 }
 
-interface User {
-  id: number;
-  role: string;
-  branch_id: number;
-  current_branch_id: number | null;
-  branch?: Branch;
-  current_branch?: Branch;
-}
+const getStockStatus = (product: LowStockProduct) => {
+  if (product.current_stock === 0)
+    return { label: "Out of Stock", color: "bg-red-100 text-red-800 border-red-200" };
+  if (product.current_stock <= product.minimum_stock)
+    return { label: "Critical", color: "bg-orange-100 text-orange-800 border-orange-200" };
+  if (product.current_stock <= product.reorder_point)
+    return { label: "Low Stock", color: "bg-yellow-100 text-yellow-800 border-yellow-200" };
+  return { label: "In Stock", color: "bg-emerald-100 text-emerald-800 border-emerald-200" };
+};
 
 const StockDashboard = () => {
+  const { user, loading: authLoading } = useAuth();
   const [summary, setSummary] = useState<StockSummary>({
     totalProducts: 0,
     outOfStock: 0,
@@ -67,83 +70,33 @@ const StockDashboard = () => {
     criticalStock: 0,
     recentTransactions: 0,
   });
-  const [lowStockProducts, setLowStockProducts] = useState<LowStockProduct[]>(
-    [],
-  );
-  const [currentUser, setCurrentUser] = useState<User | null>(null);
-  const [activeBranch, setActiveBranch] = useState<Branch | null>(null);
+  const [lowStockProducts, setLowStockProducts] = useState<LowStockProduct[]>([]);
   const [loading, setLoading] = useState(true);
 
-  useEffect(() => {
-    fetchCurrentUser();
-  }, []);
+  const activeBranch = user?.currentBranch ?? user?.branch ?? null;
+  const isViewingAllBranches = user?.role === "admin" && !user?.current_branch_id;
 
-  useEffect(() => {
-    if (currentUser) {
-      fetchData();
-    }
-  }, [currentUser]);
-
-  const fetchCurrentUser = async () => {
-    try {
-      const res = await api.get("/auth/me");
-      setCurrentUser(res.data);
-
-      const branch = res.data.current_branch || res.data.branch;
-      setActiveBranch(branch);
-    } catch (error) {
-      console.error("Error fetching user:", error);
-      toast.error("Failed to fetch user information");
-    }
-  };
-
-  const fetchData = async () => {
+  const fetchData = useCallback(async () => {
     try {
       setLoading(true);
       const [summaryRes, lowStockRes] = await Promise.all([
         api.get("/stock/summary"),
         api.get("/stock/low-stock"),
       ]);
-
       setSummary(summaryRes.data);
       setLowStockProducts(lowStockRes.data);
-    } catch (error) {
-      console.error("Error fetching stock data:", error);
+    } catch {
       toast.error("Failed to fetch stock data");
     } finally {
       setLoading(false);
     }
-  };
+  }, []);
 
-  const getStockStatus = (product: LowStockProduct) => {
-    if (product.current_stock === 0) {
-      return {
-        label: "Out of Stock",
-        color: "bg-red-100 text-red-800 border-red-200",
-      };
-    }
-    if (product.current_stock <= product.minimum_stock) {
-      return {
-        label: "Critical",
-        color: "bg-orange-100 text-orange-800 border-orange-200",
-      };
-    }
-    if (product.current_stock <= product.reorder_point) {
-      return {
-        label: "Low Stock",
-        color: "bg-yellow-100 text-yellow-800 border-yellow-200",
-      };
-    }
-    return {
-      label: "In Stock",
-      color: "bg-emerald-100 text-emerald-800 border-emerald-200",
-    };
-  };
+  useEffect(() => {
+    if (!authLoading) fetchData();
+  }, [authLoading, fetchData]);
 
-  const isViewingAllBranches =
-    currentUser?.role === "admin" && !currentUser?.current_branch_id;
-
-  if (loading) {
+  if (loading || authLoading) {
     return (
       <RoleProtectedRoute allowedRoles={["admin"]}>
         <ProtectedRoute>

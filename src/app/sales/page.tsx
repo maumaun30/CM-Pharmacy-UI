@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useEffect, useState, useMemo } from "react";
+import React, { useEffect, useState, useMemo, useCallback } from "react";
 import { Card } from "@/components/ui/card";
 import {
   Table,
@@ -60,6 +60,7 @@ import {
   ArrowLeft,
 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
+import { useAuth } from "@/hooks/useAuth";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -123,26 +124,51 @@ interface Sale {
   status?: "completed" | "partially_refunded" | "fully_refunded";
 }
 
-interface User {
-  id: number;
-  branch_id: number;
-  current_branch_id: number | null;
-  role: string;
-  branch?: Branch;
-  current_branch?: Branch;
+type RefundCart = Record<number, number>;
+type DialogView = "details" | "refund" | "refund_history";
+
+// ─── Pure helpers (outside component — no recreation on render) ───────────────
+
+function getProductSummary(items: SaleItem[]): string {
+  if (items.length === 0) return "No items";
+  if (items.length === 1) return items[0].product?.name || "Unknown product";
+  return `${items[0].product?.name || "Unknown"} +${items.length - 1} more`;
 }
 
-// Qty to refund per saleItemId
-type RefundCart = Record<number, number>;
+function getTotalItems(items: SaleItem[]): number {
+  return items.reduce((s, i) => s + (i.quantity || 0), 0);
+}
 
-// ─── Dialog views ─────────────────────────────────────────────────────────────
-type DialogView = "details" | "refund" | "refund_history";
+function getItemSubtotal(item: SaleItem): number {
+  return (item.discountedPrice ?? item.price ?? 0) * (item.quantity || 0);
+}
+
+function hasDiscounts(sale: Sale): boolean {
+  return sale.items.some((i) => i.discount || i.discountedPrice);
+}
+
+function getStatusBadge(status?: string): React.ReactNode {
+  if (!status || status === "completed") return null;
+  if (status === "fully_refunded")
+    return (
+      <Badge className="bg-red-100 text-red-700 border-red-200 text-xs">
+        Fully Refunded
+      </Badge>
+    );
+  return (
+    <Badge className="bg-amber-100 text-amber-700 border-amber-200 text-xs">
+      Partial Refund
+    </Badge>
+  );
+}
 
 // ─── Component ────────────────────────────────────────────────────────────────
 
 const SalesReportPage = () => {
-  const [currentUser, setCurrentUser] = useState<User | null>(null);
-  const [activeBranch, setActiveBranch] = useState<Branch | null>(null);
+  const { user, loading: authLoading } = useAuth();
+  // Derive activeBranch from context — fixes camelCase bug (was using current_branch)
+  const activeBranch = user ? (user.currentBranch ?? user.branch ?? null) : null;
+
   const [sales, setSales] = useState<Sale[]>([]);
   const [search, setSearch] = useState("");
   const [sortBy, setSortBy] = useState("date_desc");
@@ -151,7 +177,7 @@ const SalesReportPage = () => {
   const [selectedSale, setSelectedSale] = useState<Sale | null>(null);
   const [dialogOpen, setDialogOpen] = useState(false);
   const [dialogView, setDialogView] = useState<DialogView>("details");
-  const [loading, setLoading] = useState(true);
+  const [salesLoading, setSalesLoading] = useState(true);
   const [showFilters, setShowFilters] = useState(false);
 
   // Refund state
@@ -160,82 +186,33 @@ const SalesReportPage = () => {
   const [refundLoading, setRefundLoading] = useState(false);
   const [refundHistory, setRefundHistory] = useState<Refund[]>([]);
   const [refundHistoryLoading, setRefundHistoryLoading] = useState(false);
-  // Tracks already-refunded quantities per saleItemId for current dialog
-  const [alreadyRefunded, setAlreadyRefunded] = useState<
-    Record<number, number>
-  >({});
+  const [alreadyRefunded, setAlreadyRefunded] = useState<Record<number, number>>({});
 
   // ── Fetchers ────────────────────────────────────────────────────────────────
 
-  useEffect(() => {
-    fetchCurrentUser();
-  }, []);
-  useEffect(() => {
-    if (currentUser) fetchSales();
-  }, [currentUser]);
-
-  const fetchCurrentUser = async () => {
+  const fetchSales = useCallback(async () => {
     try {
-      setLoading(true);
-      const res = await api.get("/auth/me");
-      setCurrentUser(res.data);
-      setActiveBranch(res.data.current_branch || res.data.branch);
-    } catch {
-      toast.error("Failed to fetch user information");
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  // const fetchSales = async () => {
-  //   try {
-  //     setLoading(true);
-  //     const res = await api.get("/sales");
-  //     const transformed = res.data.map((sale: any) => ({
-  //       ...sale,
-  //       subtotal: sale.subtotal ? Number(sale.subtotal) : null,
-  //       total_discount: sale.total_discount ? Number(sale.total_discount) : 0,
-  //       total_amount: Number(sale.total_amount),
-  //       cash_amount: sale.cash_amount ? Number(sale.cash_amount) : null,
-  //       change_amount: sale.change_amount ? Number(sale.change_amount) : null,
-  //       items: sale.items.map((item: any) => ({
-  //         ...item,
-  //         price: Number(item.price),
-  //         quantity: Number(item.quantity),
-  //         discounted_price: item.discounted_price ? Number(item.discounted_price) : null,
-  //         discount_amount: item.discount_amount ? Number(item.discount_amount) : 0,
-  //       })),
-  //     }));
-  //     setSales(transformed);
-  //   } catch {
-  //     toast.error("Failed to fetch sales");
-  //   } finally {
-  //     setLoading(false);
-  //   }
-  // };
-
-  const fetchSales = async () => {
-    try {
-      setLoading(true);
+      setSalesLoading(true);
       const res = await api.get("/sales");
-      // The backend now sends camelCase (total_amount, total_discount, etc.)
       setSales(res.data);
     } catch {
       toast.error("Failed to fetch sales");
     } finally {
-      setLoading(false);
+      setSalesLoading(false);
     }
-  };
+  }, []);
 
-  // Fetch refund history for a sale and compute already-refunded quantities
-  const fetchRefundHistory = async (saleId: number) => {
+  // Fetch sales in parallel with auth context resolving
+  useEffect(() => {
+    fetchSales();
+  }, [fetchSales]);
+
+  const fetchRefundHistory = useCallback(async (saleId: number) => {
     try {
       setRefundHistoryLoading(true);
       const res = await api.get(`/sales/${saleId}/refunds`);
       const refunds: Refund[] = res.data;
       setRefundHistory(refunds);
-
-      // Build alreadyRefunded map: saleItemId → total refunded qty
       const map: Record<number, number> = {};
       for (const refund of refunds) {
         for (const item of refund.items) {
@@ -248,50 +225,58 @@ const SalesReportPage = () => {
     } finally {
       setRefundHistoryLoading(false);
     }
-  };
+  }, []);
 
   // ── Dialog handlers ──────────────────────────────────────────────────────────
 
-  const handleRowClick = (sale: Sale) => {
-    setSelectedSale(sale);
-    setDialogView("details");
-    setRefundCart({});
-    setRefundReason("");
-    setRefundHistory([]);
-    setAlreadyRefunded({});
-    setDialogOpen(true);
-    fetchRefundHistory(sale.id);
-  };
+  const handleRowClick = useCallback(
+    (sale: Sale) => {
+      setSelectedSale(sale);
+      setDialogView("details");
+      setRefundCart({});
+      setRefundReason("");
+      setRefundHistory([]);
+      setAlreadyRefunded({});
+      setDialogOpen(true);
+      fetchRefundHistory(sale.id);
+    },
+    [fetchRefundHistory],
+  );
 
-  const handleOpenRefund = () => {
+  const handleOpenRefund = useCallback(() => {
     setRefundCart({});
     setRefundReason("");
     setDialogView("refund");
-  };
+  }, []);
 
-  const handleOpenHistory = () => setDialogView("refund_history");
-
-  const handleBackToDetails = () => setDialogView("details");
+  const handleOpenHistory = useCallback(() => setDialogView("refund_history"), []);
+  const handleBackToDetails = useCallback(() => setDialogView("details"), []);
 
   // ── Refund cart helpers ──────────────────────────────────────────────────────
 
-  const getRefundableQty = (item: SaleItem): number => {
-    if (!item.id) return 0;
-    return item.quantity - (alreadyRefunded[item.id] || 0);
-  };
+  const getRefundableQty = useCallback(
+    (item: SaleItem): number => {
+      if (!item.id) return 0;
+      return item.quantity - (alreadyRefunded[item.id] || 0);
+    },
+    [alreadyRefunded],
+  );
 
-  const adjustRefundQty = (itemId: number, delta: number, max: number) => {
-    setRefundCart((prev) => {
-      const current = prev[itemId] || 0;
-      const next = Math.min(Math.max(current + delta, 0), max);
-      if (next === 0) {
-        const updated = { ...prev };
-        delete updated[itemId];
-        return updated;
-      }
-      return { ...prev, [itemId]: next };
-    });
-  };
+  const adjustRefundQty = useCallback(
+    (itemId: number, delta: number, max: number) => {
+      setRefundCart((prev) => {
+        const current = prev[itemId] || 0;
+        const next = Math.min(Math.max(current + delta, 0), max);
+        if (next === 0) {
+          const updated = { ...prev };
+          delete updated[itemId];
+          return updated;
+        }
+        return { ...prev, [itemId]: next };
+      });
+    },
+    [],
+  );
 
   const refundTotal = useMemo(() => {
     if (!selectedSale) return 0;
@@ -303,11 +288,14 @@ const SalesReportPage = () => {
     }, 0);
   }, [refundCart, selectedSale]);
 
-  const refundItemCount = Object.values(refundCart).reduce((a, b) => a + b, 0);
+  const refundItemCount = useMemo(
+    () => Object.values(refundCart).reduce((a, b) => a + b, 0),
+    [refundCart],
+  );
 
-  // ── Submit refund ─────────────────────────────────────────────────────────────
+  // ── Submit refund ──────────────────────────────────────────────────────────���──
 
-  const handleSubmitRefund = async () => {
+  const handleSubmitRefund = useCallback(async () => {
     if (!selectedSale) return;
     if (refundItemCount === 0) {
       toast.error("Please select at least one item to refund");
@@ -328,15 +316,11 @@ const SalesReportPage = () => {
         reason: refundReason.trim() || undefined,
       });
 
-      toast.success(
-        `Refund of ₱${refundTotal.toFixed(2)} processed successfully`,
-      );
+      toast.success(`Refund of ₱${refundTotal.toFixed(2)} processed successfully`);
 
-      // Refresh everything
       await fetchSales();
       await fetchRefundHistory(selectedSale.id);
 
-      // Update the selectedSale reference with fresh data
       setSales((prev) => {
         const updated = prev.find((s) => s.id === selectedSale.id);
         if (updated) setSelectedSale(updated);
@@ -347,12 +331,11 @@ const SalesReportPage = () => {
       setRefundCart({});
       setRefundReason("");
     } catch (err: any) {
-      const msg = err?.response?.data?.message || "Failed to process refund";
-      toast.error(msg);
+      toast.error(err?.response?.data?.message || "Failed to process refund");
     } finally {
       setRefundLoading(false);
     }
-  };
+  }, [selectedSale, refundItemCount, refundCart, refundReason, refundTotal, fetchSales, fetchRefundHistory]);
 
   // ── Filters / stats ──────────────────────────────────────────────────────────
 
@@ -387,10 +370,8 @@ const SalesReportPage = () => {
     }
 
     const sortMap: Record<string, (a: Sale, b: Sale) => number> = {
-      date_asc: (a, b) =>
-        new Date(a.soldAt).getTime() - new Date(b.soldAt).getTime(),
-      date_desc: (a, b) =>
-        new Date(b.soldAt).getTime() - new Date(a.soldAt).getTime(),
+      date_asc: (a, b) => new Date(a.soldAt).getTime() - new Date(b.soldAt).getTime(),
+      date_desc: (a, b) => new Date(b.soldAt).getTime() - new Date(a.soldAt).getTime(),
       amount_asc: (a, b) => a.totalAmount - b.totalAmount,
       amount_desc: (a, b) => b.totalAmount - a.totalAmount,
     };
@@ -400,71 +381,30 @@ const SalesReportPage = () => {
   }, [sales, search, sortBy, dateFrom, dateTo]);
 
   const summaryStats = useMemo(() => {
-    const totalRevenue = filteredSales.reduce(
-      (s, sale) => s + (sale.totalAmount || 0),
-      0,
-    );
-    const total_discount = filteredSales.reduce(
-      (s, sale) => s + (sale.totalDiscount || 0),
-      0,
-    );
+    const totalRevenue = filteredSales.reduce((s, sale) => s + (sale.totalAmount || 0), 0);
+    const total_discount = filteredSales.reduce((s, sale) => s + (sale.totalDiscount || 0), 0);
     const totalTransactions = filteredSales.length;
     const totalItems = filteredSales.reduce(
       (s, sale) => s + sale.items.reduce((a, i) => a + (i.quantity || 0), 0),
       0,
     );
-    const avgTransaction =
-      totalTransactions > 0 ? totalRevenue / totalTransactions : 0;
-    return {
-      totalRevenue,
-      total_discount,
-      totalTransactions,
-      totalItems,
-      avgTransaction,
-    };
+    const avgTransaction = totalTransactions > 0 ? totalRevenue / totalTransactions : 0;
+    return { totalRevenue, total_discount, totalTransactions, totalItems, avgTransaction };
   }, [filteredSales]);
 
-  const getProductSummary = (items: SaleItem[]) => {
-    if (items.length === 0) return "No items";
-    if (items.length === 1) return items[0].product?.name || "Unknown product";
-    return `${items[0].product?.name || "Unknown"} +${items.length - 1} more`;
-  };
-  const getTotalItems = (items: SaleItem[]) =>
-    items.reduce((s, i) => s + (i.quantity || 0), 0);
-  const getItemSubtotal = (item: SaleItem) =>
-    (item.discountedPrice ?? item.price ?? 0) * (item.quantity || 0);
-  const hasDiscounts = (sale: Sale) =>
-    sale.items.some((i) => i.discount || i.discountedPrice);
+  const isViewingAllBranches = user?.role === "admin" && !user?.current_branch_id;
+  const hasActiveFilters = search || dateFrom || dateTo || sortBy !== "date_desc";
 
-  const isViewingAllBranches =
-    currentUser?.role === "admin" && !currentUser?.current_branch_id;
-  const hasActiveFilters =
-    search || dateFrom || dateTo || sortBy !== "date_desc";
-  const clearFilters = () => {
+  const clearFilters = useCallback(() => {
     setSearch("");
     setSortBy("date_desc");
     setDateFrom(undefined);
     setDateTo(undefined);
-  };
-
-  const getStatusBadge = (status?: string) => {
-    if (!status || status === "completed") return null;
-    if (status === "fully_refunded")
-      return (
-        <Badge className="bg-red-100 text-red-700 border-red-200 text-xs">
-          Fully Refunded
-        </Badge>
-      );
-    return (
-      <Badge className="bg-amber-100 text-amber-700 border-amber-200 text-xs">
-        Partial Refund
-      </Badge>
-    );
-  };
+  }, []);
 
   // ── Render ────────────────────────────────────────────────────────────────────
 
-  if (loading) {
+  if (authLoading || salesLoading) {
     return (
       <ProtectedRoute>
         <div className="flex items-center justify-center h-screen bg-gradient-to-br from-emerald-50 to-green-50">
@@ -520,15 +460,10 @@ const SalesReportPage = () => {
                     <Building2 className="h-5 w-5 text-white" />
                   </div>
                   <div>
-                    <p className="font-semibold text-gray-800">
-                      Branch Filter Active
-                    </p>
+                    <p className="font-semibold text-gray-800">Branch Filter Active</p>
                     <p className="text-sm text-gray-600">
                       Showing sales for{" "}
-                      <strong className="text-emerald-700">
-                        {activeBranch.name}
-                      </strong>{" "}
-                      branch only
+                      <strong className="text-emerald-700">{activeBranch.name}</strong> branch only
                     </p>
                   </div>
                 </div>
@@ -587,12 +522,8 @@ const SalesReportPage = () => {
                     {stat.icon}
                   </div>
                 </div>
-                <p className="text-sm font-medium text-gray-600 mb-1">
-                  {stat.label}
-                </p>
-                <p
-                  className={`text-2xl font-bold ${(stat as any).valueClass || "text-gray-800"}`}
-                >
+                <p className="text-sm font-medium text-gray-600 mb-1">{stat.label}</p>
+                <p className={`text-2xl font-bold ${(stat as any).valueClass || "text-gray-800"}`}>
                   {stat.value}
                 </p>
               </Card>
@@ -623,49 +554,29 @@ const SalesReportPage = () => {
                 >
                   <Filter className="w-4 h-4 mr-2" />
                   Filters
-                  {hasActiveFilters && (
-                    <Badge className="ml-2 bg-emerald-600">Active</Badge>
-                  )}
+                  {hasActiveFilters && <Badge className="ml-2 bg-emerald-600">Active</Badge>}
                 </Button>
                 <div className="hidden md:flex items-center gap-2">
                   <Popover>
                     <PopoverTrigger asChild>
-                      <Button
-                        variant="outline"
-                        className="border-emerald-300 hover:bg-emerald-50"
-                      >
+                      <Button variant="outline" className="border-emerald-300 hover:bg-emerald-50">
                         <CalendarIcon className="w-4 h-4 mr-2" />
-                        {dateFrom
-                          ? dayjs(dateFrom).format("MMM D, YYYY")
-                          : "From date"}
+                        {dateFrom ? dayjs(dateFrom).format("MMM D, YYYY") : "From date"}
                       </Button>
                     </PopoverTrigger>
                     <PopoverContent className="w-auto p-0">
-                      <Calendar
-                        mode="single"
-                        selected={dateFrom}
-                        onSelect={setDateFrom}
-                      />
+                      <Calendar mode="single" selected={dateFrom} onSelect={setDateFrom} />
                     </PopoverContent>
                   </Popover>
                   <Popover>
                     <PopoverTrigger asChild>
-                      <Button
-                        variant="outline"
-                        className="border-emerald-300 hover:bg-emerald-50"
-                      >
+                      <Button variant="outline" className="border-emerald-300 hover:bg-emerald-50">
                         <CalendarIcon className="w-4 h-4 mr-2" />
-                        {dateTo
-                          ? dayjs(dateTo).format("MMM D, YYYY")
-                          : "To date"}
+                        {dateTo ? dayjs(dateTo).format("MMM D, YYYY") : "To date"}
                       </Button>
                     </PopoverTrigger>
                     <PopoverContent className="w-auto p-0">
-                      <Calendar
-                        mode="single"
-                        selected={dateTo}
-                        onSelect={setDateTo}
-                      />
+                      <Calendar mode="single" selected={dateTo} onSelect={setDateTo} />
                     </PopoverContent>
                   </Popover>
                   <Select value={sortBy} onValueChange={setSortBy}>
@@ -673,26 +584,14 @@ const SalesReportPage = () => {
                       <SelectValue placeholder="Sort by" />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="date_desc">
-                        Date (Newest first)
-                      </SelectItem>
-                      <SelectItem value="date_asc">
-                        Date (Oldest first)
-                      </SelectItem>
-                      <SelectItem value="amount_desc">
-                        Amount (High → Low)
-                      </SelectItem>
-                      <SelectItem value="amount_asc">
-                        Amount (Low → High)
-                      </SelectItem>
+                      <SelectItem value="date_desc">Date (Newest first)</SelectItem>
+                      <SelectItem value="date_asc">Date (Oldest first)</SelectItem>
+                      <SelectItem value="amount_desc">Amount (High → Low)</SelectItem>
+                      <SelectItem value="amount_asc">Amount (Low → High)</SelectItem>
                     </SelectContent>
                   </Select>
                   {hasActiveFilters && (
-                    <Button
-                      variant="ghost"
-                      onClick={clearFilters}
-                      className="text-red-600 hover:bg-red-50"
-                    >
+                    <Button variant="ghost" onClick={clearFilters} className="text-red-600 hover:bg-red-50">
                       <X className="w-4 h-4 mr-2" />
                       Clear
                     </Button>
@@ -713,17 +612,11 @@ const SalesReportPage = () => {
                           className="border-emerald-300 hover:bg-emerald-50 justify-start"
                         >
                           <CalendarIcon className="w-4 h-4 mr-2" />
-                          {dateFrom
-                            ? dayjs(dateFrom).format("MMM D")
-                            : "From date"}
+                          {dateFrom ? dayjs(dateFrom).format("MMM D") : "From date"}
                         </Button>
                       </PopoverTrigger>
                       <PopoverContent className="w-auto p-0">
-                        <Calendar
-                          mode="single"
-                          selected={dateFrom}
-                          onSelect={setDateFrom}
-                        />
+                        <Calendar mode="single" selected={dateFrom} onSelect={setDateFrom} />
                       </PopoverContent>
                     </Popover>
                     <Popover>
@@ -737,11 +630,7 @@ const SalesReportPage = () => {
                         </Button>
                       </PopoverTrigger>
                       <PopoverContent className="w-auto p-0">
-                        <Calendar
-                          mode="single"
-                          selected={dateTo}
-                          onSelect={setDateTo}
-                        />
+                        <Calendar mode="single" selected={dateTo} onSelect={setDateTo} />
                       </PopoverContent>
                     </Popover>
                   </div>
@@ -750,18 +639,10 @@ const SalesReportPage = () => {
                       <SelectValue placeholder="Sort by" />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="date_desc">
-                        Date (Newest first)
-                      </SelectItem>
-                      <SelectItem value="date_asc">
-                        Date (Oldest first)
-                      </SelectItem>
-                      <SelectItem value="amount_desc">
-                        Amount (High → Low)
-                      </SelectItem>
-                      <SelectItem value="amount_asc">
-                        Amount (Low → High)
-                      </SelectItem>
+                      <SelectItem value="date_desc">Date (Newest first)</SelectItem>
+                      <SelectItem value="date_asc">Date (Oldest first)</SelectItem>
+                      <SelectItem value="amount_desc">Amount (High → Low)</SelectItem>
+                      <SelectItem value="amount_asc">Amount (Low → High)</SelectItem>
                     </SelectContent>
                   </Select>
                   {hasActiveFilters && (
@@ -790,12 +671,8 @@ const SalesReportPage = () => {
                 <div className="inline-flex items-center justify-center w-20 h-20 rounded-full bg-emerald-50 mb-4">
                   <Package className="h-10 w-10 text-emerald-400" />
                 </div>
-                <h3 className="text-lg font-semibold text-gray-800 mb-2">
-                  No sales records found
-                </h3>
-                <p className="text-gray-600 mb-4">
-                  Try adjusting your filters or date range
-                </p>
+                <h3 className="text-lg font-semibold text-gray-800 mb-2">No sales records found</h3>
+                <p className="text-gray-600 mb-4">Try adjusting your filters or date range</p>
                 {hasActiveFilters && (
                   <Button
                     variant="outline"
@@ -813,32 +690,16 @@ const SalesReportPage = () => {
                   <Table>
                     <TableHeader>
                       <TableRow className="bg-gradient-to-r from-emerald-50 to-green-50 hover:from-emerald-50 hover:to-green-50">
-                        <TableHead className="font-bold text-gray-800">
-                          ID
-                        </TableHead>
-                        <TableHead className="font-bold text-gray-800">
-                          Date & Time
-                        </TableHead>
+                        <TableHead className="font-bold text-gray-800">ID</TableHead>
+                        <TableHead className="font-bold text-gray-800">Date & Time</TableHead>
                         {isViewingAllBranches && (
-                          <TableHead className="font-bold text-gray-800">
-                            Branch
-                          </TableHead>
+                          <TableHead className="font-bold text-gray-800">Branch</TableHead>
                         )}
-                        <TableHead className="font-bold text-gray-800">
-                          Products
-                        </TableHead>
-                        <TableHead className="font-bold text-gray-800">
-                          Items
-                        </TableHead>
-                        <TableHead className="font-bold text-gray-800">
-                          Amount
-                        </TableHead>
-                        <TableHead className="font-bold text-gray-800">
-                          Status
-                        </TableHead>
-                        <TableHead className="font-bold text-gray-800">
-                          Sold By
-                        </TableHead>
+                        <TableHead className="font-bold text-gray-800">Products</TableHead>
+                        <TableHead className="font-bold text-gray-800">Items</TableHead>
+                        <TableHead className="font-bold text-gray-800">Amount</TableHead>
+                        <TableHead className="font-bold text-gray-800">Status</TableHead>
+                        <TableHead className="font-bold text-gray-800">Sold By</TableHead>
                         <TableHead className="w-[50px]"></TableHead>
                       </TableRow>
                     </TableHeader>
@@ -865,9 +726,7 @@ const SalesReportPage = () => {
                                   {sale.branch.code}
                                 </Badge>
                               ) : (
-                                <span className="text-xs text-muted-foreground">
-                                  -
-                                </span>
+                                <span className="text-xs text-muted-foreground">-</span>
                               )}
                             </TableCell>
                           )}
@@ -877,10 +736,7 @@ const SalesReportPage = () => {
                                 {getProductSummary(sale.items)}
                               </span>
                               {sale.items.length > 1 && (
-                                <Badge
-                                  variant="secondary"
-                                  className="bg-gray-100"
-                                >
+                                <Badge variant="secondary" className="bg-gray-100">
                                   {sale.items.length} items
                                 </Badge>
                               )}
@@ -936,9 +792,7 @@ const SalesReportPage = () => {
                       <div className="flex items-start justify-between mb-3">
                         <div>
                           <div className="flex items-center gap-2">
-                            <p className="font-bold text-emerald-700 text-lg">
-                              #{sale.id}
-                            </p>
+                            <p className="font-bold text-emerald-700 text-lg">#{sale.id}</p>
                             {getStatusBadge(sale.status)}
                           </div>
                           <p className="text-xs text-gray-500">
@@ -949,9 +803,7 @@ const SalesReportPage = () => {
                       </div>
                       <div className="space-y-2">
                         <div className="flex items-center justify-between">
-                          <span className="text-sm text-gray-600">
-                            Products
-                          </span>
+                          <span className="text-sm text-gray-600">Products</span>
                           <span className="text-sm font-medium text-gray-800">
                             {getProductSummary(sale.items)}
                           </span>
@@ -963,9 +815,7 @@ const SalesReportPage = () => {
                           </span>
                         </div>
                         <div className="flex items-center justify-between pt-2 border-t border-emerald-100">
-                          <span className="text-sm font-semibold text-gray-800">
-                            Total
-                          </span>
+                          <span className="text-sm font-semibold text-gray-800">Total</span>
                           <span className="text-lg font-bold text-emerald-600">
                             ₱
                             {(sale.totalAmount || 0).toLocaleString(undefined, {
@@ -994,7 +844,7 @@ const SalesReportPage = () => {
           </motion.div>
         </div>
 
-        {/* ─── Transaction Details / Refund Dialog ─────────────────────────────── */}
+        {/* ─── Transaction Details / Refund Dialog ───────────────��─────────────── */}
         <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
           <DialogContent className="max-w-2xl max-h-[85vh] overflow-y-auto">
             <AnimatePresence mode="wait">
@@ -1011,21 +861,14 @@ const SalesReportPage = () => {
                       Transaction Details
                     </DialogTitle>
                     <DialogDescription className="text-base flex items-center gap-2 flex-wrap">
-                      <span className="font-semibold text-emerald-700">
-                        #{selectedSale.id}
-                      </span>
+                      <span className="font-semibold text-emerald-700">#{selectedSale.id}</span>
                       <span>•</span>
-                      <span>
-                        {dayjs(selectedSale.soldAt).format(
-                          "MMM D, YYYY h:mm A",
-                        )}
-                      </span>
+                      <span>{dayjs(selectedSale.soldAt).format("MMM D, YYYY h:mm A")}</span>
                       {getStatusBadge(selectedSale.status)}
                     </DialogDescription>
                   </DialogHeader>
 
                   <div className="space-y-6 mt-4">
-                    {/* Info grid */}
                     <div className="grid grid-cols-2 gap-4 p-4 bg-gradient-to-r from-emerald-50 to-green-50 rounded-xl border-2 border-emerald-200">
                       {selectedSale.branch && (
                         <div>
@@ -1034,9 +877,7 @@ const SalesReportPage = () => {
                           </p>
                           <div className="flex items-center gap-2">
                             <Building2 className="h-4 w-4 text-emerald-600" />
-                            <p className="font-semibold text-gray-800">
-                              {selectedSale.branch.name}
-                            </p>
+                            <p className="font-semibold text-gray-800">{selectedSale.branch.name}</p>
                           </div>
                         </div>
                       )}
@@ -1061,7 +902,6 @@ const SalesReportPage = () => {
                       </div>
                     </div>
 
-                    {/* Items Table */}
                     <div>
                       <h3 className="font-bold text-gray-800 mb-3 flex items-center gap-2">
                         <Package className="h-5 w-5 text-emerald-600" />
@@ -1071,18 +911,10 @@ const SalesReportPage = () => {
                         <Table>
                           <TableHeader>
                             <TableRow className="bg-gradient-to-r from-emerald-50 to-green-50 hover:from-emerald-50 hover:to-green-50">
-                              <TableHead className="font-bold">
-                                Product
-                              </TableHead>
-                              <TableHead className="text-right font-bold">
-                                Qty
-                              </TableHead>
-                              <TableHead className="text-right font-bold">
-                                Unit Price
-                              </TableHead>
-                              <TableHead className="text-right font-bold">
-                                Subtotal
-                              </TableHead>
+                              <TableHead className="font-bold">Product</TableHead>
+                              <TableHead className="text-right font-bold">Qty</TableHead>
+                              <TableHead className="text-right font-bold">Unit Price</TableHead>
+                              <TableHead className="text-right font-bold">Subtotal</TableHead>
                             </TableRow>
                           </TableHeader>
                           <TableBody>
@@ -1113,33 +945,23 @@ const SalesReportPage = () => {
                                   </TableCell>
                                   <TableCell className="text-right font-bold text-gray-800">
                                     ₱
-                                    {getItemSubtotal(item).toLocaleString(
-                                      undefined,
-                                      {
-                                        minimumFractionDigits: 2,
-                                        maximumFractionDigits: 2,
-                                      },
-                                    )}
+                                    {getItemSubtotal(item).toLocaleString(undefined, {
+                                      minimumFractionDigits: 2,
+                                      maximumFractionDigits: 2,
+                                    })}
                                   </TableCell>
                                 </TableRow>
                                 {item.discount && (
                                   <TableRow className="bg-emerald-50/50">
-                                    <TableCell
-                                      colSpan={4}
-                                      className="text-sm text-emerald-700 py-2"
-                                    >
+                                    <TableCell colSpan={4} className="text-sm text-emerald-700 py-2">
                                       <div className="flex items-center gap-2">
                                         <Tag className="h-4 w-4" />
-                                        <span className="font-semibold">
-                                          {item.discount.name}
-                                        </span>
-                                        {item.discountAmount &&
-                                          item.discountAmount > 0 && (
-                                            <span className="text-xs">
-                                              (Saved: ₱
-                                              {item.discountAmount.toFixed(2)})
-                                            </span>
-                                          )}
+                                        <span className="font-semibold">{item.discount.name}</span>
+                                        {item.discountAmount && item.discountAmount > 0 && (
+                                          <span className="text-xs">
+                                            (Saved: ₱{item.discountAmount.toFixed(2)})
+                                          </span>
+                                        )}
                                       </div>
                                     </TableCell>
                                   </TableRow>
@@ -1151,7 +973,6 @@ const SalesReportPage = () => {
                       </div>
                     </div>
 
-                    {/* Totals */}
                     <div className="space-y-3">
                       {selectedSale.subtotal && selectedSale.subtotal > 0 && (
                         <div className="flex justify-between items-center text-gray-600">
@@ -1161,26 +982,20 @@ const SalesReportPage = () => {
                           </span>
                         </div>
                       )}
-                      {selectedSale.totalDiscount &&
-                        selectedSale.totalDiscount > 0 && (
-                          <div className="flex justify-between items-center text-emerald-600 font-semibold">
-                            <span>Total Discount</span>
-                            <span>
-                              -₱{selectedSale.totalDiscount.toFixed(2)}
-                            </span>
-                          </div>
-                        )}
+                      {selectedSale.totalDiscount && selectedSale.totalDiscount > 0 && (
+                        <div className="flex justify-between items-center text-emerald-600 font-semibold">
+                          <span>Total Discount</span>
+                          <span>-₱{selectedSale.totalDiscount.toFixed(2)}</span>
+                        </div>
+                      )}
                       <div className="flex justify-between items-center p-4 bg-gradient-to-r from-emerald-600 to-green-600 rounded-xl text-white">
                         <p className="font-bold text-lg">Total Amount</p>
                         <p className="font-bold text-2xl">
                           ₱
-                          {(selectedSale.totalAmount || 0).toLocaleString(
-                            undefined,
-                            {
-                              minimumFractionDigits: 2,
-                              maximumFractionDigits: 2,
-                            },
-                          )}
+                          {(selectedSale.totalAmount || 0).toLocaleString(undefined, {
+                            minimumFractionDigits: 2,
+                            maximumFractionDigits: 2,
+                          })}
                         </p>
                       </div>
                       {selectedSale.cashAmount && (
@@ -1203,7 +1018,6 @@ const SalesReportPage = () => {
                       )}
                     </div>
 
-                    {/* Refund action buttons */}
                     {selectedSale.status !== "fully_refunded" && (
                       <div className="flex flex-col sm:flex-row gap-2 pt-2 border-t border-gray-100">
                         <Button
@@ -1227,21 +1041,20 @@ const SalesReportPage = () => {
                         )}
                       </div>
                     )}
-                    {selectedSale.status === "fully_refunded" &&
-                      refundHistory.length > 0 && (
-                        <div className="pt-2 border-t border-gray-100">
-                          <Button
-                            variant="outline"
-                            onClick={handleOpenHistory}
-                            className="w-full border-amber-300 text-amber-700 hover:bg-amber-50"
-                          >
-                            View Refund History
-                            <Badge className="ml-2 bg-amber-100 text-amber-700">
-                              {refundHistory.length}
-                            </Badge>
-                          </Button>
-                        </div>
-                      )}
+                    {selectedSale.status === "fully_refunded" && refundHistory.length > 0 && (
+                      <div className="pt-2 border-t border-gray-100">
+                        <Button
+                          variant="outline"
+                          onClick={handleOpenHistory}
+                          className="w-full border-amber-300 text-amber-700 hover:bg-amber-50"
+                        >
+                          View Refund History
+                          <Badge className="ml-2 bg-amber-100 text-amber-700">
+                            {refundHistory.length}
+                          </Badge>
+                        </Button>
+                      </div>
+                    )}
                   </div>
                 </motion.div>
               )}
@@ -1280,7 +1093,6 @@ const SalesReportPage = () => {
                   </DialogHeader>
 
                   <div className="space-y-5 mt-4">
-                    {/* Items with qty selectors */}
                     <div className="space-y-3">
                       {selectedSale.items.map((item, idx) => {
                         const itemId = item.id;
@@ -1293,7 +1105,13 @@ const SalesReportPage = () => {
                         return (
                           <div
                             key={idx}
-                            className={`p-4 rounded-xl border-2 transition-all ${isFullyRefunded ? "border-gray-100 bg-gray-50 opacity-60" : selected > 0 ? "border-amber-300 bg-amber-50" : "border-emerald-100 bg-white"}`}
+                            className={`p-4 rounded-xl border-2 transition-all ${
+                              isFullyRefunded
+                                ? "border-gray-100 bg-gray-50 opacity-60"
+                                : selected > 0
+                                ? "border-amber-300 bg-amber-50"
+                                : "border-emerald-100 bg-white"
+                            }`}
                           >
                             <div className="flex items-start justify-between gap-3">
                               <div className="flex-1 min-w-0">
@@ -1302,11 +1120,7 @@ const SalesReportPage = () => {
                                 </p>
                                 <div className="flex items-center gap-3 mt-1 text-sm text-gray-500 flex-wrap">
                                   <span>
-                                    ₱
-                                    {(
-                                      item.discountedPrice ?? item.price
-                                    ).toFixed(2)}{" "}
-                                    each
+                                    ₱{(item.discountedPrice ?? item.price).toFixed(2)} each
                                   </span>
                                   <span>•</span>
                                   <span>Sold: {item.quantity}</span>
@@ -1331,15 +1145,15 @@ const SalesReportPage = () => {
                                     variant="outline"
                                     size="sm"
                                     className="h-8 w-8 p-0 border-emerald-300"
-                                    onClick={() =>
-                                      adjustRefundQty(itemId, -1, refundable)
-                                    }
+                                    onClick={() => adjustRefundQty(itemId, -1, refundable)}
                                     disabled={selected === 0}
                                   >
                                     <Minus className="h-3 w-3" />
                                   </Button>
                                   <span
-                                    className={`w-8 text-center font-bold text-sm ${selected > 0 ? "text-amber-700" : "text-gray-400"}`}
+                                    className={`w-8 text-center font-bold text-sm ${
+                                      selected > 0 ? "text-amber-700" : "text-gray-400"
+                                    }`}
                                   >
                                     {selected}
                                   </span>
@@ -1347,31 +1161,21 @@ const SalesReportPage = () => {
                                     variant="outline"
                                     size="sm"
                                     className="h-8 w-8 p-0 border-emerald-300"
-                                    onClick={() =>
-                                      adjustRefundQty(itemId, 1, refundable)
-                                    }
+                                    onClick={() => adjustRefundQty(itemId, 1, refundable)}
                                     disabled={selected >= refundable}
                                   >
                                     <Plus className="h-3 w-3" />
                                   </Button>
-                                  <span className="text-xs text-gray-400">
-                                    / {refundable}
-                                  </span>
+                                  <span className="text-xs text-gray-400">/ {refundable}</span>
                                 </div>
                               )}
                             </div>
 
                             {selected > 0 && (
                               <div className="mt-2 pt-2 border-t border-amber-200 flex justify-between text-sm">
-                                <span className="text-amber-700">
-                                  Refund amount
-                                </span>
+                                <span className="text-amber-700">Refund amount</span>
                                 <span className="font-bold text-amber-700">
-                                  ₱
-                                  {(
-                                    (item.discountedPrice ?? item.price) *
-                                    selected
-                                  ).toFixed(2)}
+                                  ₱{((item.discountedPrice ?? item.price) * selected).toFixed(2)}
                                 </span>
                               </div>
                             )}
@@ -1380,7 +1184,6 @@ const SalesReportPage = () => {
                       })}
                     </div>
 
-                    {/* Reason */}
                     <div>
                       <label className="block text-sm font-semibold text-gray-700 mb-2">
                         Reason for refund (optional)
@@ -1394,7 +1197,6 @@ const SalesReportPage = () => {
                       />
                     </div>
 
-                    {/* Summary bar */}
                     {refundItemCount > 0 && (
                       <motion.div
                         initial={{ opacity: 0, y: 8 }}
@@ -1404,19 +1206,15 @@ const SalesReportPage = () => {
                         <div className="flex items-center justify-between">
                           <div>
                             <p className="text-sm font-medium opacity-90">
-                              {refundItemCount} item
-                              {refundItemCount !== 1 ? "s" : ""} to refund
+                              {refundItemCount} item{refundItemCount !== 1 ? "s" : ""} to refund
                             </p>
-                            <p className="text-2xl font-bold">
-                              ₱{refundTotal.toFixed(2)}
-                            </p>
+                            <p className="text-2xl font-bold">₱{refundTotal.toFixed(2)}</p>
                           </div>
                           <RotateCcw className="h-8 w-8 opacity-40" />
                         </div>
                       </motion.div>
                     )}
 
-                    {/* Actions */}
                     <div className="flex gap-3 pt-2">
                       <Button
                         variant="outline"
@@ -1497,13 +1295,9 @@ const SalesReportPage = () => {
                         >
                           <div className="p-4 bg-gradient-to-r from-amber-50 to-orange-50 flex items-start justify-between gap-3">
                             <div>
-                              <p className="font-bold text-gray-800">
-                                Refund #{refund.id}
-                              </p>
+                              <p className="font-bold text-gray-800">Refund #{refund.id}</p>
                               <p className="text-sm text-gray-500">
-                                {dayjs(refund.created_at).format(
-                                  "MMM D, YYYY h:mm A",
-                                )}
+                                {dayjs(refund.created_at).format("MMM D, YYYY h:mm A")}
                               </p>
                               {refund.refunded_by && (
                                 <p className="text-sm text-gray-600">
@@ -1517,9 +1311,7 @@ const SalesReportPage = () => {
                               )}
                             </div>
                             <div className="text-right shrink-0">
-                              <p className="text-xs text-gray-500">
-                                Total Refund
-                              </p>
+                              <p className="text-xs text-gray-500">Total Refund</p>
                               <p className="text-xl font-bold text-amber-600">
                                 ₱{Number(refund.total_refund).toFixed(2)}
                               </p>
