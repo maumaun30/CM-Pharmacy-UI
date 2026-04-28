@@ -22,6 +22,7 @@ import {
   Building2,
   TrendingUp,
   Home,
+  BarChart3,
 } from "lucide-react";
 import {
   DropdownMenu,
@@ -83,6 +84,16 @@ export default function Navbar() {
                   >
                     <TrendingUp className="w-4 h-4 mr-2" />
                     Sales
+                  </Button>
+                </Link>
+                <Link href="/sales/analytics">
+                  <Button
+                    className="cursor-pointer border-emerald-300 hover:bg-emerald-50 hover:border-emerald-400 font-medium"
+                    variant="outline"
+                    size="sm"
+                  >
+                    <BarChart3 className="w-4 h-4 mr-2" />
+                    Analytics
                   </Button>
                 </Link>
               </div>
@@ -256,6 +267,15 @@ export default function Navbar() {
                   <TrendingUp className="w-4 h-4 mr-2" />Sales
                 </Button>
               </Link>
+              <Link href="/sales/analytics">
+                <Button
+                  className="cursor-pointer border-emerald-300 hover:bg-emerald-50 hover:border-emerald-400 font-medium"
+                  variant="outline"
+                  size="sm"
+                >
+                  <BarChart3 className="w-4 h-4 mr-2" />Analytics
+                </Button>
+              </Link>
 
               <div className="pl-2 border-l-2 border-emerald-200">
                 <BranchSwitcher />
@@ -290,9 +310,21 @@ export default function Navbar() {
                       </div>
                     </DropdownMenuLabel>
                     <DropdownMenuSeparator />
+                    <DropdownMenuLabel className="text-xs font-bold text-emerald-700 uppercase tracking-wide">Reports</DropdownMenuLabel>
+                    <DropdownMenuItem asChild>
+                      <Link href="/sales" className="cursor-pointer flex items-center py-2">
+                        <TrendingUp className="w-4 h-4 mr-3 text-emerald-600" />Sales
+                      </Link>
+                    </DropdownMenuItem>
+                    <DropdownMenuItem asChild>
+                      <Link href="/sales/analytics" className="cursor-pointer flex items-center py-2">
+                        <BarChart3 className="w-4 h-4 mr-3 text-emerald-600" />Analytics
+                      </Link>
+                    </DropdownMenuItem>
 
                     {user.role === "admin" && (
                       <>
+                        <DropdownMenuSeparator />
                         <DropdownMenuLabel className="text-xs font-bold text-emerald-700 uppercase tracking-wide">Management</DropdownMenuLabel>
                         <DropdownMenuItem asChild>
                           <Link href="/products" className="cursor-pointer flex items-center py-2">
@@ -425,6 +457,11 @@ export default function Navbar() {
                   <DropdownMenuItem asChild>
                     <Link href="/sales" className="cursor-pointer flex items-center py-2">
                       <TrendingUp className="w-4 h-4 mr-3 text-emerald-600" />Sales
+                    </Link>
+                  </DropdownMenuItem>
+                  <DropdownMenuItem asChild>
+                    <Link href="/sales/analytics" className="cursor-pointer flex items-center py-2">
+                      <BarChart3 className="w-4 h-4 mr-3 text-emerald-600" />Analytics
                     </Link>
                   </DropdownMenuItem>
                   <DropdownMenuItem asChild>

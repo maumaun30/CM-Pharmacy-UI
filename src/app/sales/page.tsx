@@ -58,9 +58,11 @@ import {
   AlertCircle,
   CheckCircle2,
   ArrowLeft,
+  BarChart3,
 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { useAuth } from "@/hooks/useAuth";
+import Link from "next/link";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -444,14 +446,25 @@ const SalesReportPage = () => {
                   </div>
                 )}
               </div>
-              <Button
-                variant="outline"
-                onClick={fetchSales}
-                className="border-emerald-300 hover:bg-emerald-50 self-start sm:self-auto"
-              >
-                <TrendingUp className="w-4 h-4 mr-2" />
-                Refresh Data
-              </Button>
+              <div className="flex items-center gap-2 self-start sm:self-auto">
+                <Link href="/sales/analytics">
+                  <Button
+                    variant="outline"
+                    className="border-emerald-300 hover:bg-emerald-50"
+                  >
+                    <BarChart3 className="w-4 h-4 mr-2" />
+                    Analytics
+                  </Button>
+                </Link>
+                <Button
+                  variant="outline"
+                  onClick={fetchSales}
+                  className="border-emerald-300 hover:bg-emerald-50"
+                >
+                  <TrendingUp className="w-4 h-4 mr-2" />
+                  Refresh Data
+                </Button>
+              </div>
             </div>
 
             {!isViewingAllBranches && activeBranch && (

@@ -4,11 +4,19 @@ const api = axios.create({
   baseURL: process.env.NEXT_PUBLIC_API_BASE_URL,
 });
 
-api.interceptors.request.use((config) => {
+function readToken(): string | null {
+  if (typeof window === "undefined") return null;
   try {
-    const token = localStorage.getItem("token");
-    if (token) config.headers.Authorization = `Bearer ${token}`;
-  } catch {}
+    if (typeof window.localStorage?.getItem !== "function") return null;
+    return window.localStorage.getItem("token");
+  } catch {
+    return null;
+  }
+}
+
+api.interceptors.request.use((config) => {
+  const token = readToken();
+  if (token) config.headers.Authorization = `Bearer ${token}`;
   return config;
 });
 

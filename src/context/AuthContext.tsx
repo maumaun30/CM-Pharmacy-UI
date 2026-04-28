@@ -39,9 +39,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const router = useRouter();
 
   const fetchUser = useCallback(async () => {
+    if (typeof window === "undefined") {
+      setLoading(false);
+      return;
+    }
     let token: string | null = null;
     try {
-      token = localStorage.getItem("token");
+      token = window.localStorage?.getItem?.("token") ?? null;
     } catch {
       setLoading(false);
       return;
@@ -54,7 +58,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       const res = await api.get("/auth/me");
       setUser(res.data);
     } catch {
-      try { localStorage.removeItem("token"); } catch {}
+      try { window.localStorage?.removeItem?.("token"); } catch {}
       setUser(null);
     } finally {
       setLoading(false);
