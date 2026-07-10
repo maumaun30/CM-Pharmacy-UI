@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button";
 import BranchSwitcher from "@/components/BranchSwitcher";
 import { getFullName } from "@/lib/utils";
 import { useAuth } from "@/hooks/useAuth";
+import { can } from "@/lib/permissions";
 
 import {
   User,
@@ -37,6 +38,19 @@ const BRAND = process.env.NEXT_PUBLIC_SITE_NAME || "Brand Logo";
 
 export default function Navbar() {
   const { user, logout } = useAuth();
+
+  // Capability flags drive nav visibility (see lib/permissions.ts). Manager gets
+  // Products + Inventory; the rest stay admin-only. `can(null, …)` is false, so
+  // these are safe to compute before the `user &&` guard below.
+  const canProducts = can(user, "products.write");
+  const canCategories = can(user, "categories.write");
+  const canDiscounts = can(user, "discounts.write");
+  const canBranches = can(user, "branches.write");
+  const canUsers = can(user, "users.write");
+  const canManage =
+    canProducts || canCategories || canDiscounts || canBranches || canUsers;
+  const canInventory = can(user, "stock.read");
+  const canLogs = can(user, "logs.read");
 
   return (
     <nav className="border-t-2 border-emerald-200 bg-white shadow-lg fixed bottom-0 left-0 w-full h-auto z-50">
@@ -98,98 +112,114 @@ export default function Navbar() {
                 </Link>
               </div>
 
-              {/* Admin Actions */}
-              {user.role === "admin" && (
+              {/* Management / Inventory / Logs (permission-gated) */}
+              {(canManage || canInventory || canLogs) && (
                 <div className="flex items-center gap-2 pl-3 border-l-2 border-emerald-200">
-                  <DropdownMenu>
-                    <DropdownMenuTrigger asChild>
+                  {canManage && (
+                    <DropdownMenu>
+                      <DropdownMenuTrigger asChild>
+                        <Button
+                          className="cursor-pointer border-emerald-300 hover:bg-emerald-50 hover:border-emerald-400 font-medium"
+                          variant="outline"
+                          size="sm"
+                        >
+                          <List className="w-4 h-4 mr-2" />
+                          Management
+                        </Button>
+                      </DropdownMenuTrigger>
+                      <DropdownMenuContent side="top" align="end" className="mb-2 w-52 border-emerald-200">
+                        <DropdownMenuLabel className="text-emerald-700 font-bold">Management</DropdownMenuLabel>
+                        <DropdownMenuSeparator />
+                        {canProducts && (
+                          <DropdownMenuItem asChild>
+                            <Link href="/products" className="cursor-pointer flex items-center">
+                              <Package className="w-4 h-4 mr-2 text-emerald-600" />Products
+                            </Link>
+                          </DropdownMenuItem>
+                        )}
+                        {canBranches && (
+                          <DropdownMenuItem asChild>
+                            <Link href="/branches" className="cursor-pointer flex items-center">
+                              <Building2 className="w-4 h-4 mr-2 text-emerald-600" />Branches
+                            </Link>
+                          </DropdownMenuItem>
+                        )}
+                        {canCategories && (
+                          <DropdownMenuItem asChild>
+                            <Link href="/categories" className="cursor-pointer flex items-center">
+                              <List className="w-4 h-4 mr-2 text-emerald-600" />Categories
+                            </Link>
+                          </DropdownMenuItem>
+                        )}
+                        {canDiscounts && (
+                          <DropdownMenuItem asChild>
+                            <Link href="/discounts" className="cursor-pointer flex items-center">
+                              <Percent className="w-4 h-4 mr-2 text-emerald-600" />Discounts
+                            </Link>
+                          </DropdownMenuItem>
+                        )}
+                        {canUsers && (
+                          <DropdownMenuItem asChild>
+                            <Link href="/users" className="cursor-pointer flex items-center">
+                              <Users className="w-4 h-4 mr-2 text-emerald-600" />Users
+                            </Link>
+                          </DropdownMenuItem>
+                        )}
+                      </DropdownMenuContent>
+                    </DropdownMenu>
+                  )}
+
+                  {canInventory && (
+                    <DropdownMenu>
+                      <DropdownMenuTrigger asChild>
+                        <Button
+                          className="cursor-pointer border-emerald-300 hover:bg-emerald-50 hover:border-emerald-400 font-medium"
+                          variant="outline"
+                          size="sm"
+                        >
+                          <ChartNoAxesCombined className="w-4 h-4 mr-2" />
+                          Inventory
+                        </Button>
+                      </DropdownMenuTrigger>
+                      <DropdownMenuContent side="top" align="end" className="mb-2 w-52 border-emerald-200">
+                        <DropdownMenuLabel className="text-emerald-700 font-bold">Inventory</DropdownMenuLabel>
+                        <DropdownMenuSeparator />
+                        <DropdownMenuItem asChild>
+                          <Link href="/stock" className="cursor-pointer flex items-center">
+                            <Package className="w-4 h-4 mr-2 text-emerald-600" />Stock List
+                          </Link>
+                        </DropdownMenuItem>
+                        <DropdownMenuItem asChild>
+                          <Link href="/stock/add" className="cursor-pointer flex items-center">
+                            <Package className="w-4 h-4 mr-2 text-emerald-600" />Add Stock
+                          </Link>
+                        </DropdownMenuItem>
+                        <DropdownMenuItem asChild>
+                          <Link href="/stock/adjust" className="cursor-pointer flex items-center">
+                            <ChartNoAxesCombined className="w-4 h-4 mr-2 text-emerald-600" />Adjust Stock
+                          </Link>
+                        </DropdownMenuItem>
+                        <DropdownMenuItem asChild>
+                          <Link href="/stock/transactions" className="cursor-pointer flex items-center">
+                            <Activity className="w-4 h-4 mr-2 text-emerald-600" />Transactions
+                          </Link>
+                        </DropdownMenuItem>
+                      </DropdownMenuContent>
+                    </DropdownMenu>
+                  )}
+
+                  {canLogs && (
+                    <Link href="/logs">
                       <Button
                         className="cursor-pointer border-emerald-300 hover:bg-emerald-50 hover:border-emerald-400 font-medium"
                         variant="outline"
                         size="sm"
                       >
-                        <List className="w-4 h-4 mr-2" />
-                        Management
+                        <Activity className="w-4 h-4 mr-2" />
+                        Logs
                       </Button>
-                    </DropdownMenuTrigger>
-                    <DropdownMenuContent side="top" align="end" className="mb-2 w-52 border-emerald-200">
-                      <DropdownMenuLabel className="text-emerald-700 font-bold">Management</DropdownMenuLabel>
-                      <DropdownMenuSeparator />
-                      <DropdownMenuItem asChild>
-                        <Link href="/products" className="cursor-pointer flex items-center">
-                          <Package className="w-4 h-4 mr-2 text-emerald-600" />Products
-                        </Link>
-                      </DropdownMenuItem>
-                      <DropdownMenuItem asChild>
-                        <Link href="/branches" className="cursor-pointer flex items-center">
-                          <Building2 className="w-4 h-4 mr-2 text-emerald-600" />Branches
-                        </Link>
-                      </DropdownMenuItem>
-                      <DropdownMenuItem asChild>
-                        <Link href="/categories" className="cursor-pointer flex items-center">
-                          <List className="w-4 h-4 mr-2 text-emerald-600" />Categories
-                        </Link>
-                      </DropdownMenuItem>
-                      <DropdownMenuItem asChild>
-                        <Link href="/discounts" className="cursor-pointer flex items-center">
-                          <Percent className="w-4 h-4 mr-2 text-emerald-600" />Discounts
-                        </Link>
-                      </DropdownMenuItem>
-                      <DropdownMenuItem asChild>
-                        <Link href="/users" className="cursor-pointer flex items-center">
-                          <Users className="w-4 h-4 mr-2 text-emerald-600" />Users
-                        </Link>
-                      </DropdownMenuItem>
-                    </DropdownMenuContent>
-                  </DropdownMenu>
-
-                  <DropdownMenu>
-                    <DropdownMenuTrigger asChild>
-                      <Button
-                        className="cursor-pointer border-emerald-300 hover:bg-emerald-50 hover:border-emerald-400 font-medium"
-                        variant="outline"
-                        size="sm"
-                      >
-                        <ChartNoAxesCombined className="w-4 h-4 mr-2" />
-                        Inventory
-                      </Button>
-                    </DropdownMenuTrigger>
-                    <DropdownMenuContent side="top" align="end" className="mb-2 w-52 border-emerald-200">
-                      <DropdownMenuLabel className="text-emerald-700 font-bold">Inventory</DropdownMenuLabel>
-                      <DropdownMenuSeparator />
-                      <DropdownMenuItem asChild>
-                        <Link href="/stock" className="cursor-pointer flex items-center">
-                          <Package className="w-4 h-4 mr-2 text-emerald-600" />Stock List
-                        </Link>
-                      </DropdownMenuItem>
-                      <DropdownMenuItem asChild>
-                        <Link href="/stock/add" className="cursor-pointer flex items-center">
-                          <Package className="w-4 h-4 mr-2 text-emerald-600" />Add Stock
-                        </Link>
-                      </DropdownMenuItem>
-                      <DropdownMenuItem asChild>
-                        <Link href="/stock/adjust" className="cursor-pointer flex items-center">
-                          <ChartNoAxesCombined className="w-4 h-4 mr-2 text-emerald-600" />Adjust Stock
-                        </Link>
-                      </DropdownMenuItem>
-                      <DropdownMenuItem asChild>
-                        <Link href="/stock/transactions" className="cursor-pointer flex items-center">
-                          <Activity className="w-4 h-4 mr-2 text-emerald-600" />Transactions
-                        </Link>
-                      </DropdownMenuItem>
-                    </DropdownMenuContent>
-                  </DropdownMenu>
-
-                  <Link href="/logs">
-                    <Button
-                      className="cursor-pointer border-emerald-300 hover:bg-emerald-50 hover:border-emerald-400 font-medium"
-                      variant="outline"
-                      size="sm"
-                    >
-                      <Activity className="w-4 h-4 mr-2" />
-                      Logs
-                    </Button>
-                  </Link>
+                    </Link>
+                  )}
                 </div>
               )}
 
@@ -322,36 +352,50 @@ export default function Navbar() {
                       </Link>
                     </DropdownMenuItem>
 
-                    {user.role === "admin" && (
+                    {canManage && (
                       <>
                         <DropdownMenuSeparator />
                         <DropdownMenuLabel className="text-xs font-bold text-emerald-700 uppercase tracking-wide">Management</DropdownMenuLabel>
-                        <DropdownMenuItem asChild>
-                          <Link href="/products" className="cursor-pointer flex items-center py-2">
-                            <Package className="w-4 h-4 mr-3 text-emerald-600" />Products
-                          </Link>
-                        </DropdownMenuItem>
-                        <DropdownMenuItem asChild>
-                          <Link href="/branches" className="cursor-pointer flex items-center py-2">
-                            <Building2 className="w-4 h-4 mr-3 text-emerald-600" />Branches
-                          </Link>
-                        </DropdownMenuItem>
-                        <DropdownMenuItem asChild>
-                          <Link href="/categories" className="cursor-pointer flex items-center py-2">
-                            <List className="w-4 h-4 mr-3 text-emerald-600" />Categories
-                          </Link>
-                        </DropdownMenuItem>
-                        <DropdownMenuItem asChild>
-                          <Link href="/discounts" className="cursor-pointer flex items-center py-2">
-                            <Percent className="w-4 h-4 mr-3 text-emerald-600" />Discounts
-                          </Link>
-                        </DropdownMenuItem>
-                        <DropdownMenuItem asChild>
-                          <Link href="/users" className="cursor-pointer flex items-center py-2">
-                            <Users className="w-4 h-4 mr-3 text-emerald-600" />Users
-                          </Link>
-                        </DropdownMenuItem>
+                        {canProducts && (
+                          <DropdownMenuItem asChild>
+                            <Link href="/products" className="cursor-pointer flex items-center py-2">
+                              <Package className="w-4 h-4 mr-3 text-emerald-600" />Products
+                            </Link>
+                          </DropdownMenuItem>
+                        )}
+                        {canBranches && (
+                          <DropdownMenuItem asChild>
+                            <Link href="/branches" className="cursor-pointer flex items-center py-2">
+                              <Building2 className="w-4 h-4 mr-3 text-emerald-600" />Branches
+                            </Link>
+                          </DropdownMenuItem>
+                        )}
+                        {canCategories && (
+                          <DropdownMenuItem asChild>
+                            <Link href="/categories" className="cursor-pointer flex items-center py-2">
+                              <List className="w-4 h-4 mr-3 text-emerald-600" />Categories
+                            </Link>
+                          </DropdownMenuItem>
+                        )}
+                        {canDiscounts && (
+                          <DropdownMenuItem asChild>
+                            <Link href="/discounts" className="cursor-pointer flex items-center py-2">
+                              <Percent className="w-4 h-4 mr-3 text-emerald-600" />Discounts
+                            </Link>
+                          </DropdownMenuItem>
+                        )}
+                        {canUsers && (
+                          <DropdownMenuItem asChild>
+                            <Link href="/users" className="cursor-pointer flex items-center py-2">
+                              <Users className="w-4 h-4 mr-3 text-emerald-600" />Users
+                            </Link>
+                          </DropdownMenuItem>
+                        )}
+                      </>
+                    )}
 
+                    {canInventory && (
+                      <>
                         <DropdownMenuSeparator />
                         <DropdownMenuLabel className="text-xs font-bold text-emerald-700 uppercase tracking-wide">Inventory</DropdownMenuLabel>
                         <DropdownMenuItem asChild>
@@ -374,7 +418,11 @@ export default function Navbar() {
                             <Activity className="w-4 h-4 mr-3 text-emerald-600" />Transactions
                           </Link>
                         </DropdownMenuItem>
+                      </>
+                    )}
 
+                    {canLogs && (
+                      <>
                         <DropdownMenuSeparator />
                         <DropdownMenuItem asChild>
                           <Link href="/logs" className="cursor-pointer flex items-center py-2">
@@ -464,42 +512,58 @@ export default function Navbar() {
                       <BarChart3 className="w-4 h-4 mr-3 text-emerald-600" />Analytics
                     </Link>
                   </DropdownMenuItem>
-                  <DropdownMenuItem asChild>
-                    <Link href="/logs" className="cursor-pointer flex items-center py-2">
-                      <Activity className="w-4 h-4 mr-3 text-emerald-600" />Activity Logs
-                    </Link>
-                  </DropdownMenuItem>
+                  {canLogs && (
+                    <DropdownMenuItem asChild>
+                      <Link href="/logs" className="cursor-pointer flex items-center py-2">
+                        <Activity className="w-4 h-4 mr-3 text-emerald-600" />Activity Logs
+                      </Link>
+                    </DropdownMenuItem>
+                  )}
 
-                  {user.role === "admin" && (
+                  {canManage && (
                     <>
                       <DropdownMenuSeparator />
                       <DropdownMenuLabel className="text-xs font-bold text-emerald-700 uppercase tracking-wide">Management</DropdownMenuLabel>
-                      <DropdownMenuItem asChild>
-                        <Link href="/products" className="cursor-pointer flex items-center py-2">
-                          <Package className="w-4 h-4 mr-3 text-emerald-600" />Products
-                        </Link>
-                      </DropdownMenuItem>
-                      <DropdownMenuItem asChild>
-                        <Link href="/branches" className="cursor-pointer flex items-center py-2">
-                          <Building2 className="w-4 h-4 mr-3 text-emerald-600" />Branches
-                        </Link>
-                      </DropdownMenuItem>
-                      <DropdownMenuItem asChild>
-                        <Link href="/categories" className="cursor-pointer flex items-center py-2">
-                          <List className="w-4 h-4 mr-3 text-emerald-600" />Categories
-                        </Link>
-                      </DropdownMenuItem>
-                      <DropdownMenuItem asChild>
-                        <Link href="/discounts" className="cursor-pointer flex items-center py-2">
-                          <Percent className="w-4 h-4 mr-3 text-emerald-600" />Discounts
-                        </Link>
-                      </DropdownMenuItem>
-                      <DropdownMenuItem asChild>
-                        <Link href="/users" className="cursor-pointer flex items-center py-2">
-                          <Users className="w-4 h-4 mr-3 text-emerald-600" />Users
-                        </Link>
-                      </DropdownMenuItem>
+                      {canProducts && (
+                        <DropdownMenuItem asChild>
+                          <Link href="/products" className="cursor-pointer flex items-center py-2">
+                            <Package className="w-4 h-4 mr-3 text-emerald-600" />Products
+                          </Link>
+                        </DropdownMenuItem>
+                      )}
+                      {canBranches && (
+                        <DropdownMenuItem asChild>
+                          <Link href="/branches" className="cursor-pointer flex items-center py-2">
+                            <Building2 className="w-4 h-4 mr-3 text-emerald-600" />Branches
+                          </Link>
+                        </DropdownMenuItem>
+                      )}
+                      {canCategories && (
+                        <DropdownMenuItem asChild>
+                          <Link href="/categories" className="cursor-pointer flex items-center py-2">
+                            <List className="w-4 h-4 mr-3 text-emerald-600" />Categories
+                          </Link>
+                        </DropdownMenuItem>
+                      )}
+                      {canDiscounts && (
+                        <DropdownMenuItem asChild>
+                          <Link href="/discounts" className="cursor-pointer flex items-center py-2">
+                            <Percent className="w-4 h-4 mr-3 text-emerald-600" />Discounts
+                          </Link>
+                        </DropdownMenuItem>
+                      )}
+                      {canUsers && (
+                        <DropdownMenuItem asChild>
+                          <Link href="/users" className="cursor-pointer flex items-center py-2">
+                            <Users className="w-4 h-4 mr-3 text-emerald-600" />Users
+                          </Link>
+                        </DropdownMenuItem>
+                      )}
+                    </>
+                  )}
 
+                  {canInventory && (
+                    <>
                       <DropdownMenuSeparator />
                       <DropdownMenuLabel className="text-xs font-bold text-emerald-700 uppercase tracking-wide">Inventory</DropdownMenuLabel>
                       <DropdownMenuItem asChild>

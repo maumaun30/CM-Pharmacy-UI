@@ -3,6 +3,7 @@
 import { useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/hooks/useAuth";
+import { canAny } from "@/lib/permissions";
 import { AlertCircle, ShieldAlert } from "lucide-react";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -10,7 +11,11 @@ import Navbar from "@/components/Navbar";
 
 interface RoleProtectedRouteProps {
   children: React.ReactNode;
-  allowedRoles: string[]; // e.g., ["admin", "manager"]
+  // Legacy role gate (still supported). Prefer `requiredPermissions` so access
+  // tracks the capability, not a hardcoded role.
+  allowedRoles?: string[]; // e.g., ["admin", "manager"]
+  // Permission gate: access granted if the user holds ANY of these.
+  requiredPermissions?: string[]; // e.g., ["products.write"]
   fallbackPath?: string; // Where to redirect if not authorized
   showUnauthorized?: boolean; // Show unauthorized message instead of redirect
 }
@@ -18,23 +23,37 @@ interface RoleProtectedRouteProps {
 export default function RoleProtectedRoute({
   children,
   allowedRoles,
+  requiredPermissions,
   fallbackPath = "/",
   showUnauthorized = false,
 }: RoleProtectedRouteProps) {
   const { user, loading } = useAuth();
   const router = useRouter();
 
+  // A user is authorized when they satisfy the permission gate (preferred) or,
+  // if none is given, fall back to the legacy role list.
+  const isAuthorized = (u: NonNullable<typeof user>): boolean => {
+    if (requiredPermissions && requiredPermissions.length > 0) {
+      return canAny(u, requiredPermissions);
+    }
+    if (allowedRoles && allowedRoles.length > 0) {
+      return allowedRoles.includes(u.role);
+    }
+    return true; // authenticated is enough
+  };
+
   useEffect(() => {
     if (!loading && !user) {
       // Not logged in - redirect to login
       router.push("/login");
-    } else if (!loading && user && !allowedRoles.includes(user.role)) {
-      // Logged in but wrong role
+    } else if (!loading && user && !isAuthorized(user)) {
+      // Logged in but not authorized
       if (!showUnauthorized) {
         router.push(fallbackPath);
       }
     }
-  }, [loading, user, router, allowedRoles, fallbackPath, showUnauthorized]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [loading, user, router, allowedRoles, requiredPermissions, fallbackPath, showUnauthorized]);
 
   // Show loading state
   if (loading) {
@@ -56,7 +75,7 @@ export default function RoleProtectedRoute({
   }
 
   // User logged in but unauthorized
-  if (!allowedRoles.includes(user.role)) {
+  if (!isAuthorized(user)) {
     if (showUnauthorized) {
       return (
         <>
@@ -75,9 +94,19 @@ export default function RoleProtectedRoute({
               </p>
               
               <p className="text-sm text-gray-500 mb-6">
-                Required role: <span className="font-semibold text-red-600">
-                  {allowedRoles.join(" or ")}
-                </span>
+                {requiredPermissions && requiredPermissions.length > 0 ? (
+                  <>
+                    Requires: <span className="font-semibold text-red-600">
+                      {requiredPermissions.join(" or ")}
+                    </span>
+                  </>
+                ) : (
+                  <>
+                    Required role: <span className="font-semibold text-red-600">
+                      {(allowedRoles ?? []).join(" or ")}
+                    </span>
+                  </>
+                )}
                 <br />
                 Your role: <span className="font-semibold text-gray-700">
                   {user.role}

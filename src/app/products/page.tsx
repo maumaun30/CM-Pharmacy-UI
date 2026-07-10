@@ -5,6 +5,8 @@ import { useEffect, useState, useMemo, useCallback } from "react";
 import api from "@/lib/api";
 import ProtectedRoute from "@/components/ProtectedRoute";
 import RoleProtectedRoute from "@/components/RoleProtectedRoute";
+import { useAuth } from "@/hooks/useAuth";
+import { can } from "@/lib/permissions";
 
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -152,6 +154,11 @@ const isExpired = (expiry_date?: string) => {
 };
 
 export default function ProductList() {
+  const { user } = useAuth();
+  // Product deletion stays admin-only (API: products.delete). Hide the destructive
+  // controls from managers so they never hit a 403.
+  const canDelete = can(user, "products.delete");
+
   const [products, setProducts] = useState<Product[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
   const [branches, setBranches] = useState<Branch[]>([]);
@@ -736,7 +743,7 @@ export default function ProductList() {
 
   if (fetchLoading) {
     return (
-      <RoleProtectedRoute allowedRoles={["admin"]}>
+      <RoleProtectedRoute requiredPermissions={["products.write"]}>
         <ProtectedRoute>
           <div className="flex items-center justify-center h-screen bg-gradient-to-br from-emerald-50 to-green-50">
             <div className="text-center">
@@ -750,7 +757,7 @@ export default function ProductList() {
   }
 
   return (
-    <RoleProtectedRoute allowedRoles={["admin"]}>
+    <RoleProtectedRoute requiredPermissions={["products.write"]}>
       <ProtectedRoute>
         <div className="min-h-screen bg-gradient-to-br from-emerald-50 via-white to-green-50 pb-24">
           <div className="max-w-7xl mx-auto p-4 md:p-6 space-y-6">
@@ -874,14 +881,16 @@ export default function ProductList() {
                         <Pencil className="h-4 w-4 mr-1" />
                         Edit Category
                       </Button>
-                      <Button
-                        size="sm"
-                        onClick={() => setBulkDeleteOpen(true)}
-                        className="bg-red-600 hover:bg-red-700 text-white h-9"
-                      >
-                        <Trash className="h-4 w-4 mr-1" />
-                        Delete Selected
-                      </Button>
+                      {canDelete && (
+                        <Button
+                          size="sm"
+                          onClick={() => setBulkDeleteOpen(true)}
+                          className="bg-red-600 hover:bg-red-700 text-white h-9"
+                        >
+                          <Trash className="h-4 w-4 mr-1" />
+                          Delete Selected
+                        </Button>
+                      )}
                     </motion.div>
                   )}
                 </div>
@@ -1437,17 +1446,19 @@ export default function ProductList() {
                                     <Pencil className="h-4 w-4 text-blue-600" />
                                   </Button>
 
-                                  <Button
-                                    variant="ghost"
-                                    size="icon"
-                                    onClick={() => {
-                                      setProductToDelete(prod);
-                                      setDeleteOpen(true);
-                                    }}
-                                    className="h-8 w-8 hover:bg-red-50"
-                                  >
-                                    <Trash className="h-4 w-4 text-red-600" />
-                                  </Button>
+                                  {canDelete && (
+                                    <Button
+                                      variant="ghost"
+                                      size="icon"
+                                      onClick={() => {
+                                        setProductToDelete(prod);
+                                        setDeleteOpen(true);
+                                      }}
+                                      className="h-8 w-8 hover:bg-red-50"
+                                    >
+                                      <Trash className="h-4 w-4 text-red-600" />
+                                    </Button>
+                                  )}
                                 </div>
                               </TableCell>
                             </TableRow>

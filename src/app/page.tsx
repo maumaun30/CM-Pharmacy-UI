@@ -122,7 +122,13 @@ const HomePage = () => {
     if (socketRef.current) return;
 
     const socketUrl = process.env.NEXT_PUBLIC_SOCKET_URL || "http://localhost:3000";
+    let token: string | null = null;
+    try {
+      token = localStorage.getItem("token");
+    } catch {}
     const newSocket = io(socketUrl, {
+      // Server now requires a valid JWT on the socket handshake.
+      auth: { token },
       transports: ["websocket", "polling"],
       reconnection: true,
       reconnectionDelay: 1000,

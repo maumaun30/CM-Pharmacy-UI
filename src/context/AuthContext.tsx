@@ -9,6 +9,9 @@ export interface AuthUser {
   username: string;
   email?: string;
   role: string;
+  // Expanded capability list from the API (config/permissions.js). Drives what
+  // the UI renders — read it via the `can()` helper in lib/permissions.ts.
+  permissions?: string[];
   first_name: string;
   last_name: string;
   contact_number?: string;

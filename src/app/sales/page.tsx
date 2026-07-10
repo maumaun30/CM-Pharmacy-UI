@@ -62,6 +62,7 @@ import {
 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { useAuth } from "@/hooks/useAuth";
+import { can } from "@/lib/permissions";
 import Link from "next/link";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -169,6 +170,8 @@ function getStatusBadge(status?: string): React.ReactNode {
 
 const SalesReportPage = () => {
   const { user, loading: authLoading } = useAuth();
+  // Issuing refunds is a supervisor action (API: sales.refund → admin + manager).
+  const canRefund = can(user, "sales.refund");
   // Derive activeBranch from context — fixes camelCase bug (was using current_branch)
   const activeBranch = user ? (user.currentBranch ?? user.branch ?? null) : null;
 
@@ -1032,15 +1035,18 @@ const SalesReportPage = () => {
                       )}
                     </div>
 
-                    {selectedSale.status !== "fully_refunded" && (
+                    {selectedSale.status !== "fully_refunded" &&
+                      (canRefund || refundHistory.length > 0) && (
                       <div className="flex flex-col sm:flex-row gap-2 pt-2 border-t border-gray-100">
-                        <Button
-                          onClick={handleOpenRefund}
-                          className="flex-1 bg-amber-500 hover:bg-amber-600 text-white"
-                        >
-                          <RotateCcw className="w-4 h-4 mr-2" />
-                          Process Refund
-                        </Button>
+                        {canRefund && (
+                          <Button
+                            onClick={handleOpenRefund}
+                            className="flex-1 bg-amber-500 hover:bg-amber-600 text-white"
+                          >
+                            <RotateCcw className="w-4 h-4 mr-2" />
+                            Process Refund
+                          </Button>
+                        )}
                         {refundHistory.length > 0 && (
                           <Button
                             variant="outline"
