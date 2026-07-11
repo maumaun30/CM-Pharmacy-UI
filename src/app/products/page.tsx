@@ -155,6 +155,11 @@ const isExpired = (expiry_date?: string) => {
 
 export default function ProductList() {
   const { user } = useAuth();
+  // Stock thresholds are per-branch; edits target the branch the user is
+  // currently switched to (BranchSwitcher), falling back to their home branch.
+  const activeBranchId = user?.current_branch_id ?? user?.branch_id ?? null;
+  const activeBranchName =
+    user?.currentBranch?.name ?? user?.branch?.name ?? "your branch";
   // Product deletion stays admin-only (API: products.delete). Hide the destructive
   // controls from managers so they never hit a 403.
   const canDelete = can(user, "products.delete");
@@ -179,6 +184,9 @@ export default function ProductList() {
     requires_prescription: false,
     status: "ACTIVE" as "ACTIVE" | "INACTIVE",
     category_id: "",
+    minimum_stock: "",
+    reorder_point: "",
+    maximum_stock: "",
   });
   const [loading, setLoading] = useState(false);
   const [fetchLoading, setFetchLoading] = useState(true);
@@ -500,6 +508,10 @@ export default function ProductList() {
   const handleOpenModal = useCallback((product?: Product) => {
     if (product) {
       setEditingProduct(product);
+      // Prefill thresholds from the active branch's stock row (if any).
+      const bs = product.branch_stocks?.find(
+        (b) => b.branch_id === activeBranchId,
+      );
       setFormData({
         name: product.name,
         brand_name: product.brand_name,
@@ -516,6 +528,9 @@ export default function ProductList() {
         requires_prescription: product.requires_prescription || false,
         status: product.status,
         category_id: product.category_id.toString(),
+        minimum_stock: bs?.minimum_stock != null ? String(bs.minimum_stock) : "",
+        reorder_point: bs?.reorder_point != null ? String(bs.reorder_point) : "",
+        maximum_stock: bs?.maximum_stock != null ? String(bs.maximum_stock) : "",
       });
     } else {
       setEditingProduct(null);
@@ -533,10 +548,13 @@ export default function ProductList() {
         requires_prescription: false,
         status: "ACTIVE",
         category_id: "",
+        minimum_stock: "",
+        reorder_point: "",
+        maximum_stock: "",
       });
     }
     setModalOpen(true);
-  }, []);
+  }, [activeBranchId]);
 
   const handleCloseModal = useCallback(() => {
     setModalOpen(false);
@@ -558,6 +576,9 @@ export default function ProductList() {
       requires_prescription,
       status,
       category_id,
+      minimum_stock,
+      reorder_point,
+      maximum_stock,
     } = formData;
 
     if (!name || !brand_name || !sku || !cost || !price || !category_id) {
@@ -588,6 +609,25 @@ export default function ProductList() {
 
       if (editingProduct) {
         await api.put(`/products/${editingProduct.id}`, payload);
+        // Best-effort: update this branch's stock thresholds. Kept separate so a
+        // missing stock.write permission doesn't fail the product save itself.
+        if (
+          activeBranchId &&
+          (minimum_stock !== "" || reorder_point !== "" || maximum_stock !== "")
+        ) {
+          try {
+            await api.patch(
+              `/products/${editingProduct.id}/branch/${activeBranchId}/stock`,
+              {
+                minimumStock: minimum_stock !== "" ? parseInt(minimum_stock) : undefined,
+                reorderPoint: reorder_point !== "" ? parseInt(reorder_point) : undefined,
+                maximumStock: maximum_stock !== "" ? parseInt(maximum_stock) : undefined,
+              },
+            );
+          } catch {
+            toast.error("Product saved, but stock thresholds couldn't be updated");
+          }
+        }
         toast.success("Product updated successfully");
       } else {
         await api.post("/products", payload);
@@ -600,7 +640,7 @@ export default function ProductList() {
     } finally {
       setLoading(false);
     }
-  }, [editingProduct, formData, handleCloseModal, fetchProducts]);
+  }, [editingProduct, formData, handleCloseModal, fetchProducts, activeBranchId]);
 
   const confirmDelete = useCallback(async () => {
     if (!productToDelete) return;
@@ -1813,6 +1853,80 @@ export default function ProductList() {
                     </div>
                   </div>
                 </div>
+
+                {/* Stock thresholds — edit only; targets the active branch's row */}
+                {editingProduct && (
+                  <div className="space-y-4">
+                    <div className="flex items-center gap-2 pb-2 border-b-2 border-emerald-100">
+                      <Building2 className="h-5 w-5 text-emerald-600" />
+                      <h3 className="font-bold text-gray-800">
+                        Stock Thresholds
+                        <span className="ml-2 text-xs font-medium text-gray-500">
+                          {activeBranchName}
+                        </span>
+                      </h3>
+                    </div>
+                    {activeBranchId ? (
+                      <>
+                        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                          <div>
+                            <Label className="mb-2 text-sm font-semibold text-gray-700">
+                              Critical (min)
+                            </Label>
+                            <Input
+                              type="number"
+                              min="0"
+                              value={formData.minimum_stock}
+                              onChange={(e) =>
+                                setFormData({ ...formData, minimum_stock: e.target.value })
+                              }
+                              placeholder="e.g., 10"
+                              className="h-11 border-emerald-200 focus:border-emerald-500 focus:ring-2 focus:ring-emerald-200"
+                            />
+                          </div>
+                          <div>
+                            <Label className="mb-2 text-sm font-semibold text-gray-700">
+                              Reorder (low)
+                            </Label>
+                            <Input
+                              type="number"
+                              min="0"
+                              value={formData.reorder_point}
+                              onChange={(e) =>
+                                setFormData({ ...formData, reorder_point: e.target.value })
+                              }
+                              placeholder="e.g., 20"
+                              className="h-11 border-emerald-200 focus:border-emerald-500 focus:ring-2 focus:ring-emerald-200"
+                            />
+                          </div>
+                          <div>
+                            <Label className="mb-2 text-sm font-semibold text-gray-700">
+                              Maximum
+                            </Label>
+                            <Input
+                              type="number"
+                              min="0"
+                              value={formData.maximum_stock}
+                              onChange={(e) =>
+                                setFormData({ ...formData, maximum_stock: e.target.value })
+                              }
+                              placeholder="optional"
+                              className="h-11 border-emerald-200 focus:border-emerald-500 focus:ring-2 focus:ring-emerald-200"
+                            />
+                          </div>
+                        </div>
+                        <p className="text-xs text-gray-500">
+                          Stock at or below Critical is flagged Critical; at or below
+                          Reorder is Low Stock. Applies to {activeBranchName}.
+                        </p>
+                      </>
+                    ) : (
+                      <p className="text-sm text-gray-500">
+                        Switch to a branch to set its stock thresholds.
+                      </p>
+                    )}
+                  </div>
+                )}
               </div>
 
               <DialogFooter className="flex-col sm:flex-row gap-2">
