@@ -16,6 +16,7 @@ import {
   ShieldCheck,
 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
+import GoogleSignInButton from "@/components/GoogleSignInButton";
 
 const BRAND = process.env.NEXT_PUBLIC_SITE_NAME || "Brand Logo";
 
@@ -68,6 +69,30 @@ export default function LoginPage() {
       setTimeout(() => router.push("/"), 600);
     } catch (err: any) {
       setError(err.response?.data?.message || "Login failed. Please try again.");
+      setState("idle");
+    }
+  };
+
+  // Google sign-in: exchange the Google ID token for our JWT via /auth/google.
+  // Same success path as password/PIN login; a 401 means the Google account
+  // isn't linked to any staff user yet.
+  const handleGoogleCredential = async (idToken: string) => {
+    setState("loading");
+    setError("");
+    try {
+      const res = await api.post("/auth/google", { idToken });
+      if (typeof window !== "undefined") {
+        try {
+          window.localStorage?.setItem?.("token", res.data.token);
+        } catch {}
+      }
+      setState("success");
+      await refreshUser();
+      setTimeout(() => router.push("/"), 600);
+    } catch (err: any) {
+      setError(
+        err.response?.data?.message || "Google sign-in failed. Please try again.",
+      );
       setState("idle");
     }
   };
@@ -362,6 +387,24 @@ export default function LoginPage() {
               )}
             </Button>
           </form>
+
+          {/* Divider */}
+          <div className="relative my-6">
+            <div className="absolute inset-0 flex items-center">
+              <div className="w-full border-t border-gray-200" />
+            </div>
+            <div className="relative flex justify-center">
+              <span className="bg-white px-3 text-xs font-medium text-gray-400">
+                or continue with
+              </span>
+            </div>
+          </div>
+
+          {/* Google sign-in */}
+          <GoogleSignInButton
+            onCredential={handleGoogleCredential}
+            text="signin_with"
+          />
         </div>
       </motion.div>
 

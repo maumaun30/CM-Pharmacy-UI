@@ -20,6 +20,10 @@ export interface AuthUser {
   is_active: boolean;
   branch?: { id: number; name: string; code: string; is_active: boolean; email?: string; phone?: string };
   currentBranch?: { id: number; name: string; code: string; is_active: boolean; email?: string; phone?: string };
+  // Google account linking (from /auth/me). google_linked is derived server-side;
+  // the raw Google subject id is never sent to the client.
+  google_linked?: boolean;
+  google_email?: string | null;
 }
 
 interface AuthContextValue {
