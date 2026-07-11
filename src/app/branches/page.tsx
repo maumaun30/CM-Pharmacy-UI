@@ -150,11 +150,26 @@ const BranchesPage = () => {
 
     try {
       setLoading(true);
+      // API request contract is camelCase (see branchController req.body); form
+      // state stays snake_case because it mirrors the snake_case API responses.
+      const payload = {
+        name: formData.name,
+        code: formData.code,
+        address: formData.address,
+        city: formData.city,
+        province: formData.province,
+        postalCode: formData.postal_code,
+        phone: formData.phone,
+        email: formData.email,
+        managerName: formData.manager_name,
+        isActive: formData.is_active,
+        isMainBranch: formData.is_main_branch,
+      };
       if (editingBranch) {
-        await api.put(`/branches/${editingBranch.id}`, formData);
+        await api.put(`/branches/${editingBranch.id}`, payload);
         toast.success("Branch updated successfully");
       } else {
-        await api.post("/branches", formData);
+        await api.post("/branches", payload);
         toast.success("Branch created successfully");
       }
       handleCloseModal();

@@ -245,21 +245,25 @@ export default function DiscountList() {
 
     try {
       setLoading(true);
+      // API request contract is camelCase (see discountController req.body); form
+      // state stays snake_case because it mirrors the snake_case API responses.
       const payload = {
         name,
         description: formData.description || null,
-        discount_type,
-        discount_value: parseFloat(discount_value),
-        discount_category,
-        start_date: formData.start_date || null,
-        end_date: formData.end_date || null,
-        is_enabled: formData.is_enabled,
-        requires_verification: formData.requires_verification,
-        applicable_to: formData.applicable_to,
-        minimum_purchase_amount: formData.minimum_purchase_amount
+        discountType: discount_type,
+        discountValue: parseFloat(discount_value),
+        discountCategory: discount_category,
+        startDate: formData.start_date || null,
+        endDate: formData.end_date || null,
+        isEnabled: formData.is_enabled,
+        requiresVerification: formData.requires_verification,
+        applicableTo: formData.applicable_to,
+        minimumPurchaseAmount: formData.minimum_purchase_amount
           ? parseFloat(formData.minimum_purchase_amount)
           : null,
-        maximum_purchase_amount: formData.maximum_purchase_amount
+        // NOTE: API field is maximumDiscountAmount — the form's "maximum purchase
+        // amount" value maps here (prior snake_case key was silently dropped).
+        maximumDiscountAmount: formData.maximum_purchase_amount
           ? parseFloat(formData.maximum_purchase_amount)
           : null,
         priority: parseInt(formData.priority),

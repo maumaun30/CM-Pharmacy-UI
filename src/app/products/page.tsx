@@ -390,8 +390,19 @@ export default function ProductList() {
             const { categoryName, ...productData } = product;
             if (matchedCat) {
               await api.post("/products", {
-                ...productData,
-                category_id: matchedCat.id,
+                name: productData.name,
+                brandName: productData.brand_name,
+                genericName: productData.generic_name,
+                sku: productData.sku,
+                barcode: productData.barcode,
+                cost: productData.cost,
+                price: productData.price,
+                dosage: productData.dosage,
+                form: productData.form,
+                expiryDate: productData.expiry_date,
+                requiresPrescription: productData.requires_prescription,
+                status: productData.status,
+                categoryId: matchedCat.id,
               });
             } else {
               // Handle the error: category was not found
@@ -557,20 +568,22 @@ export default function ProductList() {
 
     try {
       setLoading(true);
+      // API request contract is camelCase (see productController req.body); form
+      // state stays snake_case because it mirrors the snake_case API responses.
       const payload = {
         name,
-        brand_name,
-        generic_name: generic_name || null,
+        brandName: brand_name,
+        genericName: generic_name || null,
         sku,
         barcode: formData.barcode || null,
         cost: parseFloat(cost),
         price: parseFloat(price),
         dosage: dosage || null,
         form: form || null,
-        expiry_date: expiry_date || null,
-        requires_prescription,
+        expiryDate: expiry_date || null,
+        requiresPrescription: requires_prescription,
         status,
-        category_id: parseInt(category_id),
+        categoryId: parseInt(category_id),
       };
 
       if (editingProduct) {
@@ -711,7 +724,7 @@ export default function ProductList() {
     try {
       await Promise.all(
         Array.from(selectedIds).map((id) =>
-          api.put(`/products/${id}`, { category_id: parseInt(bulkEditCategoryId) }),
+          api.put(`/products/${id}`, { categoryId: parseInt(bulkEditCategoryId) }),
         ),
       );
       toast.success(`Updated category for ${selectedIds.size} products`);
