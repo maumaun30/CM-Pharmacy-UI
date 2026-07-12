@@ -56,6 +56,7 @@ interface Branch {
   postal_code: string;
   phone: string;
   email: string;
+  tin: string;
   manager_name: string;
   is_active: boolean;
   is_main_branch: boolean;
@@ -81,6 +82,7 @@ const BranchesPage = () => {
     postal_code: "",
     phone: "",
     email: "",
+    tin: "",
     manager_name: "",
     is_active: true,
     is_main_branch: false,
@@ -114,6 +116,7 @@ const BranchesPage = () => {
         postal_code: branch.postal_code || "",
         phone: branch.phone || "",
         email: branch.email || "",
+        tin: branch.tin || "",
         manager_name: branch.manager_name || "",
         is_active: branch.is_active,
         is_main_branch: branch.is_main_branch,
@@ -129,6 +132,7 @@ const BranchesPage = () => {
         postal_code: "",
         phone: "",
         email: "",
+        tin: "",
         manager_name: "",
         is_active: true,
         is_main_branch: false,
@@ -161,6 +165,7 @@ const BranchesPage = () => {
         postalCode: formData.postal_code,
         phone: formData.phone,
         email: formData.email,
+        tin: formData.tin,
         managerName: formData.manager_name,
         isActive: formData.is_active,
         isMainBranch: formData.is_main_branch,
@@ -764,18 +769,36 @@ const BranchesPage = () => {
                   </div>
                 </div>
 
-                <div>
-                  <Label className="mb-2 text-sm font-semibold text-gray-700">
-                    Manager Name
-                  </Label>
-                  <Input
-                    value={formData.manager_name}
-                    onChange={(e) =>
-                      setFormData({ ...formData, manager_name: e.target.value })
-                    }
-                    placeholder="Branch manager"
-                    className="h-11 border-emerald-200 focus:border-emerald-500 focus:ring-2 focus:ring-emerald-200"
-                  />
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <div>
+                    <Label className="mb-2 text-sm font-semibold text-gray-700">
+                      Manager Name
+                    </Label>
+                    <Input
+                      value={formData.manager_name}
+                      onChange={(e) =>
+                        setFormData({ ...formData, manager_name: e.target.value })
+                      }
+                      placeholder="Branch manager"
+                      className="h-11 border-emerald-200 focus:border-emerald-500 focus:ring-2 focus:ring-emerald-200"
+                    />
+                  </div>
+                  <div>
+                    <Label className="mb-2 text-sm font-semibold text-gray-700">
+                      TIN
+                    </Label>
+                    <Input
+                      value={formData.tin}
+                      onChange={(e) =>
+                        setFormData({ ...formData, tin: e.target.value })
+                      }
+                      placeholder="000-000-000-00000"
+                      className="h-11 border-emerald-200 focus:border-emerald-500 focus:ring-2 focus:ring-emerald-200"
+                    />
+                    <p className="mt-1 text-xs text-gray-500">
+                      Shown on this branch&apos;s printed receipts.
+                    </p>
+                  </div>
                 </div>
 
                 <div className="flex flex-col sm:flex-row gap-4 p-4 bg-gradient-to-r from-emerald-50 to-green-50 rounded-xl border-2 border-emerald-200">

@@ -192,11 +192,15 @@ export default function LoginPage() {
               initial={{ scale: 0.8, opacity: 0 }}
               animate={{ scale: 1, opacity: 1 }}
               transition={{ delay: 0.1, duration: 0.4 }}
-              className="inline-flex items-center justify-center w-16 h-16 rounded-full bg-gradient-to-r from-emerald-500 to-green-600 mb-4 shadow-lg"
+              className="mb-4 flex justify-center"
             >
-              <Lock className="w-8 h-8 text-white" />
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img
+                src="/logo-wordmark.png"
+                alt={BRAND}
+                className="h-16 w-auto max-w-full object-contain"
+              />
             </motion.div>
-            <h1 className="text-3xl font-bold text-gray-800 mb-2">{BRAND}</h1>
             <p className="text-gray-600 text-sm">
               Welcome back! Please login to continue
             </p>

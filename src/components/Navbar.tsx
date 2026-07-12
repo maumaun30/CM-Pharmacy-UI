@@ -57,9 +57,12 @@ export default function Navbar() {
       <div className="px-3 sm:px-4 py-3 flex justify-between items-center max-w-screen-2xl mx-auto">
         {/* Brand Logo */}
         <Link href="/" className="flex items-center gap-2 group">
-          <div className="h-8 w-8 rounded-lg bg-gradient-to-br from-emerald-500 to-green-600 flex items-center justify-center shadow-md group-hover:shadow-lg transition-shadow">
-            <ShoppingCart className="h-4 w-4 text-white" />
-          </div>
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img
+            src="/logo-icon.png"
+            alt={BRAND}
+            className="h-9 w-9 object-contain group-hover:scale-105 transition-transform"
+          />
           <span className="font-bold text-base sm:text-lg bg-gradient-to-r from-emerald-600 to-green-600 bg-clip-text text-transparent hidden sm:inline">
             {BRAND}
           </span>
