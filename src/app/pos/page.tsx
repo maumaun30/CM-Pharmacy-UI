@@ -55,7 +55,49 @@ interface Product {
   barcode?: string;
   price: number;
   current_stock: number;
+  minimum_stock?: number;
+  reorder_point?: number;
+  track_inventory?: boolean;
   status: string;
+}
+
+type StockLevel = "untracked" | "out" | "critical" | "low" | "in";
+
+// Classify stock against the branch thresholds (mirrors the mobile POS).
+function stockLevel(p: Product): StockLevel {
+  if (p.track_inventory === false) return "untracked";
+  const qty = p.current_stock ?? 0;
+  if (qty <= 0) return "out";
+  if ((p.minimum_stock ?? 0) > 0 && qty <= (p.minimum_stock as number)) return "critical";
+  if ((p.reorder_point ?? 0) > 0 && qty <= (p.reorder_point as number)) return "low";
+  return "in";
+}
+
+function stockLevelClasses(level: StockLevel): { text: string; badge: string; label: string } {
+  switch (level) {
+    case "untracked":
+      return { text: "text-slate-500", badge: "bg-slate-100 text-slate-600 border-slate-200", label: "Non-stock" };
+    case "out":
+      return { text: "text-red-600", badge: "bg-red-100 text-red-700 border-red-200", label: "Out of stock" };
+    case "critical":
+      return { text: "text-orange-600", badge: "bg-orange-100 text-orange-700 border-orange-200", label: "Critical" };
+    case "low":
+      return { text: "text-amber-600", badge: "bg-amber-100 text-amber-700 border-amber-200", label: "Low" };
+    default:
+      return { text: "text-gray-700", badge: "bg-emerald-100 text-emerald-700 border-emerald-200", label: "In stock" };
+  }
+}
+
+// Small status pill shown only when stock needs attention (out/critical/low).
+function StockLevelPill({ product }: { product: Product }) {
+  const level = stockLevel(product);
+  if (level === "in" || level === "untracked") return null;
+  const cls = stockLevelClasses(level);
+  return (
+    <span className={`text-[9px] font-semibold px-1.5 py-0.5 rounded border ${cls.badge}`}>
+      {cls.label}
+    </span>
+  );
 }
 
 interface Discount {
@@ -94,6 +136,10 @@ interface SaleReceipt {
   branchPhone: string;
   branchEmail: string;
   soldBy: string;
+  customerName?: string;
+  customerIdNumber?: string;
+  customerDiscountType?: "SENIOR_CITIZEN" | "PWD" | null;
+  vat?: { vatableSales: number; vatAmount: number; vatExemptSales: number; scPwdDiscount: number };
 }
 
 type ViewMode = "grid" | "list";
@@ -108,15 +154,28 @@ const GRID_PADDING = 12;
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
+const VAT_RATE = 0.12; // PH VAT; product prices are VAT-inclusive
+
+function isVatExemptCategory(cat: Discount["discount_category"]): boolean {
+  return cat === "SENIOR_CITIZEN" || cat === "PWD";
+}
+
+// Senior/PWD: strip the 12% VAT first (their purchase is VAT-exempt), then apply
+// the discount on the net base — the BIR method (matches the mobile POS).
+// Returns the final unit price the customer pays.
 function calculatediscounted_price(price: number, discount: Discount): number {
-  if (discount.discount_type === "PERCENTAGE") {
-    const discountAmount = (price * discount.discount_value) / 100;
-    const finalDiscount = discount.maximum_discount_amount
-      ? Math.min(discountAmount, discount.maximum_discount_amount)
-      : discountAmount;
-    return price - finalDiscount;
+  const base = isVatExemptCategory(discount.discount_category)
+    ? price / (1 + VAT_RATE)
+    : price;
+  let amount =
+    discount.discount_type === "PERCENTAGE"
+      ? (base * discount.discount_value) / 100
+      : Math.min(discount.discount_value, base);
+  if (discount.maximum_discount_amount) {
+    amount = Math.min(amount, discount.maximum_discount_amount);
   }
-  return price - Math.min(discount.discount_value, price);
+  amount = Math.max(0, Math.min(amount, base));
+  return Math.max(0, base - amount);
 }
 
 function getItemTotal(item: CartItem): number {
@@ -211,14 +270,8 @@ const CartItemDisplay = memo(
             {item.product.name}
           </p>
           <p className="text-xs text-gray-500">SKU: {item.product.sku}</p>
-          <p
-            className={`text-xs mt-1 ${
-              item.product.current_stock <= 10
-                ? "text-orange-600 font-semibold"
-                : "text-gray-500"
-            }`}
-          >
-            Stock: {item.product.current_stock}
+          <p className={`text-xs mt-1 font-semibold ${stockLevelClasses(stockLevel(item.product)).text}`}>
+            Stock: {item.product.track_inventory === false ? "—" : item.product.current_stock}
           </p>
         </div>
         <Button
@@ -274,13 +327,7 @@ const CartItemDisplay = memo(
             variant="outline"
             size="sm"
             className="h-7 w-7 p-0 border-emerald-300 hover:bg-emerald-50"
-            onClick={() =>
-              onUpdateQty(
-                item.product.id,
-                Math.min(item.product.current_stock, item.quantity + 1),
-              )
-            }
-            disabled={item.quantity >= item.product.current_stock}
+            onClick={() => onUpdateQty(item.product.id, item.quantity + 1)}
           >
             <Plus className="h-3 w-3" />
           </Button>
@@ -343,13 +390,12 @@ const ProductGridCard = memo(
       <div className="flex items-end justify-between">
         <div>
           <p className="text-xs text-gray-500 mb-1">Stock</p>
-          <p
-            className={`text-sm font-semibold ${
-              product.current_stock <= 10 ? "text-orange-600" : "text-gray-700"
-            }`}
-          >
-            {product.current_stock}
-          </p>
+          <div className="flex items-center gap-1.5">
+            <p className={`text-sm font-semibold ${stockLevelClasses(stockLevel(product)).text}`}>
+              {product.track_inventory === false ? "—" : product.current_stock}
+            </p>
+            <StockLevelPill product={product} />
+          </div>
         </div>
         <p className="text-lg font-bold text-emerald-600">
           ₱{product.price.toFixed(2)}
@@ -404,13 +450,10 @@ const ProductListCard = memo(
         <div className="flex items-center gap-6 flex-shrink-0">
           <div className="text-center">
             <p className="text-xs text-gray-500 mb-1">Stock</p>
-            <p
-              className={`text-base font-semibold ${
-                product.current_stock <= 10 ? "text-orange-600" : "text-gray-700"
-              }`}
-            >
-              {product.current_stock}
+            <p className={`text-base font-semibold ${stockLevelClasses(stockLevel(product)).text}`}>
+              {product.track_inventory === false ? "—" : product.current_stock}
             </p>
+            <StockLevelPill product={product} />
           </div>
           <p className="text-2xl font-bold text-emerald-600 min-w-[100px] text-right">
             ₱{product.price.toFixed(2)}
@@ -669,6 +712,9 @@ const POSPage = () => {
   const [cashAmount, setCashAmount] = useState("");
   const [showReceiptDialog, setShowReceiptDialog] = useState(false);
   const [currentReceipt, setCurrentReceipt] = useState<SaleReceipt | null>(null);
+  // Senior/PWD customer capture (required when a VAT-exempt discount is in cart)
+  const [customerName, setCustomerName] = useState("");
+  const [customerIdNumber, setCustomerIdNumber] = useState("");
 
   const receiptRef = useRef<HTMLDivElement>(null);
   const isMobile = useMediaQuery("(max-width: 767px)");
@@ -705,6 +751,16 @@ const POSPage = () => {
     return (parseFloat(cashAmount) || 0) - total;
   }, [cashAmount, total]);
 
+  // The senior/PWD discount category present in the cart, if any → drives the
+  // required customer name/ID capture at checkout.
+  const exemptType = useMemo<"SENIOR_CITIZEN" | "PWD" | null>(() => {
+    for (const item of cart) {
+      const cat = item.applied_discount?.discount_category;
+      if (cat === "SENIOR_CITIZEN" || cat === "PWD") return cat;
+    }
+    return null;
+  }, [cart]);
+
   // ── Data fetching ────────────────────────────────────────────────────────────
 
   const fetchProducts = useCallback(async () => {
@@ -716,6 +772,9 @@ const POSPage = () => {
         price: parseFloat(p.price) || 0,
         cost: parseFloat(p.cost) || 0,
         current_stock: p.branch_stocks?.[0]?.current_stock ?? 0,
+        minimum_stock: p.branch_stocks?.[0]?.minimum_stock,
+        reorder_point: p.branch_stocks?.[0]?.reorder_point,
+        track_inventory: p.track_inventory,
       }));
       setProducts(parsed);
     } catch {
@@ -820,18 +879,19 @@ const POSPage = () => {
     showCheckoutDialog || showDiscountDialog || showReceiptDialog;
 
   const addToCart = useCallback(async (product: Product) => {
-    if (product.current_stock <= 0) {
-      toast.error(`${product.name} is out of stock`);
-      return;
+    // Overselling a tracked product is allowed (stock can go negative); warn but
+    // don't block. Untracked products are unlimited.
+    const tracked = product.track_inventory !== false;
+    if (tracked && product.current_stock <= 0) {
+      toast.warning(`${product.name} is out of stock — this sale will go negative.`);
     }
     setLoadingProductId(product.id);
     await new Promise((r) => setTimeout(r, 200));
     setCart((prev) => {
       const existing = prev.find((i) => i.product.id === product.id);
       if (existing) {
-        if (existing.quantity >= product.current_stock) {
-          toast.error(`Maximum stock reached for ${product.name}`);
-          return prev;
+        if (tracked && existing.quantity >= product.current_stock) {
+          toast.warning(`${product.name} exceeds available stock — going negative.`);
         }
         return prev.map((i) =>
           i.product.id === product.id ? { ...i, quantity: i.quantity + 1 } : i,
@@ -972,8 +1032,34 @@ const POSPage = () => {
       return;
     }
 
+    if (exemptType && (!customerName.trim() || !customerIdNumber.trim())) {
+      toast.error("Enter the Senior Citizen / PWD customer's name and ID number.");
+      return;
+    }
+
     setCheckingOut(true);
     try {
+      const customer = exemptType
+        ? { name: customerName.trim(), idNumber: customerIdNumber.trim(), type: exemptType }
+        : null;
+
+      // VAT breakdown (prices VAT-inclusive) for the receipt.
+      let vatableSales = 0, vatAmount = 0, vatExemptSales = 0, scPwdDiscount = 0;
+      for (const item of cart) {
+        const gross = item.product.price * item.quantity;
+        const lineTotal = (item.discounted_price ?? item.product.price) * item.quantity;
+        const exempt = isVatExemptCategory(item.applied_discount?.discount_category ?? "OTHER");
+        if (exempt) {
+          const net = gross / (1 + VAT_RATE);
+          vatExemptSales += net;
+          scPwdDiscount += Math.max(0, net - lineTotal);
+        } else {
+          const net = lineTotal / (1 + VAT_RATE);
+          vatableSales += net;
+          vatAmount += lineTotal - net;
+        }
+      }
+
       await api.post("/sales", {
         cart: cart.map((item) => ({
           productId: item.product.id,
@@ -986,6 +1072,9 @@ const POSPage = () => {
         totalDiscount,
         total,
         cashAmount: cash,
+        customerName: customer?.name,
+        customerIdNumber: customer?.idNumber,
+        customerDiscountType: customer?.type,
       });
 
       setCurrentReceipt({
@@ -1000,6 +1089,10 @@ const POSPage = () => {
         branchPhone: activeBranch.phone ?? "",
         branchEmail: activeBranch.email ?? "",
         soldBy: user?.username ?? "Unknown",
+        customerName: customer?.name,
+        customerIdNumber: customer?.idNumber,
+        customerDiscountType: customer?.type ?? null,
+        vat: { vatableSales, vatAmount, vatExemptSales, scPwdDiscount },
       });
       setShowCheckoutDialog(false);
       setShowReceiptDialog(true);
@@ -1019,6 +1112,9 @@ const POSPage = () => {
     totalDiscount,
     user,
     fetchProducts,
+    exemptType,
+    customerName,
+    customerIdNumber,
   ]);
 
   const handlePrintReceipt = useCallback(() => {
@@ -1054,6 +1150,8 @@ const POSPage = () => {
   const handleNewSale = useCallback(() => {
     setCart([]);
     setCashAmount("");
+    setCustomerName("");
+    setCustomerIdNumber("");
     setCurrentReceipt(null);
     setShowReceiptDialog(false);
   }, []);
@@ -1499,6 +1597,26 @@ const POSPage = () => {
                 )}
               </div>
             )}
+            {exemptType && (
+              <div className="p-4 bg-emerald-50/60 rounded-xl border-2 border-emerald-200 space-y-2">
+                <Label className="text-sm font-semibold text-emerald-800">
+                  {exemptType === "SENIOR_CITIZEN" ? "Senior Citizen" : "PWD"} details
+                  <span className="text-red-500"> *</span>
+                </Label>
+                <Input
+                  placeholder="Customer name"
+                  value={customerName}
+                  onChange={(e) => setCustomerName(e.target.value)}
+                  className="h-11 border-2 border-emerald-200 focus:border-emerald-500"
+                />
+                <Input
+                  placeholder="ID number (SC/PWD)"
+                  value={customerIdNumber}
+                  onChange={(e) => setCustomerIdNumber(e.target.value.toUpperCase())}
+                  className="h-11 border-2 border-emerald-200 focus:border-emerald-500"
+                />
+              </div>
+            )}
           </div>
           <DialogFooter className="flex-col sm:flex-row gap-2">
             <Button
@@ -1512,7 +1630,11 @@ const POSPage = () => {
             <Button
               type="button"
               onClick={handleCheckout}
-              disabled={checkingOut || parseFloat(cashAmount) < total}
+              disabled={
+                checkingOut ||
+                parseFloat(cashAmount) < total ||
+                (!!exemptType && (!customerName.trim() || !customerIdNumber.trim()))
+              }
               className="w-full sm:w-auto bg-gradient-to-r from-emerald-600 to-green-600 text-white font-bold"
             >
               {checkingOut ? (
@@ -1612,6 +1734,40 @@ const POSPage = () => {
                   <span>₱{currentReceipt.change.toFixed(2)}</span>
                 </div>
               </div>
+              {currentReceipt.vat && (
+                <div className="space-y-1 pt-2 border-t border-dashed border-gray-300 text-sm text-gray-600">
+                  <div className="flex justify-between">
+                    <span>VATable Sales</span>
+                    <span>₱{currentReceipt.vat.vatableSales.toFixed(2)}</span>
+                  </div>
+                  {currentReceipt.vat.vatExemptSales > 0 && (
+                    <div className="flex justify-between">
+                      <span>VAT-Exempt Sales</span>
+                      <span>₱{currentReceipt.vat.vatExemptSales.toFixed(2)}</span>
+                    </div>
+                  )}
+                  <div className="flex justify-between">
+                    <span>VAT (12%)</span>
+                    <span>₱{currentReceipt.vat.vatAmount.toFixed(2)}</span>
+                  </div>
+                  {currentReceipt.vat.scPwdDiscount > 0 && (
+                    <div className="flex justify-between font-semibold text-emerald-700">
+                      <span>SC/PWD Discount</span>
+                      <span>-₱{currentReceipt.vat.scPwdDiscount.toFixed(2)}</span>
+                    </div>
+                  )}
+                </div>
+              )}
+              {currentReceipt.customerDiscountType && (
+                <div className="pt-2 border-t border-dashed border-gray-300 text-sm text-gray-700">
+                  <p className="font-semibold">
+                    {currentReceipt.customerDiscountType === "SENIOR_CITIZEN" ? "Senior Citizen" : "PWD"} Customer
+                  </p>
+                  <p>Name: {currentReceipt.customerName}</p>
+                  <p>ID No: {currentReceipt.customerIdNumber}</p>
+                  <p className="mt-1">Signature: ____________________</p>
+                </div>
+              )}
               <div className="text-center pt-4 border-t-2 border-dashed border-gray-300 text-sm text-gray-600 space-y-1">
                 <p>Sold by: {currentReceipt.soldBy}</p>
                 <p>{currentReceipt.date.toLocaleString()}</p>
