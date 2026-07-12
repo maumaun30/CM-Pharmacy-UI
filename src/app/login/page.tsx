@@ -378,7 +378,6 @@ export default function LoginPage() {
             >
               {state === "loading" ? (
                 <span className="flex items-center justify-center gap-2">
-                  <Loader2 className="animate-spin h-5 w-5" />
                   Signing in...
                 </span>
               ) : state === "success" ? (
