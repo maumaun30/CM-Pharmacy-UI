@@ -122,6 +122,9 @@ interface Sale {
   totalAmount: number;
   cashAmount?: number;
   changeAmount?: number;
+  customerName?: string | null;
+  customerIdNumber?: string | null;
+  customerDiscountType?: string | null;
   soldAt: string;
   soldBy: string | number;
   seller?: Seller | null;
@@ -1062,6 +1065,22 @@ const SalesReportPage = () => {
                           {getTotalItems(selectedSale.items)}
                         </p>
                       </div>
+                      {selectedSale.customerDiscountType && (
+                        <div className="col-span-2">
+                          <p className="text-xs font-semibold text-gray-600 uppercase tracking-wide mb-1">
+                            {selectedSale.customerDiscountType === "SENIOR_CITIZEN"
+                              ? "Senior Citizen"
+                              : "PWD"}{" "}
+                            Customer
+                          </p>
+                          <p className="font-semibold text-gray-800">
+                            {selectedSale.customerName || "—"}
+                            {selectedSale.customerIdNumber
+                              ? ` · ID: ${selectedSale.customerIdNumber}`
+                              : ""}
+                          </p>
+                        </div>
+                      )}
                     </div>
 
                     <div>
