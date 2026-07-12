@@ -1140,11 +1140,10 @@ const POSPage = () => {
             .footer { text-align: center; margin-top: 30px; font-size: 0.9em; }
           </style>
         </head>
-        <body>${receiptRef.current.innerHTML}</body>
+        <body onload="setTimeout(function(){window.print();window.close();}, 150)">${receiptRef.current.innerHTML}</body>
       </html>
     `);
     pw.document.close();
-    pw.print();
   }, []);
 
   const handleNewSale = useCallback(() => {
@@ -1664,10 +1663,14 @@ const POSPage = () => {
           {currentReceipt && (
             <div ref={receiptRef} className="py-4 space-y-4">
               <div className="text-center pb-4 border-b-2 border-dashed border-gray-300">
-                <h2 className="text-2xl font-bold text-gray-800 mb-2">
-                  RECEIPT
-                </h2>
-                <p className="font-bold text-gray-800">
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img
+                  src={`${typeof window !== "undefined" ? window.location.origin : ""}/logo-icon.png`}
+                  alt="Maun Pharmacy"
+                  style={{ width: 64, height: 64, objectFit: "contain", display: "block", margin: "0 auto 8px" }}
+                />
+                <p className="font-bold text-gray-800 text-lg">Maun Pharmacy</p>
+                <p className="font-semibold text-gray-800">
                   {currentReceipt.branchName}
                 </p>
                 {currentReceipt.branchPhone && (
