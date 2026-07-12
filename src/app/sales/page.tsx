@@ -59,6 +59,8 @@ import {
   CheckCircle2,
   ArrowLeft,
   BarChart3,
+  Printer,
+  Download,
 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { useAuth } from "@/hooks/useAuth";
@@ -408,6 +410,133 @@ const SalesReportPage = () => {
     setDateTo(undefined);
   }, []);
 
+  // ── Summary report (over the currently filtered sales) ───────────────────────
+  const VAT_RATE = 0.12; // prices are VAT-inclusive
+  const report = useMemo(() => {
+    const gross = summaryStats.totalRevenue;
+    const net = gross / (1 + VAT_RATE);
+    const vat = gross - net;
+    const byDay = new Map<string, { count: number; gross: number; discount: number }>();
+    for (const s of filteredSales) {
+      const day = dayjs(s.soldAt).format("YYYY-MM-DD");
+      const e = byDay.get(day) ?? { count: 0, gross: 0, discount: 0 };
+      e.count += 1;
+      e.gross += s.totalAmount || 0;
+      e.discount += s.totalDiscount || 0;
+      byDay.set(day, e);
+    }
+    const days = [...byDay.entries()]
+      .sort((a, b) => a[0].localeCompare(b[0]))
+      .map(([day, v]) => ({ day, ...v }));
+    return {
+      gross,
+      net,
+      vat,
+      discount: summaryStats.total_discount,
+      count: summaryStats.totalTransactions,
+      items: summaryStats.totalItems,
+      avg: summaryStats.avgTransaction,
+      days,
+    };
+  }, [filteredSales, summaryStats]);
+
+  const reportMeta = useMemo(() => {
+    const company = process.env.NEXT_PUBLIC_SITE_NAME || "Maun Pharmacy";
+    const branchLabel = isViewingAllBranches
+      ? "All Branches"
+      : activeBranch
+        ? `${activeBranch.name} (${activeBranch.code})`
+        : "—";
+    const range =
+      dateFrom || dateTo
+        ? `${dateFrom ? dayjs(dateFrom).format("MMM D, YYYY") : "…"} – ${dateTo ? dayjs(dateTo).format("MMM D, YYYY") : "…"}`
+        : "All dates";
+    return { company, branchLabel, range };
+  }, [isViewingAllBranches, activeBranch, dateFrom, dateTo]);
+
+  const peso = (n: number) =>
+    `₱${n.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+
+  const downloadReportCSV = useCallback(() => {
+    const esc = (v: string | number) => {
+      const s = String(v);
+      return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+    };
+    const lines: string[][] = [
+      ["Sales Summary Report"],
+      ["Branch", reportMeta.branchLabel],
+      ["Date range", reportMeta.range],
+      ["Generated", dayjs().format("MMM D, YYYY h:mm A")],
+      [],
+      ["Transactions", String(report.count)],
+      ["Items sold", String(report.items)],
+      ["Gross sales", report.gross.toFixed(2)],
+      ["Discounts", report.discount.toFixed(2)],
+      ["VATable sales (net)", report.net.toFixed(2)],
+      ["VAT (12%)", report.vat.toFixed(2)],
+      ["Average / transaction", report.avg.toFixed(2)],
+      [],
+      ["Date", "Transactions", "Gross", "Discounts"],
+      ...report.days.map((d) => [d.day, String(d.count), d.gross.toFixed(2), d.discount.toFixed(2)]),
+    ];
+    const csv = lines.map((r) => r.map(esc).join(",")).join("\n");
+    const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `sales-summary-${dayjs().format("YYYYMMDD-HHmm")}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+  }, [report, reportMeta]);
+
+  const printReport = useCallback(() => {
+    const rows = report.days
+      .map(
+        (d) =>
+          `<tr><td>${dayjs(d.day).format("MMM D, YYYY")}</td><td class="r">${d.count}</td><td class="r">${peso(d.gross)}</td><td class="r">${peso(d.discount)}</td></tr>`,
+      )
+      .join("");
+    const html = `<!doctype html><html><head><meta charset="utf-8"><title>Sales Summary</title>
+      <style>
+        *{font-family:-apple-system,Segoe UI,Roboto,sans-serif;color:#111}
+        body{padding:24px;max-width:760px;margin:0 auto}
+        h1{margin:0 0 2px;font-size:20px;color:#047857}
+        .muted{color:#555;font-size:12px;margin:1px 0}
+        table{width:100%;border-collapse:collapse;margin-top:12px;font-size:13px}
+        th,td{border-bottom:1px solid #e5e7eb;padding:6px 8px;text-align:left}
+        th{background:#ecfdf5;color:#065f46}
+        .r{text-align:right}
+        .kpis{display:flex;flex-wrap:wrap;gap:8px;margin-top:14px}
+        .kpi{border:1px solid #d1fae5;border-radius:8px;padding:8px 12px;min-width:130px}
+        .kpi b{display:block;font-size:16px;color:#065f46}
+        .kpi span{font-size:11px;color:#555}
+      </style></head><body>
+      <h1>${reportMeta.company}</h1>
+      <div class="muted">Sales Summary Report</div>
+      <div class="muted">Branch: ${reportMeta.branchLabel}</div>
+      <div class="muted">Date range: ${reportMeta.range}</div>
+      <div class="muted">Generated: ${dayjs().format("MMM D, YYYY h:mm A")}</div>
+      <div class="kpis">
+        <div class="kpi"><b>${report.count}</b><span>Transactions</span></div>
+        <div class="kpi"><b>${peso(report.gross)}</b><span>Gross sales</span></div>
+        <div class="kpi"><b>${peso(report.discount)}</b><span>Discounts</span></div>
+        <div class="kpi"><b>${peso(report.net)}</b><span>VATable sales (net)</span></div>
+        <div class="kpi"><b>${peso(report.vat)}</b><span>VAT (12%)</span></div>
+        <div class="kpi"><b>${peso(report.avg)}</b><span>Avg / transaction</span></div>
+      </div>
+      <table><thead><tr><th>Date</th><th class="r">Transactions</th><th class="r">Gross</th><th class="r">Discounts</th></tr></thead>
+      <tbody>${rows || '<tr><td colspan="4">No sales in range</td></tr>'}</tbody></table>
+      <script>window.onload=function(){window.print();}</script>
+      </body></html>`;
+    const w = window.open("", "_blank");
+    if (!w) {
+      toast.error("Allow pop-ups to print the report.");
+      return;
+    }
+    w.document.write(html);
+    w.document.close();
+  }, [report, reportMeta]);
+
   // ── Render ────────────────────────────────────────────────────────────────────
 
   if (authLoading || salesLoading) {
@@ -459,6 +588,22 @@ const SalesReportPage = () => {
                     Analytics
                   </Button>
                 </Link>
+                <Button
+                  variant="outline"
+                  onClick={printReport}
+                  className="border-emerald-300 hover:bg-emerald-50"
+                >
+                  <Printer className="w-4 h-4 mr-2" />
+                  Print
+                </Button>
+                <Button
+                  variant="outline"
+                  onClick={downloadReportCSV}
+                  className="border-emerald-300 hover:bg-emerald-50"
+                >
+                  <Download className="w-4 h-4 mr-2" />
+                  CSV
+                </Button>
                 <Button
                   variant="outline"
                   onClick={fetchSales}
