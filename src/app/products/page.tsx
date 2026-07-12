@@ -95,6 +95,7 @@ interface Product {
   expiry_date?: string;
   barcode?: string;
   requires_prescription: boolean;
+  track_inventory: boolean;
   status: "ACTIVE" | "INACTIVE";
   category_id: number;
   category: Category;
@@ -182,6 +183,7 @@ export default function ProductList() {
     form: "",
     expiry_date: "",
     requires_prescription: false,
+    track_inventory: true,
     status: "ACTIVE" as "ACTIVE" | "INACTIVE",
     category_id: "",
     minimum_stock: "",
@@ -257,6 +259,7 @@ export default function ProductList() {
       Form: p.form || "",
       Category: p.category?.name || "",
       "Requires Prescription": p.requires_prescription ? "Yes" : "No",
+      "Track Inventory": p.track_inventory === false ? "No" : "Yes",
       Status: p.status,
       "Expiry Date": p.expiry_date
         ? dayjs(p.expiry_date).format("YYYY-MM-DD")
@@ -346,6 +349,8 @@ export default function ProductList() {
             expiry_date: getValue(row, "Expiry Date") || null,
             requires_prescription:
               getValue(row, "Requires Prescription") === "Yes",
+            track_inventory:
+              getValue(row, "Track Inventory") !== "No", // default to tracked
             status:
               (getValue(row, "Status") as "ACTIVE" | "INACTIVE") || "ACTIVE",
             categoryName: getValue(row, "Category"),
@@ -409,6 +414,7 @@ export default function ProductList() {
                 form: productData.form,
                 expiryDate: productData.expiry_date,
                 requiresPrescription: productData.requires_prescription,
+                trackInventory: productData.track_inventory,
                 status: productData.status,
                 categoryId: matchedCat.id,
               });
@@ -469,6 +475,7 @@ export default function ProductList() {
         price: parseFloat(p.price),
         totalStock: p.totalStock || 0,
         requires_prescription: Boolean(p.requires_prescription),
+        track_inventory: p.track_inventory !== false,
       }));
       setProducts(parsed);
     } catch {
@@ -526,6 +533,7 @@ export default function ProductList() {
           ? dayjs(product.expiry_date).format("YYYY-MM-DD")
           : "",
         requires_prescription: product.requires_prescription || false,
+        track_inventory: product.track_inventory !== false,
         status: product.status,
         category_id: product.category_id.toString(),
         minimum_stock: bs?.minimum_stock != null ? String(bs.minimum_stock) : "",
@@ -546,6 +554,7 @@ export default function ProductList() {
         form: "",
         expiry_date: "",
         requires_prescription: false,
+        track_inventory: true,
         status: "ACTIVE",
         category_id: "",
         minimum_stock: "",
@@ -574,6 +583,7 @@ export default function ProductList() {
       form,
       expiry_date,
       requires_prescription,
+      track_inventory,
       status,
       category_id,
       minimum_stock,
@@ -603,6 +613,7 @@ export default function ProductList() {
         form: form || null,
         expiryDate: expiry_date || null,
         requiresPrescription: requires_prescription,
+        trackInventory: track_inventory,
         status,
         categoryId: parseInt(category_id),
       };
@@ -1387,6 +1398,14 @@ export default function ProductList() {
                                         Rx
                                       </Badge>
                                     )}
+                                    {prod.track_inventory === false && (
+                                      <Badge
+                                        variant="outline"
+                                        className="text-xs bg-slate-100 text-slate-600 border-slate-200"
+                                      >
+                                        Non-stock
+                                      </Badge>
+                                    )}
                                     {expired && (
                                       <Badge
                                         variant="outline"
@@ -1813,24 +1832,52 @@ export default function ProductList() {
                   </div>
 
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 p-4 bg-linear-to-r from-emerald-50 to-green-50 rounded-xl border-2 border-emerald-200">
-                    <div className="flex items-center space-x-3">
-                      <Checkbox
-                        id="requires_prescription"
-                        checked={formData.requires_prescription}
-                        onCheckedChange={(checked) =>
-                          setFormData({
-                            ...formData,
-                            requires_prescription: !!checked,
-                          })
-                        }
-                        className="border-blue-600 data-[state=checked]:bg-blue-600"
-                      />
-                      <Label
-                        htmlFor="requires_prescription"
-                        className="cursor-pointer font-semibold text-gray-800"
-                      >
-                        Requires Prescription
-                      </Label>
+                    <div className="space-y-3">
+                      <div className="flex items-center space-x-3">
+                        <Checkbox
+                          id="requires_prescription"
+                          checked={formData.requires_prescription}
+                          onCheckedChange={(checked) =>
+                            setFormData({
+                              ...formData,
+                              requires_prescription: !!checked,
+                            })
+                          }
+                          className="border-blue-600 data-[state=checked]:bg-blue-600"
+                        />
+                        <Label
+                          htmlFor="requires_prescription"
+                          className="cursor-pointer font-semibold text-gray-800"
+                        >
+                          Requires Prescription
+                        </Label>
+                      </div>
+
+                      <div className="flex items-start space-x-3">
+                        <Checkbox
+                          id="track_inventory"
+                          checked={formData.track_inventory}
+                          onCheckedChange={(checked) =>
+                            setFormData({
+                              ...formData,
+                              track_inventory: !!checked,
+                            })
+                          }
+                          className="mt-0.5 border-emerald-600 data-[state=checked]:bg-emerald-600"
+                        />
+                        <div>
+                          <Label
+                            htmlFor="track_inventory"
+                            className="cursor-pointer font-semibold text-gray-800"
+                          >
+                            Track Inventory
+                          </Label>
+                          <p className="text-xs text-gray-500">
+                            Uncheck for services / non-stock items — they sell
+                            without stock limits.
+                          </p>
+                        </div>
+                      </div>
                     </div>
 
                     <div>
