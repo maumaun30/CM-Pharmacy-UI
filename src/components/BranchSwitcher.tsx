@@ -31,7 +31,9 @@ export default function BranchSwitcher() {
     if (!user) return;
     setActiveBranchId(user.current_branch_id || user.branch_id);
     if (user.role === "admin") {
-      fetchBranches();
+      fetchBranches(); // admins reach every branch
+    } else if (user.role === "manager") {
+      setBranches(user.allowed_branches ?? []); // managers: their granted subset
     }
   }, [user]);
 
@@ -71,8 +73,13 @@ export default function BranchSwitcher() {
 
   if (!user) return null;
 
-  // Admin view — Branch switcher
-  if (user.role === "admin") {
+  // Branch switcher — admins reach all branches; managers switch among their
+  // granted subset (only worth a dropdown when they have more than one).
+  const canSwitch =
+    user.role === "admin" ||
+    (user.role === "manager" && branches.length > 1);
+
+  if (canSwitch) {
     const activeBranch = branches.find((b) => b.id === activeBranchId);
 
     return (

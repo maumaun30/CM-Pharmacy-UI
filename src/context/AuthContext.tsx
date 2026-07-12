@@ -17,6 +17,9 @@ export interface AuthUser {
   contact_number?: string;
   branch_id: number;
   current_branch_id: number | null;
+  // Managers only: branches they may switch between (ids + resolved objects).
+  allowed_branch_ids?: number[];
+  allowed_branches?: { id: number; name: string; code: string; is_active: boolean }[];
   is_active: boolean;
   branch?: { id: number; name: string; code: string; is_active: boolean; email?: string; phone?: string };
   currentBranch?: { id: number; name: string; code: string; is_active: boolean; email?: string; phone?: string };

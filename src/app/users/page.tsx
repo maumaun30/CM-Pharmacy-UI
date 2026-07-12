@@ -17,6 +17,7 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
+import { Checkbox } from "@/components/ui/checkbox";
 import {
   Select,
   SelectContent,
@@ -69,6 +70,7 @@ type User = {
   last_name: string;
   contact_number: string;
   branch_id: number | null;
+  allowed_branch_ids?: number[] | null;
   is_active: boolean;
   branch: Branch | null;
 };
@@ -97,6 +99,7 @@ export default function UsersPage() {
     contact_number: "",
     is_active: false,
     branch_id: "",
+    allowed_branch_ids: [] as number[],
   });
   const [loading, setLoading] = useState(false);
   const [fetchLoading, setFetchLoading] = useState(true);
@@ -151,6 +154,7 @@ export default function UsersPage() {
         contact_number: user.contact_number,
         is_active: user.is_active,
         branch_id: user.branch_id ? String(user.branch_id) : "",
+        allowed_branch_ids: user.allowed_branch_ids ?? [],
       });
     } else {
       setEditingUser(null);
@@ -163,6 +167,7 @@ export default function UsersPage() {
         contact_number: "",
         is_active: true,
         branch_id: "",
+        allowed_branch_ids: [],
       });
     }
     setModalOpen(true);
@@ -174,14 +179,20 @@ export default function UsersPage() {
   }, []);
 
   const handleSubmit = useCallback(async () => {
-    const { username, email, role, first_name, last_name, contact_number, is_active, branch_id } = formData;
+    const { username, email, role, first_name, last_name, contact_number, is_active, branch_id, allowed_branch_ids } = formData;
     if (!username.trim()) return toast.error("Username is required");
     if (!role) return toast.error("Role is required");
     if (!branch_id) return toast.error("Branch is required");
 
     try {
       setLoading(true);
-      const payload = { username, email, role, firstName: first_name, lastName: last_name, contactNumber: contact_number, isActive: is_active, branchId: parseInt(branch_id) };
+      const payload = {
+        username, email, role,
+        firstName: first_name, lastName: last_name, contactNumber: contact_number,
+        isActive: is_active, branchId: parseInt(branch_id),
+        // Managers can be granted extra branches; ignored server-side for others.
+        allowedBranchIds: role === "manager" ? allowed_branch_ids : [],
+      };
       if (editingUser) {
         await api.put(`/users/${editingUser.id}`, payload);
         toast.success("User updated successfully");
@@ -841,6 +852,55 @@ export default function UsersPage() {
                     </SelectContent>
                   </Select>
                 </div>
+
+                {formData.role === "manager" && (
+                  <div>
+                    <Label className="mb-1 text-sm font-semibold text-gray-700">
+                      Accessible Branches
+                    </Label>
+                    <p className="mb-2 text-xs text-gray-500">
+                      Branches this manager can switch between. The home branch is
+                      always included.
+                    </p>
+                    <div className="max-h-48 space-y-2 overflow-auto rounded-lg border-2 border-emerald-100 p-3">
+                      {branches.map((branch) => {
+                        const isHome = String(branch.id) === formData.branch_id;
+                        const checked =
+                          isHome || formData.allowed_branch_ids.includes(branch.id);
+                        return (
+                          <label
+                            key={branch.id}
+                            className="flex cursor-pointer items-center gap-2"
+                          >
+                            <Checkbox
+                              checked={checked}
+                              disabled={isHome}
+                              onCheckedChange={(c) =>
+                                setFormData((prev) => ({
+                                  ...prev,
+                                  allowed_branch_ids: c
+                                    ? [...prev.allowed_branch_ids, branch.id]
+                                    : prev.allowed_branch_ids.filter(
+                                        (id) => id !== branch.id,
+                                      ),
+                                }))
+                              }
+                              className="border-emerald-600 data-[state=checked]:bg-emerald-600"
+                            />
+                            <span className="text-sm text-gray-800">
+                              {branch.name} ({branch.code})
+                              {isHome && (
+                                <span className="ml-1 text-xs text-emerald-600">
+                                  — home
+                                </span>
+                              )}
+                            </span>
+                          </label>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
               </div>
 
               <DialogFooter className="flex-col sm:flex-row gap-2">
