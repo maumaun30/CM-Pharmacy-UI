@@ -78,14 +78,34 @@ const StockAdjustPage = () => {
 
   const fetchProducts = useCallback(async () => {
     try {
-      const res = await api.get("/products");
-      setProducts(res.data);
+      // Adjustments target the user's active branch, so resolve each product's
+      // stock AT that branch. /products returns per-branch rows in branch_stocks
+      // (snake_case); the top-level currentStock is camelCase and only present
+      // when branchId is passed — reading it as current_stock is what produced
+      // the NaN / blank stock. Map defensively so a missing row shows 0, not NaN.
+      const branchId = activeBranch?.id;
+      const res = await api.get("/products", {
+        params: branchId ? { branchId } : {},
+      });
+      const mapped: Product[] = res.data.map((p: any) => {
+        const bs = branchId
+          ? p.branch_stocks?.find((b: any) => b.branch_id === branchId)
+          : null;
+        const raw = bs?.current_stock ?? p.currentStock ?? p.totalStock ?? 0;
+        return {
+          id: p.id,
+          name: p.name,
+          sku: p.sku,
+          current_stock: Number(raw) || 0,
+        };
+      });
+      setProducts(mapped);
     } catch {
       toast.error("Failed to fetch products");
     } finally {
       setFetchLoading(false);
     }
-  }, []);
+  }, [activeBranch?.id]);
 
   useEffect(() => {
     fetchProducts();

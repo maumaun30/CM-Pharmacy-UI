@@ -149,7 +149,7 @@ const HomePage = () => {
     newSocket.on("connect_error", () => setIsConnected(false));
     newSocket.on("disconnect", () => setIsConnected(false));
 
-    newSocket.on("sale:new", (saleData) => {
+    newSocket.on("new-sale", (saleData) => {
       if (animationTimerRef.current) clearTimeout(animationTimerRef.current);
       setNewSaleAnimation(true);
       animationTimerRef.current = setTimeout(() => setNewSaleAnimation(false), 1000);
@@ -185,15 +185,23 @@ const HomePage = () => {
       });
     });
 
-    newSocket.on("stock:update", () => fetchDashboardStats());
-    newSocket.on("stock:low-alert", (productData) => {
-      toast.warning(
-        `Low stock alert: ${productData.name} (${productData.currentStock} remaining)`,
-        { icon: <AlertTriangle className="h-4 w-4" />, duration: 5000 },
-      );
+    newSocket.on("stock-updated", () => fetchDashboardStats());
+    newSocket.on("low-stock-alert", (productData) => {
+      // Payload is snake_case (see emitLowStockAlert). Critical = at/below the
+      // minimum threshold; otherwise it's a (less urgent) low-stock warning.
+      const remaining = productData.current_stock ?? 0;
+      const isCritical =
+        productData.minimum_stock != null && remaining <= productData.minimum_stock;
+      const label = isCritical ? "Critical stock" : "Low stock";
+      const message = `${label}: ${productData.name} (${remaining} remaining)`;
+      if (isCritical) {
+        toast.error(message, { icon: <AlertTriangle className="h-4 w-4" />, duration: 6000 });
+      } else {
+        toast.warning(message, { icon: <AlertTriangle className="h-4 w-4" />, duration: 5000 });
+      }
       fetchDashboardStats();
     });
-    newSocket.on("dashboard:refresh", () => fetchDashboardStats());
+    newSocket.on("dashboard-refresh", () => fetchDashboardStats());
 
     socketRef.current = newSocket;
   };
