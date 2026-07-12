@@ -35,6 +35,7 @@ import {
   CheckCircle2,
   PackagePlus,
   Upload,
+  Download,
   AlertCircle,
   X,
   ChevronDown,
@@ -170,6 +171,26 @@ const AddStockForm = () => {
     } finally {
       setLoading(false);
     }
+  };
+
+  // Download a sample CSV with the exact headers the importer expects, plus a
+  // couple of example rows, so managers can fill it in and re-upload.
+  const handleDownloadSample = () => {
+    const rows = [
+      ["Name", "SKU", "Barcode", "Total Stock"],
+      ["Paracetamol 500mg", "MED001", "4801234567890", "100"],
+      ["Amoxicillin 250mg", "MED002", "", "50"],
+    ];
+    const csv = rows
+      .map((r) => r.map((c) => (/[",\n]/.test(c) ? `"${c.replace(/"/g, '""')}"` : c)).join(","))
+      .join("\n");
+    const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = "stock-import-sample.csv";
+    a.click();
+    URL.revokeObjectURL(url);
   };
 
   const handleImportCSV = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -433,6 +454,16 @@ const AddStockForm = () => {
                     <Upload className="h-5 w-5 text-emerald-600" />
                     Bulk Import via CSV
                   </h3>
+                  <div className="flex items-center gap-2">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={handleDownloadSample}
+                    className="border-emerald-300 hover:bg-emerald-50 cursor-pointer"
+                  >
+                    <Download className="h-4 w-4 mr-2 text-emerald-600" />
+                    Sample CSV
+                  </Button>
                   <label
                     className={
                       importLoading ? "pointer-events-none opacity-60" : ""
@@ -467,6 +498,7 @@ const AddStockForm = () => {
                       disabled={importLoading}
                     />
                   </label>
+                  </div>
                 </div>
 
                 <div className="px-6 py-3">

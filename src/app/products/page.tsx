@@ -220,6 +220,9 @@ export default function ProductList() {
   const [filterStockStatus, setFilterStockStatus] = useState<
     "" | "out" | "low" | "in"
   >("");
+  const [filterExpiry, setFilterExpiry] = useState<"" | "expiring" | "expired">(
+    "",
+  );
 
   const toggleSelectAll = () => {
     if (allSelected) {
@@ -723,8 +726,18 @@ export default function ProductList() {
         return true;
       })();
 
+      const matchesExpiry = (() => {
+        if (!filterExpiry) return true;
+        if (filterExpiry === "expired") return isExpired(p.expiry_date);
+        return isExpiringSoon(p.expiry_date); // "expiring" = within 30 days
+      })();
+
       return (
-        matchesSearch && matchesCategory && matchesStatus && matchesStockStatus
+        matchesSearch &&
+        matchesCategory &&
+        matchesStatus &&
+        matchesStockStatus &&
+        matchesExpiry
       );
     });
 
@@ -747,6 +760,7 @@ export default function ProductList() {
     filterCategory,
     filterStatus,
     filterStockStatus,
+    filterExpiry,
     selectedBranch,
   ]);
 
@@ -1145,10 +1159,27 @@ export default function ProductList() {
                       <option value="in">In Stock</option>
                     </select>
 
+                    {/* Expiry Filter */}
+                    <select
+                      value={filterExpiry}
+                      onChange={(e) => {
+                        setFilterExpiry(
+                          e.target.value as "" | "expiring" | "expired",
+                        );
+                        setPage(1);
+                      }}
+                      className="border-2 border-emerald-200 rounded-lg px-3 py-2 text-sm font-medium focus:border-emerald-500 focus:ring-2 focus:ring-emerald-200 outline-none"
+                    >
+                      <option value="">All Expiry</option>
+                      <option value="expiring">Expiring Soon (≤30d)</option>
+                      <option value="expired">Expired</option>
+                    </select>
+
                     {/* Clear filters button — only shown when any filter is active */}
                     {(filterCategory ||
                       filterStatus ||
                       filterStockStatus ||
+                      filterExpiry ||
                       search) && (
                       <Button
                         variant="outline"
@@ -1157,6 +1188,7 @@ export default function ProductList() {
                           setFilterCategory(null);
                           setFilterStatus("");
                           setFilterStockStatus("");
+                          setFilterExpiry("");
                           setSearch("");
                           setPage(1);
                         }}

@@ -29,6 +29,7 @@ import {
   Plus,
   Pencil,
   Trash,
+  KeyRound,
   Building2,
   Users as UsersIcon,
   Search,
@@ -108,6 +109,9 @@ export default function UsersPage() {
 
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [userToDelete, setUserToDelete] = useState<User | null>(null);
+  const [resetOpen, setResetOpen] = useState(false);
+  const [userToReset, setUserToReset] = useState<User | null>(null);
+  const [resetting, setResetting] = useState(false);
 
   const fetchUsers = useCallback(async () => {
     try {
@@ -182,8 +186,14 @@ export default function UsersPage() {
         await api.put(`/users/${editingUser.id}`, payload);
         toast.success("User updated successfully");
       } else {
-        await api.post("/users", payload);
-        toast.success("User created successfully");
+        const res = await api.post("/users", payload);
+        const dp = res.data?.defaultPassword;
+        toast.success(
+          dp
+            ? `User created. Default password is "${dp}" — ask them to change it after logging in.`
+            : "User created successfully",
+          { duration: 9000 },
+        );
       }
       handleCloseModal();
       fetchUsers();
@@ -207,6 +217,27 @@ export default function UsersPage() {
       setUserToDelete(null);
     }
   }, [userToDelete, fetchUsers]);
+
+  const confirmReset = useCallback(async () => {
+    if (!userToReset) return;
+    try {
+      setResetting(true);
+      const res = await api.post(`/users/${userToReset.id}/reset-password`);
+      const dp = res.data?.defaultPassword;
+      toast.success(
+        dp
+          ? `Password reset. New password is "${dp}" — the user should change it after logging in.`
+          : "Password reset successfully",
+        { duration: 9000 },
+      );
+    } catch (err: any) {
+      toast.error(err.response?.data?.message || "Error resetting password");
+    } finally {
+      setResetting(false);
+      setResetOpen(false);
+      setUserToReset(null);
+    }
+  }, [userToReset]);
 
   const filtered = useMemo(() => {
     let data = users.filter(
@@ -559,6 +590,18 @@ export default function UsersPage() {
                                   variant="ghost"
                                   size="icon"
                                   onClick={() => {
+                                    setUserToReset(user);
+                                    setResetOpen(true);
+                                  }}
+                                  className="h-8 w-8 hover:bg-amber-50"
+                                  title="Reset password"
+                                >
+                                  <KeyRound className="h-4 w-4 text-amber-600" />
+                                </Button>
+                                <Button
+                                  variant="ghost"
+                                  size="icon"
+                                  onClick={() => {
                                     setUserToDelete(user);
                                     setDeleteOpen(true);
                                   }}
@@ -646,6 +689,16 @@ export default function UsersPage() {
               </DialogHeader>
 
               <div className="space-y-5 py-4">
+                {!editingUser && (
+                  <div className="flex items-start gap-2 rounded-lg border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-800">
+                    <KeyRound className="mt-0.5 h-4 w-4 shrink-0" />
+                    <span>
+                      New accounts start with the default password{" "}
+                      <span className="font-semibold">staff123</span>. Ask the
+                      user to change it after their first login.
+                    </span>
+                  </div>
+                )}
                 <div>
                   <Label className="mb-2 text-sm font-semibold text-gray-700">
                     Username *
@@ -864,6 +917,64 @@ export default function UsersPage() {
                 >
                   <Trash className="w-4 h-4 mr-2" />
                   Delete User
+                </Button>
+              </DialogFooter>
+            </DialogContent>
+          </Dialog>
+
+          {/* Reset Password Dialog */}
+          <Dialog open={resetOpen} onOpenChange={setResetOpen}>
+            <DialogContent className="sm:max-w-md bg-white">
+              <DialogHeader>
+                <DialogTitle className="text-2xl font-bold text-amber-600 flex items-center gap-2">
+                  <KeyRound className="h-6 w-6" />
+                  Reset Password
+                </DialogTitle>
+              </DialogHeader>
+
+              <div className="py-4">
+                <p className="text-gray-700 mb-4">
+                  Reset the password for{" "}
+                  <span className="font-bold text-gray-900">
+                    {userToReset?.username}
+                  </span>
+                  ?
+                </p>
+                <div className="p-4 bg-amber-50 border-2 border-amber-200 rounded-lg">
+                  <div className="flex items-start gap-2 text-sm text-amber-800">
+                    <AlertCircle className="h-4 w-4 flex-shrink-0 mt-0.5" />
+                    <span>
+                      Their password will be set back to the default{" "}
+                      <span className="font-semibold">staff123</span>. Ask them to
+                      change it after logging in.
+                    </span>
+                  </div>
+                </div>
+              </div>
+
+              <DialogFooter className="flex-col sm:flex-row gap-2">
+                <Button
+                  variant="outline"
+                  onClick={() => {
+                    setResetOpen(false);
+                    setUserToReset(null);
+                  }}
+                  disabled={resetting}
+                  className="w-full sm:w-auto border-gray-300"
+                >
+                  Cancel
+                </Button>
+                <Button
+                  onClick={confirmReset}
+                  disabled={resetting}
+                  className="w-full sm:w-auto bg-amber-600 hover:bg-amber-700 text-white"
+                >
+                  {resetting ? (
+                    <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                  ) : (
+                    <KeyRound className="w-4 h-4 mr-2" />
+                  )}
+                  Reset Password
                 </Button>
               </DialogFooter>
             </DialogContent>
