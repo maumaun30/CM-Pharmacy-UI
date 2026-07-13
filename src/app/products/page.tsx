@@ -267,7 +267,6 @@ export default function ProductList() {
       "Expiry Date": p.expiry_date
         ? dayjs(p.expiry_date).format("YYYY-MM-DD")
         : "",
-      "Total Stock": p.totalStock,
     }));
 
     const headers = Object.keys(rows[0]);
@@ -291,6 +290,76 @@ export default function ProductList() {
     a.click();
     URL.revokeObjectURL(url);
     toast.success(`Exported ${rows.length} products`);
+  };
+
+  // Download a sample CSV with the exact headers the importer expects, plus
+  // example rows to fill in. Stock quantities are imported on /stock/add, so
+  // no stock column here — only product master data.
+  const handleDownloadSampleCSV = () => {
+    const rows = [
+      [
+        "Name",
+        "Brand Name",
+        "Generic Name",
+        "SKU",
+        "Barcode",
+        "Cost",
+        "Price",
+        "Dosage",
+        "Form",
+        "Category",
+        "Requires Prescription",
+        "Track Inventory",
+        "Status",
+        "Expiry Date",
+      ],
+      [
+        "Paracetamol 500mg",
+        "Biogesic",
+        "Paracetamol",
+        "MED001",
+        "4801234567890",
+        "3.50",
+        "5.00",
+        "500mg",
+        "Tablet",
+        "Pain Relief",
+        "No",
+        "Yes",
+        "ACTIVE",
+        "2027-01-31",
+      ],
+      [
+        "Amoxicillin 250mg",
+        "Amoxil",
+        "Amoxicillin",
+        "MED002",
+        "",
+        "8.00",
+        "12.00",
+        "250mg",
+        "Capsule",
+        "Antibiotics",
+        "Yes",
+        "Yes",
+        "ACTIVE",
+        "",
+      ],
+    ];
+    const csv = rows
+      .map((r) =>
+        r
+          .map((c) => (/[",\n]/.test(c) ? `"${c.replace(/"/g, '""')}"` : c))
+          .join(","),
+      )
+      .join("\n");
+    const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = "products-import-sample.csv";
+    a.click();
+    URL.revokeObjectURL(url);
   };
 
   const handleImportCSV = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -446,21 +515,11 @@ export default function ProductList() {
         if (failed > 0) parts.push(`${failed} failed`);
         toast.success(parts.join(", "));
         fetchProducts();
-      } catch (err: any) {
-        // const msg = err.response?.data?.message || "";
-        // if (msg.includes("already exists")) {
-        //   skipped++;
-        // } else {
-        //   console.error(
-        //     `Failed: ${product.name} (SKU: ${product.sku}) — ${msg}`,
-        //   );
-        //   failed++;
+      } catch {
         toast.error("Failed to read or parse CSV file");
+      } finally {
         setImportLoading(false);
       }
-      // finally {
-      //   setImportLoading(false);
-      // }
     };
     reader.readAsText(file);
     e.target.value = "";
@@ -930,6 +989,25 @@ export default function ProductList() {
                         disabled={importLoading}
                       />
                     </label>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={handleDownloadSampleCSV}
+                      className="border-emerald-300 hover:bg-emerald-50 h-9"
+                    >
+                      <FileText className="h-4 w-4 mr-2 text-emerald-600" />
+                      Sample CSV
+                    </Button>
+                    <span className="text-xs text-gray-500">
+                      Import creates products only — add stock quantities via{" "}
+                      <Link
+                        href="/stock/add"
+                        className="text-emerald-600 underline"
+                      >
+                        Add Stock
+                      </Link>
+                      .
+                    </span>
                   </div>
 
                   {someSelected && (
