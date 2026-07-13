@@ -105,6 +105,24 @@ interface Product {
   margin_amount?: number;
 }
 
+// One parsed CSV row from the importer, keyed by the sample-CSV headers.
+interface ImportRow {
+  name: string;
+  brand_name: string;
+  generic_name: string | null;
+  sku: string;
+  barcode: string;
+  cost: number;
+  price: number;
+  dosage: string | null;
+  form: string | null;
+  expiry_date: string | null;
+  requires_prescription: boolean;
+  track_inventory: boolean;
+  status: "ACTIVE" | "INACTIVE";
+  categoryName: string;
+}
+
 const calculateMargin = (price: number, cost: number) => {
   if (cost === 0) return 0;
   return ((price - cost) / cost) * 100;
@@ -193,6 +211,12 @@ export default function ProductList() {
   const [loading, setLoading] = useState(false);
   const [fetchLoading, setFetchLoading] = useState(true);
   const [importLoading, setImportLoading] = useState(false);
+  // Parsed CSV held while the user decides whether rows matching existing
+  // SKUs should overwrite those products' columns or be skipped.
+  const [pendingImport, setPendingImport] = useState<{
+    rows: ImportRow[];
+    duplicates: number;
+  } | null>(null);
 
   const [search, setSearch] = useState("");
   const [sortBy, setSortBy] = useState<keyof Product>("id");
@@ -406,14 +430,14 @@ export default function ProductList() {
           return idx >= 0 ? (row[idx]?.replace(/"/g, "").trim() ?? "") : "";
         };
 
-        const parsedProducts = lines.slice(1).map((line) => {
+        const parsedProducts: ImportRow[] = lines.slice(1).map((line) => {
           const row = parseCSVLine(line);
           return {
             name: getValue(row, "Name"),
             brand_name: getValue(row, "Brand Name"),
             generic_name: getValue(row, "Generic Name") || null,
             sku: getValue(row, "SKU"),
-            barcode: getValue(row, "Barcode") || undefined,
+            barcode: getValue(row, "Barcode"),
             cost: parseFloat(getValue(row, "Cost")) || 0,
             price: parseFloat(getValue(row, "Price")) || 0,
             dosage: getValue(row, "Dosage") || null,
@@ -429,92 +453,18 @@ export default function ProductList() {
           };
         });
 
-        // Build a set of existing SKUs to skip duplicates
+        // Rows matching an existing SKU need a decision from the user
+        // (overwrite vs skip), so pause and prompt instead of importing.
         const existingSkus = new Set(products.map((p) => p.sku));
+        const duplicates = parsedProducts.filter(
+          (p) => p.sku && existingSkus.has(p.sku),
+        ).length;
 
-        let success = 0;
-        let skipped = 0;
-        let failed = 0;
-
-        for (const product of parsedProducts) {
-          if (!product.name || !product.sku) {
-            failed++;
-            continue;
-          }
-
-          // Skip already-existing SKUs instead of failing
-          if (existingSkus.has(product.sku)) {
-            skipped++;
-            continue;
-          }
-
-          let matchedCat = categories.find(
-            (c) => c.name.toLowerCase() === product.categoryName.toLowerCase(),
-          );
-          if (!matchedCat) {
-            if (!product.categoryName) {
-              failed++;
-              continue;
-            }
-            try {
-              // Create the category on the fly
-              const res = await api.post("/categories", {
-                name: product.categoryName,
-              });
-              matchedCat = res.data;
-              // Add to local categories so subsequent products reuse it
-              setCategories((prev) => [...prev, res.data]);
-              categories.push(res.data); // also update the local ref used in this loop
-            } catch {
-              failed++;
-              continue;
-            }
-          }
-
-          try {
-            const { categoryName, ...productData } = product;
-            if (matchedCat) {
-              await api.post("/products", {
-                name: productData.name,
-                brandName: productData.brand_name,
-                genericName: productData.generic_name,
-                sku: productData.sku,
-                barcode: productData.barcode,
-                cost: productData.cost,
-                price: productData.price,
-                dosage: productData.dosage,
-                form: productData.form,
-                expiryDate: productData.expiry_date,
-                requiresPrescription: productData.requires_prescription,
-                trackInventory: productData.track_inventory,
-                status: productData.status,
-                categoryId: matchedCat.id,
-              });
-            } else {
-              // Handle the error: category was not found
-              console.error("Category not found");
-              // Optional: throw error or alert user
-            }
-
-            // Add to local set so duplicates within the CSV itself are also caught
-            existingSkus.add(product.sku);
-            success++;
-          } catch (err: any) {
-            // If it's a duplicate SKU/barcode error from server, count as skipped
-            const msg = err.response?.data?.message || "";
-            if (msg.includes("already exists")) {
-              skipped++;
-            } else {
-              failed++;
-            }
-          }
+        if (duplicates > 0) {
+          setPendingImport({ rows: parsedProducts, duplicates });
+        } else {
+          await runImport(parsedProducts, false);
         }
-
-        const parts = [`Imported ${success} products`];
-        if (skipped > 0) parts.push(`${skipped} skipped (already exist)`);
-        if (failed > 0) parts.push(`${failed} failed`);
-        toast.success(parts.join(", "));
-        fetchProducts();
       } catch {
         toast.error("Failed to read or parse CSV file");
       } finally {
@@ -523,6 +473,116 @@ export default function ProductList() {
     };
     reader.readAsText(file);
     e.target.value = "";
+  };
+
+  // Executes the parsed CSV. When overwriteExisting is true, rows whose SKU
+  // matches an existing product replace ALL of that product's columns with
+  // the CSV values (empty cells clear the column); otherwise those rows are
+  // skipped and only new SKUs are created.
+  const runImport = async (rows: ImportRow[], overwriteExisting: boolean) => {
+    setImportLoading(true);
+    try {
+      const existingBySku = new Map(products.map((p) => [p.sku, p.id]));
+      // Duplicate SKUs within the CSV itself: first row wins.
+      const seenSkus = new Set<string>();
+      const localCategories = [...categories];
+
+      let created = 0;
+      let updated = 0;
+      let skipped = 0;
+      let failed = 0;
+
+      for (const row of rows) {
+        if (!row.name || !row.sku) {
+          failed++;
+          continue;
+        }
+
+        if (seenSkus.has(row.sku)) {
+          skipped++;
+          continue;
+        }
+        seenSkus.add(row.sku);
+
+        const existingId = existingBySku.get(row.sku);
+        if (existingId !== undefined && !overwriteExisting) {
+          skipped++;
+          continue;
+        }
+
+        let matchedCat = localCategories.find(
+          (c) => c.name.toLowerCase() === row.categoryName.toLowerCase(),
+        );
+        if (!matchedCat) {
+          if (!row.categoryName) {
+            failed++;
+            continue;
+          }
+          try {
+            // Create the category on the fly
+            const res = await api.post("/categories", {
+              name: row.categoryName,
+            });
+            matchedCat = res.data;
+            // Add to local categories so subsequent rows reuse it
+            localCategories.push(res.data);
+            setCategories((prev) => [...prev, res.data]);
+          } catch {
+            failed++;
+            continue;
+          }
+        }
+        if (!matchedCat) {
+          failed++;
+          continue;
+        }
+
+        // API request contract is camelCase (same payload as the edit form).
+        const payload = {
+          name: row.name,
+          brandName: row.brand_name,
+          genericName: row.generic_name,
+          sku: row.sku,
+          barcode: row.barcode || null,
+          cost: row.cost,
+          price: row.price,
+          dosage: row.dosage,
+          form: row.form,
+          expiryDate: row.expiry_date,
+          requiresPrescription: row.requires_prescription,
+          trackInventory: row.track_inventory,
+          status: row.status,
+          categoryId: matchedCat.id,
+        };
+
+        try {
+          if (existingId !== undefined) {
+            await api.put(`/products/${existingId}`, payload);
+            updated++;
+          } else {
+            await api.post("/products", payload);
+            created++;
+          }
+        } catch (err: any) {
+          // If it's a duplicate SKU/barcode error from server, count as skipped
+          const msg = err.response?.data?.message || "";
+          if (msg.includes("already exists")) {
+            skipped++;
+          } else {
+            failed++;
+          }
+        }
+      }
+
+      const parts = [`Imported ${created} products`];
+      if (updated > 0) parts.push(`${updated} overwritten`);
+      if (skipped > 0) parts.push(`${skipped} skipped`);
+      if (failed > 0) parts.push(`${failed} failed`);
+      toast.success(parts.join(", "));
+      fetchProducts();
+    } finally {
+      setImportLoading(false);
+    }
   };
 
   const fetchProducts = useCallback(async () => {
@@ -999,7 +1059,8 @@ export default function ProductList() {
                       Sample CSV
                     </Button>
                     <span className="text-xs text-gray-500">
-                      Import creates products only — add stock quantities via{" "}
+                      Import creates products (existing SKUs can be
+                      overwritten) — add stock quantities via{" "}
                       <Link
                         href="/stock/add"
                         className="text-emerald-600 underline"
@@ -2300,6 +2361,74 @@ export default function ProductList() {
                 >
                   <Trash className="w-4 h-4 mr-2" />
                   Delete {selectedIds.size} Products
+                </Button>
+              </DialogFooter>
+            </DialogContent>
+          </Dialog>
+          {/* Import Overwrite Dialog */}
+          <Dialog
+            open={pendingImport !== null}
+            onOpenChange={(open) => {
+              if (!open) setPendingImport(null);
+            }}
+          >
+            <DialogContent className="sm:max-w-md bg-white">
+              <DialogHeader>
+                <DialogTitle className="text-2xl font-bold text-emerald-700 flex items-center gap-2">
+                  <Upload className="h-6 w-6" />
+                  Products Already Exist
+                </DialogTitle>
+              </DialogHeader>
+
+              <div className="py-4">
+                <p className="text-gray-700 mb-4">
+                  <span className="font-bold text-gray-900">
+                    {pendingImport?.duplicates}
+                  </span>{" "}
+                  of {pendingImport?.rows.length} rows in this CSV match
+                  existing products by SKU. Overwrite them or skip them?
+                </p>
+                <div className="p-4 bg-amber-50 border-2 border-amber-200 rounded-lg">
+                  <div className="flex items-start gap-2 text-sm text-amber-800">
+                    <AlertCircle className="h-4 w-4 shrink-0 mt-0.5" />
+                    <span>
+                      Overwrite replaces <strong>all product columns</strong>{" "}
+                      (name, brand, prices, category, status, expiry, etc.)
+                      with the CSV values — empty cells clear the column.
+                      Stock quantities are not affected.
+                    </span>
+                  </div>
+                </div>
+              </div>
+
+              <DialogFooter className="flex-col sm:flex-row gap-2">
+                <Button
+                  variant="outline"
+                  onClick={() => setPendingImport(null)}
+                  className="w-full sm:w-auto border-gray-300"
+                >
+                  Cancel
+                </Button>
+                <Button
+                  variant="outline"
+                  onClick={() => {
+                    const pending = pendingImport;
+                    setPendingImport(null);
+                    if (pending) runImport(pending.rows, false);
+                  }}
+                  className="w-full sm:w-auto border-emerald-300 hover:bg-emerald-50"
+                >
+                  Skip Existing
+                </Button>
+                <Button
+                  onClick={() => {
+                    const pending = pendingImport;
+                    setPendingImport(null);
+                    if (pending) runImport(pending.rows, true);
+                  }}
+                  className="w-full sm:w-auto bg-amber-600 hover:bg-amber-700 text-white"
+                >
+                  Overwrite All Columns
                 </Button>
               </DialogFooter>
             </DialogContent>

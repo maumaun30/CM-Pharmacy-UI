@@ -30,9 +30,6 @@ export default function LoginPage() {
   const [showPassword, setShowPassword] = useState(false);
   const router = useRouter();
 
-  const [loginMode, setLoginMode] = useState<"password" | "pin">("password");
-  const [pin, setPin] = useState("");
-
   const { user, loading: authLoading, refreshUser } = useAuth();
 
   // Redirect if already authenticated
@@ -42,9 +39,7 @@ export default function LoginPage() {
 
   const isLoading = state !== "idle";
   const canSubmit =
-    !isLoading &&
-    username.trim().length > 0 &&
-    (loginMode === "password" ? password.length > 0 : pin.length >= 4);
+    !isLoading && username.trim().length > 0 && password.length > 0;
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -53,11 +48,7 @@ export default function LoginPage() {
     setError("");
 
     try {
-      const endpoint = loginMode === "pin" ? "/auth/login-pin" : "/auth/login";
-      const payload =
-        loginMode === "pin" ? { username, pin } : { username, password };
-
-      const res = await api.post(endpoint, payload);
+      const res = await api.post("/auth/login", { username, password });
       if (typeof window !== "undefined") {
         try {
           window.localStorage?.setItem?.("token", res.data.token);
@@ -74,7 +65,7 @@ export default function LoginPage() {
   };
 
   // Google sign-in: exchange the Google ID token for our JWT via /auth/google.
-  // Same success path as password/PIN login; a 401 means the Google account
+  // Same success path as password login; a 401 means the Google account
   // isn't linked to any staff user yet.
   const handleGoogleCredential = async (idToken: string) => {
     setState("loading");
@@ -223,30 +214,6 @@ export default function LoginPage() {
             )}
           </AnimatePresence>
 
-          {/* Mode toggle */}
-          <div className="flex rounded-lg border border-gray-200 p-1 bg-gray-50 mb-4">
-            {(["password", "pin"] as const).map((mode) => (
-              <button
-                key={mode}
-                type="button"
-                onClick={() => {
-                  setLoginMode(mode);
-                  setError("");
-                  setPin("");
-                  setPassword("");
-                }}
-                disabled={isLoading}
-                className={`flex-1 py-2 text-sm font-medium rounded-md transition-all duration-200 capitalize disabled:opacity-50 ${
-                  loginMode === mode
-                    ? "bg-white text-emerald-700 shadow-sm border border-emerald-200"
-                    : "text-gray-500 hover:text-gray-700"
-                }`}
-              >
-                {mode === "pin" ? "PIN Code" : "Password"}
-              </button>
-            ))}
-          </div>
-
           {/* Login form */}
           <form onSubmit={handleLogin} className="space-y-5">
             {/* Username field */}
@@ -272,103 +239,40 @@ export default function LoginPage() {
               </div>
             </div>
 
-            {/* Password / PIN field */}
-            <AnimatePresence mode="wait">
-              {loginMode === "password" ? (
-                <motion.div
-                  key="pw"
-                  initial={{ opacity: 0, y: 6 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  exit={{ opacity: 0, y: -6 }}
-                  transition={{ duration: 0.2 }}
-                  className="space-y-2"
+            {/* Password field */}
+            <div className="space-y-2">
+              <label className="text-gray-700 text-sm font-medium block">
+                Password
+              </label>
+              <div className="relative">
+                <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                  <Lock className="h-5 w-5 text-gray-400" />
+                </div>
+                <Input
+                  type={showPassword ? "text" : "password"}
+                  placeholder="Enter your password"
+                  className="w-full pl-10 pr-10 py-3 bg-gray-50 border border-gray-300 rounded-lg focus:border-emerald-500 focus:ring-2 focus:ring-emerald-200 transition-all"
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  disabled={isLoading}
+                  autoComplete="current-password"
+                  required
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowPassword((s) => !s)}
+                  tabIndex={-1}
+                  className="absolute inset-y-0 right-0 pr-3 flex items-center text-gray-400 hover:text-emerald-600 transition-colors"
+                  aria-label={showPassword ? "Hide password" : "Show password"}
                 >
-                  <label className="text-gray-700 text-sm font-medium block">
-                    Password
-                  </label>
-                  <div className="relative">
-                    <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-                      <Lock className="h-5 w-5 text-gray-400" />
-                    </div>
-                    <Input
-                      type={showPassword ? "text" : "password"}
-                      placeholder="Enter your password"
-                      className="w-full pl-10 pr-10 py-3 bg-gray-50 border border-gray-300 rounded-lg focus:border-emerald-500 focus:ring-2 focus:ring-emerald-200 transition-all"
-                      value={password}
-                      onChange={(e) => setPassword(e.target.value)}
-                      disabled={isLoading}
-                      autoComplete="current-password"
-                      required
-                    />
-                    <button
-                      type="button"
-                      onClick={() => setShowPassword((s) => !s)}
-                      tabIndex={-1}
-                      className="absolute inset-y-0 right-0 pr-3 flex items-center text-gray-400 hover:text-emerald-600 transition-colors"
-                      aria-label={showPassword ? "Hide password" : "Show password"}
-                    >
-                      {showPassword ? (
-                        <EyeOff className="h-5 w-5" />
-                      ) : (
-                        <Eye className="h-5 w-5" />
-                      )}
-                    </button>
-                  </div>
-                </motion.div>
-              ) : (
-                <motion.div
-                  key="pin"
-                  initial={{ opacity: 0, y: 6 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  exit={{ opacity: 0, y: -6 }}
-                  transition={{ duration: 0.2 }}
-                  className="space-y-2"
-                >
-                  <label className="text-gray-700 text-sm font-medium block">
-                    PIN Code
-                  </label>
-                  <div className="flex gap-2 justify-center">
-                    {[0, 1, 2, 3, 4, 5].map((i) => (
-                      <input
-                        key={i}
-                        type="password"
-                        inputMode="numeric"
-                        maxLength={1}
-                        value={pin[i] || ""}
-                        onChange={(e) => {
-                          const val = e.target.value.replace(/\D/, "");
-                          const arr = pin.split("");
-                          arr[i] = val;
-                          setPin(arr.join("").slice(0, 6));
-                          if (val && e.target.nextElementSibling) {
-                            (
-                              e.target.nextElementSibling as HTMLInputElement
-                            ).focus();
-                          }
-                        }}
-                        onKeyDown={(e) => {
-                          if (
-                            e.key === "Backspace" &&
-                            !pin[i] &&
-                            e.currentTarget.previousElementSibling
-                          ) {
-                            (
-                              e.currentTarget
-                                .previousElementSibling as HTMLInputElement
-                            ).focus();
-                          }
-                        }}
-                        className="w-12 h-14 text-center text-xl font-bold border-2 border-gray-300 rounded-lg focus:border-emerald-500 focus:ring-2 focus:ring-emerald-200 outline-none transition-all bg-gray-50 disabled:opacity-50"
-                        disabled={isLoading}
-                      />
-                    ))}
-                  </div>
-                  <p className="text-xs text-center text-gray-500">
-                    Enter your 4–6 digit PIN
-                  </p>
-                </motion.div>
-              )}
-            </AnimatePresence>
+                  {showPassword ? (
+                    <EyeOff className="h-5 w-5" />
+                  ) : (
+                    <Eye className="h-5 w-5" />
+                  )}
+                </button>
+              </div>
+            </div>
 
             {/* Submit button */}
             <Button
