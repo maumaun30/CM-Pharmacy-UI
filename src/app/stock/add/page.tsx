@@ -21,6 +21,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import ProductCombobox from "@/components/ProductCombobox";
 import { toast } from "sonner";
 import {
   ArrowLeft,
@@ -771,27 +772,14 @@ const AddStockForm = () => {
                     <Label className="text-sm font-semibold text-gray-700">
                       Product *
                     </Label>
-                    <Select
+                    <ProductCombobox
+                      products={products}
                       value={formData.productId}
                       onValueChange={(value) =>
                         setFormData({ ...formData, productId: value })
                       }
-                    >
-                      <SelectTrigger className="h-11 border-emerald-200 focus:border-emerald-500 focus:ring-2 focus:ring-emerald-200">
-                        <SelectValue placeholder="Select product" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {products.map((product) => (
-                          <SelectItem
-                            key={product.id}
-                            value={product.id.toString()}
-                          >
-                            {product.name} ({product.sku}) - Stock:{" "}
-                            {product.current_stock}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
+                      triggerClassName="border-emerald-200 focus:border-emerald-500 focus:ring-2 focus:ring-emerald-200"
+                    />
                   </div>
 
                   {/* Current Stock Display */}

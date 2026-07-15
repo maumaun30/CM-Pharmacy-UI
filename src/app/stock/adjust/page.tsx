@@ -23,6 +23,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import ProductCombobox from "@/components/ProductCombobox";
 import { toast } from "sonner";
 import {
   ArrowLeft,
@@ -336,7 +337,8 @@ const StockAdjustPage = () => {
                         <Label className="text-sm font-semibold text-gray-700">
                           Product *
                         </Label>
-                        <Select
+                        <ProductCombobox
+                          products={products}
                           value={adjustFormData.productId}
                           onValueChange={(value) =>
                             setAdjustFormData({
@@ -344,22 +346,8 @@ const StockAdjustPage = () => {
                               productId: value,
                             })
                           }
-                        >
-                          <SelectTrigger className="h-11 border-emerald-200 focus:border-emerald-500 focus:ring-2 focus:ring-emerald-200">
-                            <SelectValue placeholder="Select product" />
-                          </SelectTrigger>
-                          <SelectContent>
-                            {products.map((product) => (
-                              <SelectItem
-                                key={product.id}
-                                value={product.id.toString()}
-                              >
-                                {product.name} ({product.sku}) - Stock:{" "}
-                                {product.current_stock}
-                              </SelectItem>
-                            ))}
-                          </SelectContent>
-                        </Select>
+                          triggerClassName="border-emerald-200 focus:border-emerald-500 focus:ring-2 focus:ring-emerald-200"
+                        />
                       </div>
 
                       {/* Current Stock Display */}
@@ -609,7 +597,8 @@ const StockAdjustPage = () => {
                         <Label className="text-sm font-semibold text-gray-700">
                           Product *
                         </Label>
-                        <Select
+                        <ProductCombobox
+                          products={products}
                           value={lossFormData.productId}
                           onValueChange={(value) =>
                             setLossFormData({
@@ -617,22 +606,8 @@ const StockAdjustPage = () => {
                               productId: value,
                             })
                           }
-                        >
-                          <SelectTrigger className="h-11 border-red-200 focus:border-red-500 focus:ring-2 focus:ring-red-200">
-                            <SelectValue placeholder="Select product" />
-                          </SelectTrigger>
-                          <SelectContent>
-                            {products.map((product) => (
-                              <SelectItem
-                                key={product.id}
-                                value={product.id.toString()}
-                              >
-                                {product.name} ({product.sku}) - Stock:{" "}
-                                {product.current_stock}
-                              </SelectItem>
-                            ))}
-                          </SelectContent>
-                        </Select>
+                          triggerClassName="border-red-200 focus:border-red-500 focus:ring-2 focus:ring-red-200"
+                        />
                       </div>
 
                       {/* Current Stock Display */}
