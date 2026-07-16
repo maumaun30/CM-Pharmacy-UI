@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import BranchSwitcher from "@/components/BranchSwitcher";
+import NotificationBell from "@/components/NotificationBell";
 import { getFullName } from "@/lib/utils";
 import { useAuth } from "@/hooks/useAuth";
 import { can } from "@/lib/permissions";
@@ -24,6 +25,7 @@ import {
   TrendingUp,
   Home,
   BarChart3,
+  RotateCcw,
 } from "lucide-react";
 import {
   DropdownMenu,
@@ -51,6 +53,7 @@ export default function Navbar() {
     canProducts || canCategories || canDiscounts || canBranches || canUsers;
   const canInventory = can(user, "stock.read");
   const canLogs = can(user, "logs.read");
+  const canReviewRefunds = can(user, "refund_requests.review");
 
   return (
     <nav className="border-t-2 border-emerald-200 bg-white shadow-lg fixed bottom-0 left-0 w-full h-auto z-50">
@@ -113,6 +116,18 @@ export default function Navbar() {
                     Analytics
                   </Button>
                 </Link>
+                {canReviewRefunds && (
+                  <Link href="/refunds">
+                    <Button
+                      className="cursor-pointer border-emerald-300 hover:bg-emerald-50 hover:border-emerald-400 font-medium"
+                      variant="outline"
+                      size="sm"
+                    >
+                      <RotateCcw className="w-4 h-4 mr-2" />
+                      Refunds
+                    </Button>
+                  </Link>
+                )}
               </div>
 
               {/* Management / Inventory / Logs (permission-gated) */}
@@ -226,7 +241,8 @@ export default function Navbar() {
                 </div>
               )}
 
-              <div className="pl-3 border-l-2 border-emerald-200">
+              <div className="pl-3 border-l-2 border-emerald-200 flex items-center gap-2">
+                <NotificationBell />
                 <BranchSwitcher />
               </div>
 
@@ -310,7 +326,8 @@ export default function Navbar() {
                 </Button>
               </Link>
 
-              <div className="pl-2 border-l-2 border-emerald-200">
+              <div className="pl-2 border-l-2 border-emerald-200 flex items-center gap-2">
+                <NotificationBell />
                 <BranchSwitcher />
               </div>
 
@@ -354,6 +371,13 @@ export default function Navbar() {
                         <BarChart3 className="w-4 h-4 mr-3 text-emerald-600" />Analytics
                       </Link>
                     </DropdownMenuItem>
+                    {canReviewRefunds && (
+                      <DropdownMenuItem asChild>
+                        <Link href="/refunds" className="cursor-pointer flex items-center py-2">
+                          <RotateCcw className="w-4 h-4 mr-3 text-emerald-600" />Refund Requests
+                        </Link>
+                      </DropdownMenuItem>
+                    )}
 
                     {canManage && (
                       <>
@@ -476,6 +500,8 @@ export default function Navbar() {
                 </Button>
               </Link>
 
+              <NotificationBell />
+
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
                   <Button
@@ -515,6 +541,13 @@ export default function Navbar() {
                       <BarChart3 className="w-4 h-4 mr-3 text-emerald-600" />Analytics
                     </Link>
                   </DropdownMenuItem>
+                  {canReviewRefunds && (
+                    <DropdownMenuItem asChild>
+                      <Link href="/refunds" className="cursor-pointer flex items-center py-2">
+                        <RotateCcw className="w-4 h-4 mr-3 text-emerald-600" />Refund Requests
+                      </Link>
+                    </DropdownMenuItem>
+                  )}
                   {canLogs && (
                     <DropdownMenuItem asChild>
                       <Link href="/logs" className="cursor-pointer flex items-center py-2">

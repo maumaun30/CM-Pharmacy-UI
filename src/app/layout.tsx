@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { Figtree } from "next/font/google";
 import "@/styles/globals.css";
 import { AuthProvider } from "@/context/AuthContext";
+import { NotificationProvider } from "@/context/NotificationContext";
 import { Toaster } from "sonner";
 
 const figtree = Figtree({
@@ -25,8 +26,10 @@ export default function RootLayout({
     <html lang="en">
       <body className={`${figtree.variable} antialiased`}>
         <AuthProvider>
-          {children}
-          <Toaster richColors position="bottom-right" />
+          <NotificationProvider>
+            {children}
+            <Toaster richColors position="bottom-right" />
+          </NotificationProvider>
         </AuthProvider>
       </body>
     </html>

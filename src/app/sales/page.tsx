@@ -177,6 +177,9 @@ const SalesReportPage = () => {
   const { user, loading: authLoading } = useAuth();
   // Issuing refunds is a supervisor action (API: sales.refund → admin + manager).
   const canRefund = can(user, "sales.refund");
+  // Cashiers can't refund directly, but they can submit a refund request that
+  // a supervisor approves remotely (from /refunds or the admin app).
+  const canRequestRefund = !canRefund && can(user, "refund_requests.create");
   // Derive activeBranch from context — fixes camelCase bug (was using current_branch)
   const activeBranch = user ? (user.currentBranch ?? user.branch ?? null) : null;
 
@@ -322,12 +325,23 @@ const SalesReportPage = () => {
 
     try {
       setRefundLoading(true);
-      await api.post(`/sales/${selectedSale.id}/refunds`, {
-        items,
-        reason: refundReason.trim() || undefined,
-      });
 
-      toast.success(`Refund of ₱${refundTotal.toFixed(2)} processed successfully`);
+      if (canRefund) {
+        await api.post(`/sales/${selectedSale.id}/refunds`, {
+          items,
+          reason: refundReason.trim() || undefined,
+        });
+        toast.success(`Refund of ₱${refundTotal.toFixed(2)} processed successfully`);
+      } else {
+        // Cashier path: submit a request for remote supervisor approval.
+        await api.post(`/sales/${selectedSale.id}/refund-requests`, {
+          items,
+          reason: refundReason.trim() || undefined,
+        });
+        toast.success(
+          `Refund request for ₱${refundTotal.toFixed(2)} sent — awaiting approval`
+        );
+      }
 
       await fetchSales();
       await fetchRefundHistory(selectedSale.id);
@@ -342,11 +356,14 @@ const SalesReportPage = () => {
       setRefundCart({});
       setRefundReason("");
     } catch (err: any) {
-      toast.error(err?.response?.data?.message || "Failed to process refund");
+      toast.error(
+        err?.response?.data?.message ||
+          (canRefund ? "Failed to process refund" : "Failed to send refund request")
+      );
     } finally {
       setRefundLoading(false);
     }
-  }, [selectedSale, refundItemCount, refundCart, refundReason, refundTotal, fetchSales, fetchRefundHistory]);
+  }, [selectedSale, refundItemCount, refundCart, refundReason, refundTotal, canRefund, fetchSales, fetchRefundHistory]);
 
   // ── Filters / stats ──────────────────────────────────────────────────────────
 
@@ -1200,15 +1217,15 @@ const SalesReportPage = () => {
                     </div>
 
                     {selectedSale.status !== "fully_refunded" &&
-                      (canRefund || refundHistory.length > 0) && (
+                      (canRefund || canRequestRefund || refundHistory.length > 0) && (
                       <div className="flex flex-col sm:flex-row gap-2 pt-2 border-t border-gray-100">
-                        {canRefund && (
+                        {(canRefund || canRequestRefund) && (
                           <Button
                             onClick={handleOpenRefund}
                             className="flex-1 bg-amber-500 hover:bg-amber-600 text-white"
                           >
                             <RotateCcw className="w-4 h-4 mr-2" />
-                            Process Refund
+                            {canRefund ? "Process Refund" : "Request Refund"}
                           </Button>
                         )}
                         {refundHistory.length > 0 && (
@@ -1263,7 +1280,7 @@ const SalesReportPage = () => {
                       </Button>
                       <div>
                         <DialogTitle className="text-2xl font-bold text-gray-800">
-                          Process Refund
+                          {canRefund ? "Process Refund" : "Request Refund"}
                         </DialogTitle>
                         <DialogDescription className="text-base">
                           Sale{" "}
@@ -1271,6 +1288,7 @@ const SalesReportPage = () => {
                             #{selectedSale.id}
                           </span>{" "}
                           — select items and quantities to refund
+                          {!canRefund && " (a manager will review your request)"}
                         </DialogDescription>
                       </div>
                     </div>
@@ -1415,12 +1433,12 @@ const SalesReportPage = () => {
                         {refundLoading ? (
                           <>
                             <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                            Processing...
+                            {canRefund ? "Processing..." : "Sending..."}
                           </>
                         ) : (
                           <>
                             <CheckCircle2 className="w-4 h-4 mr-2" />
-                            Confirm Refund
+                            {canRefund ? "Confirm Refund" : "Send Request"}
                           </>
                         )}
                       </Button>
