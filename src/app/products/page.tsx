@@ -1735,20 +1735,6 @@ export default function ProductList() {
                                   >
                                     <Pencil className="h-4 w-4 text-blue-600" />
                                   </Button>
-
-                                  {canDelete && (
-                                    <Button
-                                      variant="ghost"
-                                      size="icon"
-                                      onClick={() => {
-                                        setProductToDelete(prod);
-                                        setDeleteOpen(true);
-                                      }}
-                                      className="h-8 w-8 hover:bg-red-50"
-                                    >
-                                      <Trash className="h-4 w-4 text-red-600" />
-                                    </Button>
-                                  )}
                                 </div>
                               </TableCell>
                             </TableRow>
@@ -2208,6 +2194,21 @@ export default function ProductList() {
               </div>
 
               <DialogFooter className="flex-col sm:flex-row gap-2">
+                {editingProduct && canDelete && (
+                  <Button
+                    variant="outline"
+                    onClick={() => {
+                      setProductToDelete(editingProduct);
+                      setModalOpen(false);
+                      setDeleteOpen(true);
+                    }}
+                    disabled={loading}
+                    className="w-full sm:w-auto sm:mr-auto border-red-300 text-red-600 hover:bg-red-50 hover:text-red-700"
+                  >
+                    <Trash className="w-4 h-4 mr-2" />
+                    Delete
+                  </Button>
+                )}
                 <Button
                   variant="outline"
                   onClick={handleCloseModal}
