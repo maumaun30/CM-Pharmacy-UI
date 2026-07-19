@@ -104,6 +104,7 @@ const AddStockForm = () => {
     productId: preselectedProductId || "",
     quantity: "",
     unitCost: "",
+    sellingPrice: "",
     batchNumber: "",
     expiryDate: "",
     supplier: "",
@@ -159,6 +160,7 @@ const AddStockForm = () => {
         productId: parseInt(formData.productId),
         quantity: parseInt(formData.quantity),
         unitCost: formData.unitCost ? parseFloat(formData.unitCost) : null,
+        sellingPrice: formData.sellingPrice ? parseFloat(formData.sellingPrice) : null,
         batchNumber: formData.batchNumber || null,
         expiryDate: formData.expiryDate || null,
         supplier: formData.supplier || null,
@@ -835,23 +837,48 @@ const AddStockForm = () => {
                     />
                   </div>
 
-                  {/* Unit Cost */}
+                  {/* Unit Cost + Selling Price */}
                   <div className="space-y-2">
-                    <Label className="text-sm font-semibold text-gray-700 flex items-center gap-2">
-                      <DollarSign className="h-4 w-4 text-emerald-600" />
-                      Unit Cost (₱)
-                    </Label>
-                    <Input
-                      type="number"
-                      step="0.01"
-                      min="0"
-                      value={formData.unitCost}
-                      onChange={(e) =>
-                        setFormData({ ...formData, unitCost: e.target.value })
-                      }
-                      placeholder="0.00"
-                      className="h-11 border-emerald-200 focus:border-emerald-500 focus:ring-2 focus:ring-emerald-200"
-                    />
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                      <div className="space-y-2">
+                        <Label className="text-sm font-semibold text-gray-700 flex items-center gap-2">
+                          <DollarSign className="h-4 w-4 text-emerald-600" />
+                          Unit Cost (₱)
+                        </Label>
+                        <Input
+                          type="number"
+                          step="0.01"
+                          min="0"
+                          value={formData.unitCost}
+                          onChange={(e) =>
+                            setFormData({ ...formData, unitCost: e.target.value })
+                          }
+                          placeholder="0.00"
+                          className="h-11 border-emerald-200 focus:border-emerald-500 focus:ring-2 focus:ring-emerald-200"
+                        />
+                      </div>
+                      <div className="space-y-2">
+                        <Label className="text-sm font-semibold text-gray-700 flex items-center gap-2">
+                          <DollarSign className="h-4 w-4 text-emerald-600" />
+                          Selling Price (₱)
+                        </Label>
+                        <Input
+                          type="number"
+                          step="0.01"
+                          min="0"
+                          value={formData.sellingPrice}
+                          onChange={(e) =>
+                            setFormData({ ...formData, sellingPrice: e.target.value })
+                          }
+                          placeholder="0.00"
+                          className="h-11 border-emerald-200 focus:border-emerald-500 focus:ring-2 focus:ring-emerald-200"
+                        />
+                      </div>
+                    </div>
+                    <p className="text-xs text-gray-500">
+                      Filling cost/price also updates the product&apos;s cost and
+                      price.
+                    </p>
                     {totalCost > 0 && (
                       <div className="p-3 bg-emerald-50 border-2 border-emerald-200 rounded-lg">
                         <p className="text-sm font-semibold text-gray-800">

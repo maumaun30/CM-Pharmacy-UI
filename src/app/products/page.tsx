@@ -227,9 +227,21 @@ export default function ProductList() {
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [productToDelete, setProductToDelete] = useState<Product | null>(null);
 
-  const [stockModalOpen, setStockModalOpen] = useState(false);
-  const [selectedProductForStock, setSelectedProductForStock] =
-    useState<Product | null>(null);
+  // Quick cost/price edit modal
+  const [priceModalOpen, setPriceModalOpen] = useState(false);
+  const [priceProduct, setPriceProduct] = useState<Product | null>(null);
+  const [priceForm, setPriceForm] = useState({ cost: "", price: "" });
+
+  // Quick add-stock modal (replaces the /stock/add link in row actions)
+  const [addStockOpen, setAddStockOpen] = useState(false);
+  const [addStockProduct, setAddStockProduct] = useState<Product | null>(null);
+  const [addStockForm, setAddStockForm] = useState({
+    quantity: "",
+    cost: "",
+    price: "",
+    branch_id: "",
+  });
+  const [addStockLoading, setAddStockLoading] = useState(false);
 
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
   const [bulkDeleteOpen, setBulkDeleteOpen] = useState(false);
@@ -713,9 +725,9 @@ export default function ProductList() {
       maximum_stock,
     } = formData;
 
-    if (!name || !brand_name || !sku || !cost || !price || !category_id) {
+    if (!name || !sku || !cost || !price || !category_id) {
       return toast.error(
-        "Name, Brand Name, SKU, Cost, Price and Category are required",
+        "Name, SKU, Cost, Price and Category are required",
       );
     }
 
@@ -803,17 +815,75 @@ export default function ProductList() {
     }
   }, [selectedIds, fetchProducts]);
 
-  const toggleProductStatus = useCallback(async (product: Product) => {
+  const openPriceModal = useCallback((product: Product) => {
+    setPriceProduct(product);
+    setPriceForm({
+      cost: product.cost.toString(),
+      price: product.price.toString(),
+    });
+    setPriceModalOpen(true);
+  }, []);
+
+  const savePrice = useCallback(async () => {
+    if (!priceProduct) return;
+    const cost = parseFloat(priceForm.cost);
+    const price = parseFloat(priceForm.price);
+    if (isNaN(cost) || isNaN(price) || cost < 0 || price < 0) {
+      return toast.error("Cost and Price must be valid numbers");
+    }
     try {
-      await api.patch(`/products/${product.id}/toggle-status`);
-      toast.success(
-        `Product ${product.status === "ACTIVE" ? "deactivated" : "activated"}`,
-      );
+      setLoading(true);
+      await api.put(`/products/${priceProduct.id}`, { cost, price });
+      toast.success("Pricing updated");
+      setPriceModalOpen(false);
+      setPriceProduct(null);
       fetchProducts();
     } catch (err: any) {
-      toast.error(err.response?.data?.message || "Error toggling product status");
+      toast.error(err.response?.data?.message || "Error updating pricing");
+    } finally {
+      setLoading(false);
     }
-  }, [fetchProducts]);
+  }, [priceProduct, priceForm, fetchProducts]);
+
+  const openAddStock = useCallback((product: Product) => {
+    setAddStockProduct(product);
+    setAddStockForm({ quantity: "", cost: "", price: "", branch_id: "" });
+    setAddStockOpen(true);
+  }, []);
+
+  const saveAddStock = useCallback(async () => {
+    if (!addStockProduct) return;
+    const quantity = parseInt(addStockForm.quantity);
+    if (isNaN(quantity) || quantity <= 0) {
+      return toast.error("Quantity must be a positive number");
+    }
+    // Admin in all-branches view has no session branch — the modal requires one.
+    if (!activeBranchId && !addStockForm.branch_id) {
+      return toast.error("Select a branch to receive the stock");
+    }
+    try {
+      setAddStockLoading(true);
+      await api.post("/stock/add", {
+        productId: addStockProduct.id,
+        quantity,
+        unitCost: addStockForm.cost !== "" ? parseFloat(addStockForm.cost) : undefined,
+        sellingPrice: addStockForm.price !== "" ? parseFloat(addStockForm.price) : undefined,
+        branchId: addStockForm.branch_id !== "" ? parseInt(addStockForm.branch_id) : undefined,
+      });
+      toast.success(
+        addStockForm.cost !== "" || addStockForm.price !== ""
+          ? "Stock added and product pricing updated"
+          : "Stock added",
+      );
+      setAddStockOpen(false);
+      setAddStockProduct(null);
+      fetchProducts();
+    } catch (err: any) {
+      toast.error(err.response?.data?.message || "Error adding stock");
+    } finally {
+      setAddStockLoading(false);
+    }
+  }, [addStockProduct, addStockForm, activeBranchId, fetchProducts]);
 
   const filtered = useMemo(() => {
     let data = products.filter((p) => {
@@ -1604,10 +1674,18 @@ export default function ProductList() {
                               {/* <TableCell className="font-mono text-sm text-gray-800">
                                 {prod.sku}
                               </TableCell> */}
-                              <TableCell className="font-semibold text-gray-800">
+                              <TableCell
+                                className="font-semibold text-gray-800 cursor-pointer hover:bg-emerald-50 rounded transition-colors"
+                                onClick={() => openPriceModal(prod)}
+                                title="Click to edit cost/price"
+                              >
                                 ₱{prod.cost.toFixed(2)}
                               </TableCell>
-                              <TableCell className="font-semibold text-emerald-600">
+                              <TableCell
+                                className="font-semibold text-emerald-600 cursor-pointer hover:bg-emerald-50 rounded transition-colors"
+                                onClick={() => openPriceModal(prod)}
+                                title="Click to edit cost/price"
+                              >
                                 ₱{prod.price.toFixed(2)}
                               </TableCell>
                               <TableCell className={`font-bold ${marginColor}`}>
@@ -1618,20 +1696,11 @@ export default function ProductList() {
                                   <span className="font-bold text-gray-800">
                                     {stock}
                                   </span>
-                                  {!selectedBranch && (
-                                    <Button
-                                      variant="ghost"
-                                      size="sm"
-                                      onClick={() => {
-                                        setSelectedProductForStock(prod);
-                                        setStockModalOpen(true);
-                                      }}
-                                      className="h-6 px-2 text-xs hover:bg-emerald-50"
-                                    >
-                                      <Building2 className="h-3 w-3 mr-1" />
-                                      View by Branch
-                                    </Button>
-                                  )}
+                                  <span className="text-xs text-gray-500">
+                                    {selectedBranch
+                                      ? branches.find((b) => b.id === selectedBranch)?.name
+                                      : "All branches"}
+                                  </span>
                                 </div>
                               </TableCell>
                               <TableCell>
@@ -1655,29 +1724,14 @@ export default function ProductList() {
                               </TableCell>
                               <TableCell>
                                 <div className="flex items-center justify-center gap-1 whitespace-nowrap">
-                                  <Link
-                                    href={`/stock/add?productId=${prod.id}`}
-                                  >
-                                    <Button
-                                      variant="ghost"
-                                      size="icon"
-                                      className="h-8 w-8 hover:bg-purple-50"
-                                    >
-                                      <Package className="h-4 w-4 text-purple-600" />
-                                    </Button>
-                                  </Link>
-
                                   <Button
                                     variant="ghost"
                                     size="icon"
-                                    onClick={() => toggleProductStatus(prod)}
-                                    className="h-8 w-8 hover:bg-emerald-50"
+                                    onClick={() => openAddStock(prod)}
+                                    title="Add stock"
+                                    className="h-8 w-8 hover:bg-purple-50"
                                   >
-                                    {prod.status === "ACTIVE" ? (
-                                      <ToggleRight className="h-4 w-4 text-emerald-600" />
-                                    ) : (
-                                      <ToggleLeft className="h-4 w-4 text-gray-400" />
-                                    )}
+                                    <Package className="h-4 w-4 text-purple-600" />
                                   </Button>
 
                                   <Button
@@ -1807,7 +1861,7 @@ export default function ProductList() {
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                     <div>
                       <Label className="mb-2 text-sm font-semibold text-gray-700">
-                        Brand Name *
+                        Brand Name
                       </Label>
                       <Input
                         value={formData.brand_name}
@@ -2055,19 +2109,32 @@ export default function ProductList() {
                       <Label className="mb-2 text-sm font-semibold text-gray-700">
                         Status
                       </Label>
-                      <select
-                        className="w-full border-2 border-emerald-200 rounded-lg px-3 py-2 focus:border-emerald-500 focus:ring-2 focus:ring-emerald-200 outline-none"
-                        value={formData.status}
-                        onChange={(e) =>
+                      <button
+                        type="button"
+                        onClick={() =>
                           setFormData({
                             ...formData,
-                            status: e.target.value as "ACTIVE" | "INACTIVE",
+                            status:
+                              formData.status === "ACTIVE"
+                                ? "INACTIVE"
+                                : "ACTIVE",
                           })
                         }
+                        className={`w-full flex items-center justify-between border-2 rounded-lg px-3 py-2 transition-colors ${
+                          formData.status === "ACTIVE"
+                            ? "border-emerald-300 bg-emerald-50 text-emerald-700"
+                            : "border-gray-300 bg-gray-50 text-gray-500"
+                        }`}
                       >
-                        <option value="ACTIVE">Active</option>
-                        <option value="INACTIVE">Inactive</option>
-                      </select>
+                        <span className="font-semibold">
+                          {formData.status === "ACTIVE" ? "Active" : "Inactive"}
+                        </span>
+                        {formData.status === "ACTIVE" ? (
+                          <ToggleRight className="h-6 w-6 text-emerald-600" />
+                        ) : (
+                          <ToggleLeft className="h-6 w-6 text-gray-400" />
+                        )}
+                      </button>
                     </div>
                   </div>
                 </div>
@@ -2175,82 +2242,64 @@ export default function ProductList() {
           </Dialog>
 
           {/* Stock by Branch Modal */}
-          <Dialog open={stockModalOpen} onOpenChange={setStockModalOpen}>
-            <DialogContent className="sm:max-w-2xl bg-white">
+          {/* Quick cost/price edit */}
+          <Dialog open={priceModalOpen} onOpenChange={setPriceModalOpen}>
+            <DialogContent className="sm:max-w-md bg-white">
               <DialogHeader>
                 <DialogTitle className="text-2xl font-bold text-gray-800 flex items-center gap-2">
-                  <Building2 className="h-6 w-6 text-emerald-600" />
-                  Stock by Branch - {selectedProductForStock?.name}
+                  <DollarSign className="h-6 w-6 text-emerald-600" />
+                  Edit Pricing - {priceProduct?.name}
                 </DialogTitle>
               </DialogHeader>
 
-              <div className="py-4 space-y-3">
-                {selectedProductForStock?.branch_stocks &&
-                selectedProductForStock.branch_stocks.length > 0 ? (
-                  selectedProductForStock.branch_stocks.map((bs) => {
-                    const stockStatus =
-                      bs.current_stock === 0
-                        ? {
-                            label: "Out of Stock",
-                            color: "bg-red-100 text-red-800",
-                          }
-                        : bs.current_stock <= bs.minimum_stock
-                          ? {
-                              label: "Critical",
-                              color: "bg-orange-100 text-orange-800",
-                            }
-                          : bs.current_stock <= bs.reorder_point
-                            ? {
-                                label: "Low Stock",
-                                color: "bg-yellow-100 text-yellow-800",
-                              }
-                            : {
-                                label: "In Stock",
-                                color: "bg-emerald-100 text-emerald-800",
-                              };
-
-                    return (
-                      <Card
-                        key={bs.id}
-                        className="p-4 border-2 border-emerald-100 hover:border-emerald-300 transition-all"
-                      >
-                        <div className="flex items-center justify-between">
-                          <div className="flex items-center gap-3">
-                            <div className="h-10 w-10 rounded-lg bg-emerald-50 flex items-center justify-center">
-                              <Building2 className="h-5 w-5 text-emerald-600" />
-                            </div>
-                            <div>
-                              <p className="font-bold text-gray-800">
-                                {bs.branch.name}
-                              </p>
-                              <p className="text-sm text-gray-600">
-                                Code: {bs.branch.code}
-                              </p>
-                            </div>
-                          </div>
-                          <div className="flex items-center gap-4">
-                            <div className="text-right">
-                              <p className="text-2xl font-bold text-gray-800">
-                                {bs.current_stock}
-                              </p>
-                              <p className="text-xs text-gray-600">
-                                Reorder at: {bs.reorder_point}
-                              </p>
-                            </div>
-                            <Badge
-                              variant="outline"
-                              className={stockStatus.color}
-                            >
-                              {stockStatus.label}
-                            </Badge>
-                          </div>
-                        </div>
-                      </Card>
-                    );
-                  })
-                ) : (
-                  <div className="text-center py-8 text-gray-600">
-                    No branch stock data available
+              <div className="py-4 space-y-4">
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <Label className="mb-2 text-sm font-semibold text-gray-700">
+                      Cost *
+                    </Label>
+                    <Input
+                      type="number"
+                      step="0.01"
+                      value={priceForm.cost}
+                      onChange={(e) =>
+                        setPriceForm({ ...priceForm, cost: e.target.value })
+                      }
+                      placeholder="0.00"
+                      className="h-11 border-emerald-200 focus:border-emerald-500 focus:ring-2 focus:ring-emerald-200"
+                    />
+                  </div>
+                  <div>
+                    <Label className="mb-2 text-sm font-semibold text-gray-700">
+                      Price *
+                    </Label>
+                    <Input
+                      type="number"
+                      step="0.01"
+                      value={priceForm.price}
+                      onChange={(e) =>
+                        setPriceForm({ ...priceForm, price: e.target.value })
+                      }
+                      placeholder="0.00"
+                      className="h-11 border-emerald-200 focus:border-emerald-500 focus:ring-2 focus:ring-emerald-200"
+                    />
+                  </div>
+                </div>
+                {priceForm.cost && priceForm.price && (
+                  <div className="p-3 bg-emerald-50 border-2 border-emerald-200 rounded-lg">
+                    <div className="flex items-center gap-2">
+                      <TrendingUp className="h-4 w-4 text-emerald-600" />
+                      <span className="text-sm font-semibold text-gray-800">
+                        Margin:{" "}
+                        <span className="text-emerald-600">
+                          {calculateMargin(
+                            parseFloat(priceForm.price),
+                            parseFloat(priceForm.cost),
+                          ).toFixed(2)}
+                          %
+                        </span>
+                      </span>
+                    </div>
                   </div>
                 )}
               </div>
@@ -2258,10 +2307,137 @@ export default function ProductList() {
               <DialogFooter>
                 <Button
                   variant="outline"
-                  onClick={() => setStockModalOpen(false)}
+                  onClick={() => setPriceModalOpen(false)}
                   className="border-gray-300"
                 >
-                  Close
+                  Cancel
+                </Button>
+                <Button
+                  onClick={savePrice}
+                  disabled={loading}
+                  className="bg-emerald-600 hover:bg-emerald-700 text-white"
+                >
+                  {loading && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
+                  Save
+                </Button>
+              </DialogFooter>
+            </DialogContent>
+          </Dialog>
+
+          {/* Quick add stock */}
+          <Dialog open={addStockOpen} onOpenChange={setAddStockOpen}>
+            <DialogContent className="sm:max-w-md bg-white">
+              <DialogHeader>
+                <DialogTitle className="text-2xl font-bold text-gray-800 flex items-center gap-2">
+                  <Package className="h-6 w-6 text-purple-600" />
+                  Add Stock - {addStockProduct?.name}
+                </DialogTitle>
+              </DialogHeader>
+
+              <div className="py-4 space-y-4">
+                {!activeBranchId && (
+                  <div>
+                    <Label className="mb-2 text-sm font-semibold text-gray-700">
+                      Branch *
+                    </Label>
+                    <select
+                      className="w-full border-2 border-emerald-200 rounded-lg px-3 py-2.5 focus:border-emerald-500 focus:ring-2 focus:ring-emerald-200 outline-none"
+                      value={addStockForm.branch_id}
+                      onChange={(e) =>
+                        setAddStockForm({
+                          ...addStockForm,
+                          branch_id: e.target.value,
+                        })
+                      }
+                    >
+                      <option value="">Select branch</option>
+                      {branches.map((b) => (
+                        <option key={b.id} value={b.id}>
+                          {b.name}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                )}
+                <div>
+                  <Label className="mb-2 text-sm font-semibold text-gray-700">
+                    Quantity *
+                  </Label>
+                  <Input
+                    type="number"
+                    min="1"
+                    value={addStockForm.quantity}
+                    onChange={(e) =>
+                      setAddStockForm({
+                        ...addStockForm,
+                        quantity: e.target.value,
+                      })
+                    }
+                    placeholder="0"
+                    className="h-11 border-emerald-200 focus:border-emerald-500 focus:ring-2 focus:ring-emerald-200"
+                  />
+                </div>
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <Label className="mb-2 text-sm font-semibold text-gray-700">
+                      New Cost
+                    </Label>
+                    <Input
+                      type="number"
+                      step="0.01"
+                      value={addStockForm.cost}
+                      onChange={(e) =>
+                        setAddStockForm({
+                          ...addStockForm,
+                          cost: e.target.value,
+                        })
+                      }
+                      placeholder={addStockProduct ? addStockProduct.cost.toFixed(2) : "0.00"}
+                      className="h-11 border-emerald-200 focus:border-emerald-500 focus:ring-2 focus:ring-emerald-200"
+                    />
+                  </div>
+                  <div>
+                    <Label className="mb-2 text-sm font-semibold text-gray-700">
+                      New Price
+                    </Label>
+                    <Input
+                      type="number"
+                      step="0.01"
+                      value={addStockForm.price}
+                      onChange={(e) =>
+                        setAddStockForm({
+                          ...addStockForm,
+                          price: e.target.value,
+                        })
+                      }
+                      placeholder={addStockProduct ? addStockProduct.price.toFixed(2) : "0.00"}
+                      className="h-11 border-emerald-200 focus:border-emerald-500 focus:ring-2 focus:ring-emerald-200"
+                    />
+                  </div>
+                </div>
+                <p className="text-xs text-gray-500">
+                  Leave cost/price blank to keep current values. Filling them
+                  also updates the product&apos;s cost/price.
+                </p>
+              </div>
+
+              <DialogFooter>
+                <Button
+                  variant="outline"
+                  onClick={() => setAddStockOpen(false)}
+                  className="border-gray-300"
+                >
+                  Cancel
+                </Button>
+                <Button
+                  onClick={saveAddStock}
+                  disabled={addStockLoading}
+                  className="bg-purple-600 hover:bg-purple-700 text-white"
+                >
+                  {addStockLoading && (
+                    <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                  )}
+                  Add Stock
                 </Button>
               </DialogFooter>
             </DialogContent>
