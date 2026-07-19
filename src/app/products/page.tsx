@@ -1692,16 +1692,9 @@ export default function ProductList() {
                                 {margin.toFixed(2)}%
                               </TableCell>
                               <TableCell>
-                                <div className="flex items-center gap-2">
-                                  <span className="font-bold text-gray-800">
-                                    {stock}
-                                  </span>
-                                  <span className="text-xs text-gray-500">
-                                    {selectedBranch
-                                      ? branches.find((b) => b.id === selectedBranch)?.name
-                                      : "All branches"}
-                                  </span>
-                                </div>
+                                <span className="font-bold text-gray-800">
+                                  {stock}
+                                </span>
                               </TableCell>
                               <TableCell>
                                 <Badge
