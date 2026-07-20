@@ -1691,7 +1691,11 @@ export default function ProductList() {
                               <TableCell className={`font-bold ${marginColor}`}>
                                 {margin.toFixed(2)}%
                               </TableCell>
-                              <TableCell>
+                              <TableCell
+                                className="cursor-pointer hover:bg-emerald-50 rounded transition-colors"
+                                onClick={() => openAddStock(prod)}
+                                title="Click to add stock"
+                              >
                                 <span className="font-bold text-gray-800">
                                   {stock}
                                 </span>
@@ -1717,16 +1721,6 @@ export default function ProductList() {
                               </TableCell>
                               <TableCell>
                                 <div className="flex items-center justify-center gap-1 whitespace-nowrap">
-                                  <Button
-                                    variant="ghost"
-                                    size="icon"
-                                    onClick={() => openAddStock(prod)}
-                                    title="Add stock"
-                                    className="h-8 w-8 hover:bg-purple-50"
-                                  >
-                                    <Package className="h-4 w-4 text-purple-600" />
-                                  </Button>
-
                                   <Button
                                     variant="ghost"
                                     size="icon"
