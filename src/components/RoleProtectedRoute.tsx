@@ -37,7 +37,8 @@ export default function RoleProtectedRoute({
       return canAny(u, requiredPermissions);
     }
     if (allowedRoles && allowedRoles.length > 0) {
-      return allowedRoles.includes(u.role);
+      // Superadmin passes every legacy role gate — it sits above admin.
+      return u.role === "superadmin" || allowedRoles.includes(u.role);
     }
     return true; // authenticated is enough
   };

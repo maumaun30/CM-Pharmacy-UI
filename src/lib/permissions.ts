@@ -29,8 +29,21 @@ export function canAny(
   return permissions.some((p) => can(user, p));
 }
 
+/**
+ * Admin-tier check for branch-scoping logic (e.g. "viewing all branches").
+ * Superadmin is an admin everywhere admins are special. Prefer `can()` for
+ * feature gating — use this only where the ADMIN-vs-staff distinction itself
+ * is the point.
+ */
+export function isAdminRole(
+  user: AuthUser | null | undefined
+): boolean {
+  return user?.role === "admin" || user?.role === "superadmin";
+}
+
 /** Human-friendly role names for display. */
 export const ROLE_LABELS: Record<string, string> = {
+  superadmin: "Superadmin",
   admin: "Administrator",
   manager: "Manager",
   cashier: "Cashier",
@@ -56,6 +69,7 @@ export const PERMISSION_LABELS: Record<string, string> = {
   "branches.switch": "Switch active branch",
   "users.read": "View users",
   "users.write": "Manage users",
+  "users.manage_admins": "Manage admin accounts",
   "logs.read": "View activity logs",
 };
 

@@ -64,7 +64,7 @@ import {
 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { useAuth } from "@/hooks/useAuth";
-import { can } from "@/lib/permissions";
+import { can, isAdminRole } from "@/lib/permissions";
 import Link from "next/link";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -420,7 +420,7 @@ const SalesReportPage = () => {
     return { totalRevenue, total_discount, totalTransactions, totalItems, avgTransaction };
   }, [filteredSales]);
 
-  const isViewingAllBranches = user?.role === "admin" && !user?.current_branch_id;
+  const isViewingAllBranches = isAdminRole(user) && !user?.current_branch_id;
   const hasActiveFilters = search || dateFrom || dateTo || sortBy !== "date_desc";
 
   const clearFilters = useCallback(() => {

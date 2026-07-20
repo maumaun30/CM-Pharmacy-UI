@@ -4,6 +4,7 @@ import React, { useEffect, useState, useCallback } from "react";
 
 import api from "@/lib/api";
 import { useAuth } from "@/hooks/useAuth";
+import { isAdminRole } from "@/lib/permissions";
 import { getFullName } from "@/lib/utils";
 import { useDebounce } from "@/hooks/useDebounce";
 import ProtectedRoute from "@/components/ProtectedRoute";
@@ -123,7 +124,7 @@ const LIMIT = 50;
 const StockTransactionsPage = () => {
   const { user, loading: authLoading } = useAuth();
   const activeBranch = user?.currentBranch ?? user?.branch ?? null;
-  const isViewingAllBranches = user?.role === "admin" && !user?.current_branch_id;
+  const isViewingAllBranches = isAdminRole(user) && !user?.current_branch_id;
 
   const [transactions, setTransactions] = useState<StockTransaction[]>([]);
   const [pagination, setPagination] = useState<Pagination>({

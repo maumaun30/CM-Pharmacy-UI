@@ -9,6 +9,7 @@ import api from "@/lib/api";
 import ProtectedRoute from "@/components/ProtectedRoute";
 import SalesTrendChart from "@/components/SalesTrendChart";
 import { useAuth } from "@/hooks/useAuth";
+import { isAdminRole } from "@/lib/permissions";
 import {
   ShoppingCart,
   TrendingUp,
@@ -137,7 +138,7 @@ const HomePage = () => {
 
     newSocket.on("connect", () => {
       setIsConnected(true);
-      const isViewingAllBranches = user.role === "admin" && !user.current_branch_id;
+      const isViewingAllBranches = isAdminRole(user) && !user.current_branch_id;
       if (isViewingAllBranches) {
         newSocket.emit("join-branch", null);
       } else {
@@ -238,8 +239,8 @@ const HomePage = () => {
   }, [currentUser]);
 
   const isViewingAllBranches =
-    currentUser?.role === "admin" && !currentUser?.current_branch_id;
-  const isAdmin = currentUser?.role === "admin";
+    isAdminRole(currentUser) && !currentUser?.current_branch_id;
+  const isAdmin = isAdminRole(currentUser);
   const activeBranch = currentUser?.currentBranch || currentUser?.branch;
 
   const quickActions = useMemo(

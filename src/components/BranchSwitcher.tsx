@@ -13,6 +13,7 @@ import { Building2, Loader2 } from "lucide-react";
 import { toast } from "sonner";
 import { Badge } from "@/components/ui/badge";
 import { useAuth } from "@/hooks/useAuth";
+import { isAdminRole } from "@/lib/permissions";
 
 interface Branch {
   id: number;
@@ -30,7 +31,7 @@ export default function BranchSwitcher() {
   useEffect(() => {
     if (!user) return;
     setActiveBranchId(user.current_branch_id || user.branch_id);
-    if (user.role === "admin") {
+    if (isAdminRole(user)) {
       fetchBranches(); // admins reach every branch
     } else if (user.role === "manager") {
       setBranches(user.allowed_branches ?? []); // managers: their granted subset
@@ -76,7 +77,7 @@ export default function BranchSwitcher() {
   // Branch switcher — admins reach all branches; managers switch among their
   // granted subset (only worth a dropdown when they have more than one).
   const canSwitch =
-    user.role === "admin" ||
+    isAdminRole(user) ||
     (user.role === "manager" && branches.length > 1);
 
   if (canSwitch) {

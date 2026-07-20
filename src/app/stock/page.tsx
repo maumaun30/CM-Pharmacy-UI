@@ -4,6 +4,7 @@ import React, { useEffect, useState, useCallback } from "react";
 
 import api from "@/lib/api";
 import { useAuth } from "@/hooks/useAuth";
+import { isAdminRole } from "@/lib/permissions";
 import ProtectedRoute from "@/components/ProtectedRoute";
 import RoleProtectedRoute from "@/components/RoleProtectedRoute";
 
@@ -74,7 +75,7 @@ const StockDashboard = () => {
   const [loading, setLoading] = useState(true);
 
   const activeBranch = user?.currentBranch ?? user?.branch ?? null;
-  const isViewingAllBranches = user?.role === "admin" && !user?.current_branch_id;
+  const isViewingAllBranches = isAdminRole(user) && !user?.current_branch_id;
 
   const fetchData = useCallback(async () => {
     try {

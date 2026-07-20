@@ -3,6 +3,8 @@
 import React, { useEffect, useState, useMemo, useCallback } from "react";
 
 import api from "@/lib/api";
+import { useAuth } from "@/hooks/useAuth";
+import { can } from "@/lib/permissions";
 import ProtectedRoute from "@/components/ProtectedRoute";
 import RoleProtectedRoute from "@/components/RoleProtectedRoute";
 
@@ -77,6 +79,7 @@ type User = {
 
 function getRoleBadgeColor(role: string): string {
   switch (role.toLowerCase()) {
+    case "superadmin": return "bg-amber-100 text-amber-800 border-amber-200";
     case "admin":   return "bg-purple-100 text-purple-800 border-purple-200";
     case "manager": return "bg-blue-100 text-blue-800 border-blue-200";
     case "cashier": return "bg-emerald-100 text-emerald-800 border-emerald-200";
@@ -85,8 +88,18 @@ function getRoleBadgeColor(role: string): string {
 }
 
 export default function UsersPage() {
+  const { user: currentUser } = useAuth();
   const [users, setUsers] = useState<User[]>([]);
   const [branches, setBranches] = useState<Branch[]>([]);
+
+  // Mirrors the API's guards: admin rows need users.manage_admins
+  // (superadmin-only), and the superadmin row is untouchable by everyone else.
+  const canManageAdmins = can(currentUser, "users.manage_admins");
+  const canMutate = (target: User) => {
+    if (target.role === "superadmin") return currentUser?.id === target.id;
+    if (target.role === "admin") return canManageAdmins;
+    return true;
+  };
 
   const [modalOpen, setModalOpen] = useState(false);
   const [editingUser, setEditingUser] = useState<User | null>(null);
@@ -588,39 +601,45 @@ export default function UsersPage() {
                               )}
                             </TableCell>
                             <TableCell>
-                              <div className="flex items-center justify-center gap-1">
-                                <Button
-                                  variant="ghost"
-                                  size="icon"
-                                  onClick={() => handleOpenModal(user)}
-                                  className="h-8 w-8 hover:bg-blue-50"
-                                >
-                                  <Pencil className="h-4 w-4 text-blue-600" />
-                                </Button>
-                                <Button
-                                  variant="ghost"
-                                  size="icon"
-                                  onClick={() => {
-                                    setUserToReset(user);
-                                    setResetOpen(true);
-                                  }}
-                                  className="h-8 w-8 hover:bg-amber-50"
-                                  title="Reset password"
-                                >
-                                  <KeyRound className="h-4 w-4 text-amber-600" />
-                                </Button>
-                                <Button
-                                  variant="ghost"
-                                  size="icon"
-                                  onClick={() => {
-                                    setUserToDelete(user);
-                                    setDeleteOpen(true);
-                                  }}
-                                  className="h-8 w-8 hover:bg-red-50"
-                                >
-                                  <Trash className="h-4 w-4 text-red-600" />
-                                </Button>
-                              </div>
+                              {canMutate(user) ? (
+                                <div className="flex items-center justify-center gap-1">
+                                  <Button
+                                    variant="ghost"
+                                    size="icon"
+                                    onClick={() => handleOpenModal(user)}
+                                    className="h-8 w-8 hover:bg-blue-50"
+                                  >
+                                    <Pencil className="h-4 w-4 text-blue-600" />
+                                  </Button>
+                                  <Button
+                                    variant="ghost"
+                                    size="icon"
+                                    onClick={() => {
+                                      setUserToReset(user);
+                                      setResetOpen(true);
+                                    }}
+                                    className="h-8 w-8 hover:bg-amber-50"
+                                    title="Reset password"
+                                  >
+                                    <KeyRound className="h-4 w-4 text-amber-600" />
+                                  </Button>
+                                  <Button
+                                    variant="ghost"
+                                    size="icon"
+                                    onClick={() => {
+                                      setUserToDelete(user);
+                                      setDeleteOpen(true);
+                                    }}
+                                    className="h-8 w-8 hover:bg-red-50"
+                                  >
+                                    <Trash className="h-4 w-4 text-red-600" />
+                                  </Button>
+                                </div>
+                              ) : (
+                                <span className="block text-center text-xs text-gray-400 italic">
+                                  {user.role === "superadmin" ? "Superadmin" : "Restricted"}
+                                </span>
+                              )}
                             </TableCell>
                           </TableRow>
                         ))}
@@ -797,6 +816,8 @@ export default function UsersPage() {
                       onValueChange={(value) =>
                         setFormData({ ...formData, role: value })
                       }
+                      // Superadmin promotion/demotion is DB-script only.
+                      disabled={editingUser?.role === "superadmin"}
                     >
                       <SelectTrigger className="h-11 border-emerald-200 focus:border-emerald-500 focus:ring-2 focus:ring-emerald-200">
                         <SelectValue placeholder="Select role" />
@@ -804,7 +825,13 @@ export default function UsersPage() {
                       <SelectContent>
                         <SelectItem value="cashier">Cashier</SelectItem>
                         <SelectItem value="manager">Manager</SelectItem>
-                        <SelectItem value="admin">Administrator</SelectItem>
+                        {/* Assigning the admin role is superadmin-exclusive */}
+                        {(canManageAdmins || editingUser?.role === "admin") && (
+                          <SelectItem value="admin">Administrator</SelectItem>
+                        )}
+                        {editingUser?.role === "superadmin" && (
+                          <SelectItem value="superadmin">Superadmin</SelectItem>
+                        )}
                       </SelectContent>
                     </Select>
                   </div>

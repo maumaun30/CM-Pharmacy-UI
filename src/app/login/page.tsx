@@ -14,13 +14,20 @@ import {
   EyeOff,
   CheckCircle2,
   ShieldCheck,
+  KeyRound,
+  Copy,
+  Download,
 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
+import { QRCodeSVG } from "qrcode.react";
+import { toast } from "sonner";
 import GoogleSignInButton from "@/components/GoogleSignInButton";
 
 const BRAND = process.env.NEXT_PUBLIC_SITE_NAME || "Brand Logo";
 
 type LoginState = "idle" | "loading" | "success";
+// credentials → (superadmin only) totp | setup → backup (setup only) → app
+type LoginStep = "credentials" | "totp" | "setup" | "backup";
 
 export default function LoginPage() {
   const [username, setUsername] = useState("");
@@ -28,6 +35,15 @@ export default function LoginPage() {
   const [error, setError] = useState("");
   const [state, setState] = useState<LoginState>("idle");
   const [showPassword, setShowPassword] = useState(false);
+  // TOTP challenge (superadmin only)
+  const [step, setStep] = useState<LoginStep>("credentials");
+  const [preAuthToken, setPreAuthToken] = useState("");
+  const [totpCode, setTotpCode] = useState("");
+  const [otpauthUrl, setOtpauthUrl] = useState("");
+  const [backupCodes, setBackupCodes] = useState<string[]>([]);
+  // Full JWT held back while the backup codes are on screen — storing it
+  // immediately would trigger the auth redirect and skip the codes.
+  const [pendingToken, setPendingToken] = useState("");
   const router = useRouter();
 
   const { user, loading: authLoading, refreshUser } = useAuth();
@@ -41,6 +57,35 @@ export default function LoginPage() {
   const canSubmit =
     !isLoading && username.trim().length > 0 && password.length > 0;
 
+  const finishLogin = async (token: string) => {
+    if (typeof window !== "undefined") {
+      try {
+        window.localStorage?.setItem?.("token", token);
+      } catch {}
+    }
+    setState("success");
+    // Brief success flourish before refreshing auth + redirect
+    await refreshUser();
+    setTimeout(() => router.push("/"), 600);
+  };
+
+  // Superadmin logins don't return a token — they return a 5-minute pre-auth
+  // token plus a flag telling us which TOTP screen to show next.
+  const handleChallenge = async (data: any) => {
+    setPreAuthToken(data.preAuthToken);
+    if (data.requires_totp_setup) {
+      const res = await api.post("/auth/totp/setup", null, {
+        headers: { Authorization: `Bearer ${data.preAuthToken}` },
+      });
+      setOtpauthUrl(res.data.otpauth_url);
+      setStep("setup");
+    } else {
+      setStep("totp");
+    }
+    setTotpCode("");
+    setState("idle");
+  };
+
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!canSubmit) return;
@@ -49,15 +94,11 @@ export default function LoginPage() {
 
     try {
       const res = await api.post("/auth/login", { username, password });
-      if (typeof window !== "undefined") {
-        try {
-          window.localStorage?.setItem?.("token", res.data.token);
-        } catch {}
+      if (res.data.requires_totp || res.data.requires_totp_setup) {
+        await handleChallenge(res.data);
+        return;
       }
-      setState("success");
-      // Brief success flourish before refreshing auth + redirect
-      await refreshUser();
-      setTimeout(() => router.push("/"), 600);
+      await finishLogin(res.data.token);
     } catch (err: any) {
       setError(err.response?.data?.message || "Login failed. Please try again.");
       setState("idle");
@@ -66,26 +107,99 @@ export default function LoginPage() {
 
   // Google sign-in: exchange the Google ID token for our JWT via /auth/google.
   // Same success path as password login; a 401 means the Google account
-  // isn't linked to any staff user yet.
+  // isn't linked to any staff user yet. A superadmin still owes a TOTP code.
   const handleGoogleCredential = async (idToken: string) => {
     setState("loading");
     setError("");
     try {
       const res = await api.post("/auth/google", { idToken });
-      if (typeof window !== "undefined") {
-        try {
-          window.localStorage?.setItem?.("token", res.data.token);
-        } catch {}
+      if (res.data.requires_totp || res.data.requires_totp_setup) {
+        await handleChallenge(res.data);
+        return;
       }
-      setState("success");
-      await refreshUser();
-      setTimeout(() => router.push("/"), 600);
+      await finishLogin(res.data.token);
     } catch (err: any) {
       setError(
         err.response?.data?.message || "Google sign-in failed. Please try again.",
       );
       setState("idle");
     }
+  };
+
+  // Shared error handling for the TOTP endpoints: an expired pre-auth token
+  // sends the user back to the password step; a wrong code lets them retry.
+  const handleTotpError = (err: any) => {
+    const message: string = err.response?.data?.message || "Verification failed";
+    if (err.response?.status === 401 && /token/i.test(message)) {
+      setStep("credentials");
+      setPreAuthToken("");
+      setError("Session expired. Please sign in again.");
+    } else {
+      setError(message);
+    }
+    setState("idle");
+  };
+
+  // Step "totp": existing enrollment — verify a 6-digit code or a backup code.
+  const handleVerifyTotp = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!totpCode.trim() || state !== "idle") return;
+    setState("loading");
+    setError("");
+    try {
+      const res = await api.post(
+        "/auth/totp/verify",
+        { code: totpCode.trim() },
+        { headers: { Authorization: `Bearer ${preAuthToken}` } },
+      );
+      await finishLogin(res.data.token);
+    } catch (err: any) {
+      handleTotpError(err);
+    }
+  };
+
+  // Step "setup": first enrollment — verify the first code, then show the
+  // one-time backup codes before entering the app.
+  const handleVerifySetup = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!totpCode.trim() || state !== "idle") return;
+    setState("loading");
+    setError("");
+    try {
+      const res = await api.post(
+        "/auth/totp/verify-setup",
+        { code: totpCode.trim() },
+        { headers: { Authorization: `Bearer ${preAuthToken}` } },
+      );
+      setBackupCodes(res.data.backup_codes || []);
+      setPendingToken(res.data.token);
+      setStep("backup");
+      setState("idle");
+    } catch (err: any) {
+      handleTotpError(err);
+    }
+  };
+
+  const copyBackupCodes = async () => {
+    try {
+      await navigator.clipboard.writeText(backupCodes.join("\n"));
+      toast.success("Backup codes copied");
+    } catch {
+      toast.error("Could not copy — select and copy manually");
+    }
+  };
+
+  const downloadBackupCodes = () => {
+    const blob = new Blob(
+      [`${BRAND} — superadmin backup codes\n\n${backupCodes.join("\n")}\n`],
+      { type: "text/plain" },
+    );
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = "backup-codes.txt";
+    a.click();
+    URL.revokeObjectURL(url);
   };
 
   // Initial auth check — avoid flashing the form for already-logged-in users
@@ -215,6 +329,8 @@ export default function LoginPage() {
           </AnimatePresence>
 
           {/* Login form */}
+          {step === "credentials" && (
+          <>
           <form onSubmit={handleLogin} className="space-y-5">
             {/* Username field */}
             <div className="space-y-2">
@@ -312,6 +428,124 @@ export default function LoginPage() {
             onCredential={handleGoogleCredential}
             text="signin_with"
           />
+          </>
+          )}
+
+          {/* ── TOTP: code prompt (already enrolled) ── */}
+          {step === "totp" && (
+            <form onSubmit={handleVerifyTotp} className="space-y-5">
+              <div className="text-center space-y-1">
+                <div className="mx-auto h-12 w-12 rounded-full bg-emerald-100 flex items-center justify-center">
+                  <KeyRound className="h-6 w-6 text-emerald-600" />
+                </div>
+                <p className="font-semibold text-gray-800">Two-factor authentication</p>
+                <p className="text-sm text-gray-500">
+                  Enter the 6-digit code from your authenticator app, or a backup code.
+                </p>
+              </div>
+              <Input
+                type="text"
+                inputMode="text"
+                autoComplete="one-time-code"
+                placeholder="123456"
+                className="text-center text-lg tracking-widest font-mono"
+                value={totpCode}
+                onChange={(e) => setTotpCode(e.target.value)}
+                disabled={isLoading}
+                autoFocus
+                required
+              />
+              <Button
+                type="submit"
+                className="w-full py-6 bg-gradient-to-r from-emerald-600 to-green-600 hover:from-emerald-700 hover:to-green-700 text-white font-semibold rounded-lg"
+                disabled={isLoading || !totpCode.trim()}
+              >
+                Verify
+              </Button>
+              <button
+                type="button"
+                className="w-full text-sm text-gray-500 hover:text-emerald-600"
+                onClick={() => {
+                  setStep("credentials");
+                  setPreAuthToken("");
+                  setTotpCode("");
+                  setError("");
+                }}
+              >
+                Back to login
+              </button>
+            </form>
+          )}
+
+          {/* ── TOTP: forced first-time setup ── */}
+          {step === "setup" && (
+            <form onSubmit={handleVerifySetup} className="space-y-5">
+              <div className="text-center space-y-1">
+                <p className="font-semibold text-gray-800">Set up two-factor authentication</p>
+                <p className="text-sm text-gray-500">
+                  Scan this QR code with an authenticator app (Google Authenticator,
+                  Authy, …), then enter the 6-digit code it shows.
+                </p>
+              </div>
+              {otpauthUrl && (
+                <div className="flex justify-center p-4 bg-white border-2 border-emerald-100 rounded-xl">
+                  <QRCodeSVG value={otpauthUrl} size={180} />
+                </div>
+              )}
+              <Input
+                type="text"
+                inputMode="numeric"
+                autoComplete="one-time-code"
+                placeholder="123456"
+                className="text-center text-lg tracking-widest font-mono"
+                value={totpCode}
+                onChange={(e) => setTotpCode(e.target.value)}
+                disabled={isLoading}
+                autoFocus
+                required
+              />
+              <Button
+                type="submit"
+                className="w-full py-6 bg-gradient-to-r from-emerald-600 to-green-600 hover:from-emerald-700 hover:to-green-700 text-white font-semibold rounded-lg"
+                disabled={isLoading || !totpCode.trim()}
+              >
+                Verify & enable
+              </Button>
+            </form>
+          )}
+
+          {/* ── Backup codes (shown exactly once after setup) ── */}
+          {step === "backup" && (
+            <div className="space-y-5">
+              <div className="text-center space-y-1">
+                <p className="font-semibold text-gray-800">Save your backup codes</p>
+                <p className="text-sm text-gray-500">
+                  Each code works once if you lose your authenticator.
+                  <span className="font-semibold text-red-600"> They will not be shown again.</span>
+                </p>
+              </div>
+              <div className="grid grid-cols-2 gap-2 p-4 bg-gray-50 border-2 border-gray-200 rounded-xl font-mono text-sm text-gray-800">
+                {backupCodes.map((code) => (
+                  <div key={code} className="text-center py-1">{code}</div>
+                ))}
+              </div>
+              <div className="flex gap-2">
+                <Button type="button" variant="outline" className="flex-1" onClick={copyBackupCodes}>
+                  <Copy className="h-4 w-4 mr-2" /> Copy
+                </Button>
+                <Button type="button" variant="outline" className="flex-1" onClick={downloadBackupCodes}>
+                  <Download className="h-4 w-4 mr-2" /> Download
+                </Button>
+              </div>
+              <Button
+                type="button"
+                className="w-full py-6 bg-gradient-to-r from-emerald-600 to-green-600 hover:from-emerald-700 hover:to-green-700 text-white font-semibold rounded-lg"
+                onClick={() => finishLogin(pendingToken)}
+              >
+                I saved them — continue
+              </Button>
+            </div>
+          )}
         </div>
       </motion.div>
 
