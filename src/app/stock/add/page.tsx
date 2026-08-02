@@ -22,7 +22,9 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import ProductCombobox from "@/components/ProductCombobox";
+import { Checkbox } from "@/components/ui/checkbox";
 import { toast } from "sonner";
+import dayjs from "dayjs";
 import {
   ArrowLeft,
   Building2,
@@ -51,6 +53,8 @@ interface Product {
   sku: string;
   barcode?: string;
   current_stock: number;
+  cost: number;
+  price: number;
 }
 
 interface Branch {
@@ -64,6 +68,8 @@ interface ImportPreviewRow {
   csvSku: string;
   csvBarcode: string;
   csvStock: number;
+  csvCost: number | null;
+  csvPrice: number | null;
   matchedProduct: Product | null;
   matchedBy: "sku" | "barcode" | "name" | null;
   status: "matched" | "unmatched";
@@ -96,6 +102,7 @@ const AddStockForm = () => {
 
   const { user, loading: authLoading } = useAuth();
   const activeBranch = user?.currentBranch ?? user?.branch ?? null;
+  const activeBranchId = activeBranch?.id;
 
   const [products, setProducts] = useState<Product[]>([]);
   const [loading, setLoading] = useState(false);
@@ -116,16 +123,21 @@ const AddStockForm = () => {
   const [importPreview, setImportPreview] = useState<ImportPreviewRow[] | null>(null);
   const [showUnmatched, setShowUnmatched] = useState(false);
   const [importConfirmLoading, setImportConfirmLoading] = useState(false);
+  const [updatePricingOnImport, setUpdatePricingOnImport] = useState(false);
 
   const fetchProducts = useCallback(async (): Promise<Product[]> => {
     try {
-      const res = await api.get("/products");
+      const res = await api.get("/products", {
+        params: activeBranchId ? { branchId: activeBranchId } : undefined,
+      });
       const parsed: Product[] = res.data.map((p: any) => ({
         id: p.id,
         name: p.name,
         sku: p.sku,
         barcode: p.barcode ?? undefined,
-        current_stock: p.totalStock ?? p.current_stock ?? 0,
+        current_stock: p.currentStock ?? p.totalStock ?? p.current_stock ?? 0,
+        cost: parseFloat(p.cost) || 0,
+        price: parseFloat(p.price) || 0,
       }));
       setProducts(parsed);
       return parsed;
@@ -135,7 +147,7 @@ const AddStockForm = () => {
     } finally {
       setFetchLoading(false);
     }
-  }, []);
+  }, [activeBranchId]);
 
   useEffect(() => {
     fetchProducts();
@@ -180,9 +192,9 @@ const AddStockForm = () => {
   // couple of example rows, so managers can fill it in and re-upload.
   const handleDownloadSample = () => {
     const rows = [
-      ["Name", "SKU", "Barcode", "Total Stock"],
-      ["Paracetamol 500mg", "MED001", "4801234567890", "100"],
-      ["Amoxicillin 250mg", "MED002", "", "50"],
+      ["Name", "SKU", "Barcode", "Total Stock", "Cost", "Price"],
+      ["Paracetamol 500mg", "MED001", "4801234567890", "100", "3.50", "5.00"],
+      ["Amoxicillin 250mg", "MED002", "", "50", "8.00", "12.00"],
     ];
     const csv = rows
       .map((r) => r.map((c) => (/[",\n]/.test(c) ? `"${c.replace(/"/g, '""')}"` : c)).join(","))
@@ -194,6 +206,44 @@ const AddStockForm = () => {
     a.download = "stock-import-sample.csv";
     a.click();
     URL.revokeObjectURL(url);
+  };
+
+  // Export all products currently stocked at the active branch, with the
+  // branch's current stock, cost, and price columns.
+  const handleExportCSV = () => {
+    if (!activeBranch) return;
+
+    const rows = products.map((p) => ({
+      Name: p.name,
+      SKU: p.sku,
+      Barcode: p.barcode || "",
+      "Current Stock": p.current_stock,
+      Cost: p.cost.toFixed(2),
+      Price: p.price.toFixed(2),
+    }));
+
+    const headers = Object.keys(rows[0] ?? {});
+    const csv = [
+      headers.join(","),
+      ...rows.map((row) =>
+        headers
+          .map(
+            (h) =>
+              `"${String(row[h as keyof typeof row]).replace(/"/g, '""')}"`,
+          )
+          .join(","),
+      ),
+    ].join("\n");
+
+    const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    const safeBranch = activeBranch.name.replace(/[^a-z0-9]+/gi, "-");
+    a.download = `stock_${safeBranch}_${dayjs().format("YYYY-MM-DD_HHmm")}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+    toast.success(`Exported ${rows.length} products`);
   };
 
   const handleImportCSV = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -208,22 +258,29 @@ const AddStockForm = () => {
         const lines = text.split(/\r?\n/).filter(Boolean);
 
         const rawHeaders = parseCSVLine(lines[0]);
-        const headers = rawHeaders.map((h) => h.replace(/"/g, "").trim());
+        const headers = rawHeaders.map((h) => h.trim());
 
+        // parseCSVLine already unescapes quoted fields (RFC4180 "" -> ").
+        // Don't strip quotes again here, or product names that legitimately
+        // contain a " (e.g. 5" Syringe) get mangled and fail to match.
         const getValue = (row: string[], key: string) => {
           const idx = headers.indexOf(key);
-          return idx >= 0 ? (row[idx]?.replace(/"/g, "").trim() ?? "") : "";
+          return idx >= 0 ? (row[idx]?.trim() ?? "") : "";
         };
 
         const parsedRows = lines
           .slice(1)
           .map((line) => {
             const row = parseCSVLine(line);
+            const costRaw = getValue(row, "Cost");
+            const priceRaw = getValue(row, "Price");
             return {
               name: getValue(row, "Name"),
               sku: getValue(row, "SKU"),
               barcode: getValue(row, "Barcode"),
               totalStock: parseInt(getValue(row, "Total Stock")) || 0,
+              cost: costRaw ? parseFloat(costRaw) : null,
+              price: priceRaw ? parseFloat(priceRaw) : null,
             };
           })
           .filter((r) => r.name || r.sku); // skip blank rows
@@ -266,6 +323,8 @@ const AddStockForm = () => {
             csvSku: row.sku,
             csvBarcode: row.barcode,
             csvStock: row.totalStock,
+            csvCost: row.cost,
+            csvPrice: row.price,
             matchedProduct,
             matchedBy,
             status: matchedProduct ? "matched" : "unmatched",
@@ -309,7 +368,8 @@ const AddStockForm = () => {
           api.post("/stock/add", {
             productId: row.matchedProduct!.id,
             quantity: row.csvStock,
-            unitCost: null,
+            unitCost: updatePricingOnImport && row.csvCost != null ? row.csvCost : null,
+            sellingPrice: updatePricingOnImport && row.csvPrice != null ? row.csvPrice : null,
             batchNumber: null,
             expiryDate: null,
             supplier: null,
@@ -461,6 +521,16 @@ const AddStockForm = () => {
                   <Button
                     variant="outline"
                     size="sm"
+                    onClick={handleExportCSV}
+                    disabled={!activeBranch || products.length === 0}
+                    className="border-emerald-300 hover:bg-emerald-50 cursor-pointer"
+                  >
+                    <Download className="h-4 w-4 mr-2 text-emerald-600" />
+                    Export CSV
+                  </Button>
+                  <Button
+                    variant="outline"
+                    size="sm"
                     onClick={handleDownloadSample}
                     className="border-emerald-300 hover:bg-emerald-50 cursor-pointer"
                   >
@@ -504,7 +574,7 @@ const AddStockForm = () => {
                   </div>
                 </div>
 
-                <div className="px-6 py-3">
+                <div className="px-6 py-3 space-y-3">
                   <p className="text-xs text-gray-500">
                     CSV must include a{" "}
                     <span className="font-semibold text-gray-700">
@@ -517,7 +587,19 @@ const AddStockForm = () => {
                     , then{" "}
                     <span className="font-semibold text-gray-700">Name</span>.
                     Only rows with Total Stock &gt; 0 will be imported.
+                    Optional{" "}
+                    <span className="font-semibold text-gray-700">Cost</span>{" "}
+                    and{" "}
+                    <span className="font-semibold text-gray-700">Price</span>{" "}
+                    columns can also update product pricing.
                   </p>
+                  <label className="flex items-center gap-2 text-sm text-gray-700 cursor-pointer w-fit">
+                    <Checkbox
+                      checked={updatePricingOnImport}
+                      onCheckedChange={(v) => setUpdatePricingOnImport(v === true)}
+                    />
+                    Update cost &amp; price from CSV during import
+                  </label>
                 </div>
 
                 {/* Import Preview */}
@@ -572,6 +654,16 @@ const AddStockForm = () => {
                                   <th className="text-right px-3 py-2 font-semibold text-gray-700">
                                     Qty to Add
                                   </th>
+                                  {updatePricingOnImport && (
+                                    <>
+                                      <th className="text-right px-3 py-2 font-semibold text-gray-700">
+                                        Cost
+                                      </th>
+                                      <th className="text-right px-3 py-2 font-semibold text-gray-700">
+                                        Price
+                                      </th>
+                                    </>
+                                  )}
                                 </tr>
                               </thead>
                               <tbody>
@@ -606,6 +698,20 @@ const AddStockForm = () => {
                                         </span>
                                       )}
                                     </td>
+                                    {updatePricingOnImport && (
+                                      <>
+                                        <td className="px-3 py-2 text-right text-gray-700">
+                                          {row.csvCost != null
+                                            ? `₱${row.csvCost.toFixed(2)}`
+                                            : "—"}
+                                        </td>
+                                        <td className="px-3 py-2 text-right text-gray-700">
+                                          {row.csvPrice != null
+                                            ? `₱${row.csvPrice.toFixed(2)}`
+                                            : "—"}
+                                        </td>
+                                      </>
+                                    )}
                                   </tr>
                                 ))}
                               </tbody>
