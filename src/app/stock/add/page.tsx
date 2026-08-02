@@ -217,9 +217,10 @@ const AddStockForm = () => {
       Name: p.name,
       SKU: p.sku,
       Barcode: p.barcode || "",
-      "Current Stock": p.current_stock,
       Cost: p.cost.toFixed(2),
       Price: p.price.toFixed(2),
+      "Current Stock": p.current_stock,
+      "Total Stock": "",
     }));
 
     const headers = Object.keys(rows[0] ?? {});
