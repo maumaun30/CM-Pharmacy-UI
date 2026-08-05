@@ -186,7 +186,6 @@ export default function ProductList() {
   const [products, setProducts] = useState<Product[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
   const [branches, setBranches] = useState<Branch[]>([]);
-  const [selectedBranch, setSelectedBranch] = useState<number | null>(null);
   const [modalOpen, setModalOpen] = useState(false);
   const [editingProduct, setEditingProduct] = useState<Product | null>(null);
   const [formData, setFormData] = useState({
@@ -328,75 +327,6 @@ export default function ProductList() {
     toast.success(`Exported ${rows.length} products`);
   };
 
-  // Download a sample CSV with the exact headers the importer expects, plus
-  // example rows to fill in. Stock quantities are imported on /stock/add, so
-  // no stock column here — only product master data.
-  const handleDownloadSampleCSV = () => {
-    const rows = [
-      [
-        "Name",
-        "Brand Name",
-        "Generic Name",
-        "SKU",
-        "Barcode",
-        "Cost",
-        "Price",
-        "Dosage",
-        "Form",
-        "Category",
-        "Requires Prescription",
-        "Track Inventory",
-        "Status",
-        "Expiry Date",
-      ],
-      [
-        "Paracetamol 500mg",
-        "Biogesic",
-        "Paracetamol",
-        "MED001",
-        "4801234567890",
-        "3.50",
-        "5.00",
-        "500mg",
-        "Tablet",
-        "Pain Relief",
-        "No",
-        "Yes",
-        "ACTIVE",
-        "2027-01-31",
-      ],
-      [
-        "Amoxicillin 250mg",
-        "Amoxil",
-        "Amoxicillin",
-        "MED002",
-        "",
-        "8.00",
-        "12.00",
-        "250mg",
-        "Capsule",
-        "Antibiotics",
-        "Yes",
-        "Yes",
-        "ACTIVE",
-        "",
-      ],
-    ];
-    const csv = rows
-      .map((r) =>
-        r
-          .map((c) => (/[",\n]/.test(c) ? `"${c.replace(/"/g, '""')}"` : c))
-          .join(","),
-      )
-      .join("\n");
-    const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = "products-import-sample.csv";
-    a.click();
-    URL.revokeObjectURL(url);
-  };
 
   const handleImportCSV = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -601,7 +531,7 @@ export default function ProductList() {
     try {
       setFetchLoading(true);
       const params: any = {};
-      if (selectedBranch) params.branch_id = selectedBranch;
+      if (activeBranchId) params.branch_id = activeBranchId;
       const res = await api.get("/products", { params });
       const parsed = res.data.map((p: any) => ({
         ...p,
@@ -617,7 +547,7 @@ export default function ProductList() {
     } finally {
       setFetchLoading(false);
     }
-  }, [selectedBranch]);
+  }, [activeBranchId]);
 
   const fetchCategories = useCallback(async () => {
     try {
@@ -901,9 +831,9 @@ export default function ProductList() {
 
       const matchesStockStatus = (() => {
         if (!filterStockStatus) return true;
-        const stock = getStockForBranch(p, selectedBranch);
-        const reorder_point = selectedBranch
-          ? (p.branch_stocks?.find((bs) => bs.branch_id === selectedBranch)
+        const stock = getStockForBranch(p, activeBranchId);
+        const reorder_point = activeBranchId
+          ? (p.branch_stocks?.find((bs) => bs.branch_id === activeBranchId)
               ?.reorder_point ?? 20)
           : Math.min(
               ...(p.branch_stocks?.map((bs) => bs.reorder_point) ?? [20]),
@@ -950,7 +880,7 @@ export default function ProductList() {
     filterStatus,
     filterStockStatus,
     filterExpiry,
-    selectedBranch,
+    activeBranchId,
   ]);
 
   const paginated = useMemo(() => {
@@ -993,20 +923,20 @@ export default function ProductList() {
 
   const { activeCount, lowStockCount, totalValue } = useMemo(() => {
     const activeCount = products.filter((p) => p.status === "ACTIVE").length;
-    const lowStockCount = selectedBranch
+    const lowStockCount = activeBranchId
       ? products.filter((p) => {
-          const bs = p.branch_stocks?.find((bs) => bs.branch_id === selectedBranch);
+          const bs = p.branch_stocks?.find((bs) => bs.branch_id === activeBranchId);
           return bs && bs.current_stock <= bs.reorder_point;
         }).length
       : products.filter((p) =>
           p.branch_stocks?.some((bs) => bs.current_stock <= bs.reorder_point),
         ).length;
     const totalValue = products.reduce((sum, p) => {
-      const stock = selectedBranch ? getStockForBranch(p, selectedBranch) : p.totalStock;
+      const stock = activeBranchId ? getStockForBranch(p, activeBranchId) : p.totalStock;
       return sum + p.price * stock;
     }, 0);
     return { activeCount, lowStockCount, totalValue };
-  }, [products, selectedBranch]);
+  }, [products, activeBranchId]);
 
   if (fetchLoading) {
     return (
@@ -1119,15 +1049,6 @@ export default function ProductList() {
                         disabled={importLoading}
                       />
                     </label>
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={handleDownloadSampleCSV}
-                      className="border-emerald-300 hover:bg-emerald-50 h-9"
-                    >
-                      <FileText className="h-4 w-4 mr-2 text-emerald-600" />
-                      Sample CSV
-                    </Button>
                     <span className="text-xs text-gray-500">
                       Import creates products (existing SKUs can be
                       overwritten) — add stock quantities via{" "}
@@ -1180,39 +1101,6 @@ export default function ProductList() {
                       )}
                     </motion.div>
                   )}
-                </div>
-              </Card>
-            </motion.div>
-
-            {/* Branch Filter */}
-            <motion.div
-              initial={{ opacity: 0, y: 20 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ delay: 0.05 }}
-            >
-              <Card className="p-4 border-2 border-emerald-100">
-                <div className="flex items-center gap-3">
-                  <Building2 className="h-5 w-5 text-emerald-600" />
-                  <Label className="font-semibold text-gray-700">
-                    Filter by Branch:
-                  </Label>
-                  <select
-                    value={selectedBranch || ""}
-                    onChange={(e) => {
-                      setSelectedBranch(
-                        e.target.value ? Number(e.target.value) : null,
-                      );
-                      setPage(1);
-                    }}
-                    className="border-2 border-emerald-200 rounded-lg px-3 py-2 text-sm font-medium focus:border-emerald-500 focus:ring-2 focus:ring-emerald-200 outline-none"
-                  >
-                    <option value="">All Branches</option>
-                    {branches.map((branch) => (
-                      <option key={branch.id} value={branch.id}>
-                        {branch.name} ({branch.code})
-                      </option>
-                    ))}
-                  </select>
                 </div>
               </Card>
             </motion.div>
@@ -1585,10 +1473,10 @@ export default function ProductList() {
                                 ? "text-amber-600"
                                 : "text-emerald-600";
 
-                          const stock = getStockForBranch(prod, selectedBranch);
+                          const stock = getStockForBranch(prod, activeBranchId);
                           const stockStatus = getStockStatus(
                             prod,
-                            selectedBranch,
+                            activeBranchId,
                           );
                           const expiringSoon = isExpiringSoon(prod.expiry_date);
                           const expired = isExpired(prod.expiry_date);

@@ -188,26 +188,6 @@ const AddStockForm = () => {
     }
   };
 
-  // Download a sample CSV with the exact headers the importer expects, plus a
-  // couple of example rows, so managers can fill it in and re-upload.
-  const handleDownloadSample = () => {
-    const rows = [
-      ["Name", "SKU", "Barcode", "Total Stock", "Cost", "Price"],
-      ["Paracetamol 500mg", "MED001", "4801234567890", "100", "3.50", "5.00"],
-      ["Amoxicillin 250mg", "MED002", "", "50", "8.00", "12.00"],
-    ];
-    const csv = rows
-      .map((r) => r.map((c) => (/[",\n]/.test(c) ? `"${c.replace(/"/g, '""')}"` : c)).join(","))
-      .join("\n");
-    const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = "stock-import-sample.csv";
-    a.click();
-    URL.revokeObjectURL(url);
-  };
-
   // Export all products currently stocked at the active branch, with the
   // branch's current stock, cost, and price columns.
   const handleExportCSV = () => {
@@ -529,15 +509,6 @@ const AddStockForm = () => {
                     <Download className="h-4 w-4 mr-2 text-emerald-600" />
                     Export CSV
                   </Button>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={handleDownloadSample}
-                    className="border-emerald-300 hover:bg-emerald-50 cursor-pointer"
-                  >
-                    <Download className="h-4 w-4 mr-2 text-emerald-600" />
-                    Sample CSV
-                  </Button>
                   <label
                     className={
                       importLoading ? "pointer-events-none opacity-60" : ""
@@ -559,7 +530,7 @@ const AddStockForm = () => {
                         ) : (
                           <>
                             <Upload className="h-4 w-4 mr-2 text-emerald-600" />
-                            Choose CSV File
+                            Import CSV
                           </>
                         )}
                       </span>
