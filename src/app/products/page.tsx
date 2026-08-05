@@ -764,16 +764,20 @@ export default function ProductList() {
     try {
       setLoading(true);
       await api.put(`/products/${priceProduct.id}`, { cost, price });
+      // Patch the row in place instead of refetching the whole list — avoids
+      // the full-table "Loading products..." flash for a two-field change.
+      setProducts((prev) =>
+        prev.map((p) => (p.id === priceProduct.id ? { ...p, cost, price } : p)),
+      );
       toast.success("Pricing updated");
       setPriceModalOpen(false);
       setPriceProduct(null);
-      fetchProducts();
     } catch (err: any) {
       toast.error(err.response?.data?.message || "Error updating pricing");
     } finally {
       setLoading(false);
     }
-  }, [priceProduct, priceForm, fetchProducts]);
+  }, [priceProduct, priceForm]);
 
   const openAddStock = useCallback((product: Product) => {
     setAddStockProduct(product);
@@ -791,29 +795,50 @@ export default function ProductList() {
     if (!activeBranchId && !addStockForm.branch_id) {
       return toast.error("Select a branch to receive the stock");
     }
+    const targetBranchId = activeBranchId ?? parseInt(addStockForm.branch_id);
+    const newCost = addStockForm.cost !== "" ? parseFloat(addStockForm.cost) : undefined;
+    const newPrice = addStockForm.price !== "" ? parseFloat(addStockForm.price) : undefined;
     try {
       setAddStockLoading(true);
       await api.post("/stock/add", {
         productId: addStockProduct.id,
         quantity,
-        unitCost: addStockForm.cost !== "" ? parseFloat(addStockForm.cost) : undefined,
-        sellingPrice: addStockForm.price !== "" ? parseFloat(addStockForm.price) : undefined,
+        unitCost: newCost,
+        sellingPrice: newPrice,
         branchId: addStockForm.branch_id !== "" ? parseInt(addStockForm.branch_id) : undefined,
       });
+      // Patch the row in place instead of refetching the whole list — avoids
+      // the full-table "Loading products..." flash for a stock top-up.
+      setProducts((prev) =>
+        prev.map((p) => {
+          if (p.id !== addStockProduct.id) return p;
+          const branch_stocks = p.branch_stocks?.map((bs) =>
+            bs.branch_id === targetBranchId
+              ? { ...bs, current_stock: (bs.current_stock || 0) + quantity }
+              : bs,
+          );
+          return {
+            ...p,
+            totalStock: (p.totalStock || 0) + quantity,
+            cost: newCost ?? p.cost,
+            price: newPrice ?? p.price,
+            branch_stocks,
+          };
+        }),
+      );
       toast.success(
-        addStockForm.cost !== "" || addStockForm.price !== ""
+        newCost !== undefined || newPrice !== undefined
           ? "Stock added and product pricing updated"
           : "Stock added",
       );
       setAddStockOpen(false);
       setAddStockProduct(null);
-      fetchProducts();
     } catch (err: any) {
       toast.error(err.response?.data?.message || "Error adding stock");
     } finally {
       setAddStockLoading(false);
     }
-  }, [addStockProduct, addStockForm, activeBranchId, fetchProducts]);
+  }, [addStockProduct, addStockForm, activeBranchId]);
 
   const filtered = useMemo(() => {
     let data = products.filter((p) => {
