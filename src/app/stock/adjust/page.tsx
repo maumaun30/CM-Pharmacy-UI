@@ -25,11 +25,13 @@ import {
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import ProductCombobox from "@/components/ProductCombobox";
 import { Badge } from "@/components/ui/badge";
+import { Checkbox } from "@/components/ui/checkbox";
 import { toast } from "sonner";
 import dayjs from "dayjs";
 import {
   ArrowLeft,
   Building2,
+  DollarSign,
   AlertTriangle,
   Loader2,
   Package,
@@ -70,6 +72,8 @@ interface ImportPreviewRow {
   csvSku: string;
   csvBarcode: string;
   csvDelta: number;
+  csvCost: number | null;
+  csvPrice: number | null;
   matchedProduct: Product | null;
   matchedBy: "sku" | "barcode" | "name" | null;
   status: "matched" | "unmatched";
@@ -117,6 +121,8 @@ const StockAdjustPage = () => {
     productId: "",
     quantity: "",
     reason: "",
+    unitCost: "",
+    sellingPrice: "",
   });
 
   const [lossFormData, setLossFormData] = useState({
@@ -135,6 +141,7 @@ const StockAdjustPage = () => {
   const [showUnmatched, setShowUnmatched] = useState(false);
   const [importConfirmLoading, setImportConfirmLoading] = useState(false);
   const [importReason, setImportReason] = useState("Physical count correction");
+  const [updatePricingOnImport, setUpdatePricingOnImport] = useState(false);
 
   const fetchProducts = useCallback(async (): Promise<Product[]> => {
     try {
@@ -200,6 +207,12 @@ const StockAdjustPage = () => {
         productId: parseInt(adjustFormData.productId),
         quantity: parseInt(adjustFormData.quantity),
         reason: adjustFormData.reason,
+        unitCost: adjustFormData.unitCost
+          ? parseFloat(adjustFormData.unitCost)
+          : null,
+        sellingPrice: adjustFormData.sellingPrice
+          ? parseFloat(adjustFormData.sellingPrice)
+          : null,
       });
 
       toast.success(`Stock adjusted successfully at ${activeBranch.name}`);
@@ -247,7 +260,8 @@ const StockAdjustPage = () => {
 
   // Mirrors the /stock/add export so one exported file can be filled in and
   // replayed on either page. "Adjustment" ships blank as the fill-in column;
-  // Category/Cost/Price are reference-only here (adjustments never touch them).
+  // Cost/Price are seeded with current values and only written back when the
+  // import's pricing checkbox is ticked. Category is reference-only.
   const handleExportCSV = () => {
     if (!activeBranch) return;
 
@@ -321,11 +335,15 @@ const StockAdjustPage = () => {
           .slice(1)
           .map((line) => {
             const row = parseCSVLine(line);
+            const costRaw = getValue(row, "Cost");
+            const priceRaw = getValue(row, "Price");
             return {
               name: getValue(row, "Name"),
               sku: getValue(row, "SKU"),
               barcode: getValue(row, "Barcode"),
               delta: parseInt(getValue(row, deltaHeader)) || 0,
+              cost: costRaw ? parseFloat(costRaw) : null,
+              price: priceRaw ? parseFloat(priceRaw) : null,
             };
           })
           .filter((r) => r.name || r.sku); // skip blank rows
@@ -367,6 +385,8 @@ const StockAdjustPage = () => {
             csvSku: row.sku,
             csvBarcode: row.barcode,
             csvDelta: row.delta,
+            csvCost: row.cost,
+            csvPrice: row.price,
             matchedProduct,
             matchedBy,
             status: matchedProduct ? "matched" : "unmatched",
@@ -419,6 +439,12 @@ const StockAdjustPage = () => {
             productId: row.matchedProduct!.id,
             quantity: row.csvDelta,
             reason,
+            unitCost:
+              updatePricingOnImport && row.csvCost != null ? row.csvCost : null,
+            sellingPrice:
+              updatePricingOnImport && row.csvPrice != null
+                ? row.csvPrice
+                : null,
           }),
         ),
       );
@@ -677,17 +703,27 @@ const StockAdjustPage = () => {
                         , then{" "}
                         <span className="font-semibold text-gray-700">Name</span>
                         . The{" "}
-                        <span className="font-semibold text-gray-700">
-                          Category
-                        </span>
-                        ,{" "}
                         <span className="font-semibold text-gray-700">Cost</span>{" "}
                         and{" "}
                         <span className="font-semibold text-gray-700">
                           Price
                         </span>{" "}
-                        columns are for reference only and are ignored on import.
+                        columns can also update product pricing when the box
+                        below is ticked. The{" "}
+                        <span className="font-semibold text-gray-700">
+                          Category
+                        </span>{" "}
+                        column is for reference only and is ignored on import.
                       </p>
+                      <label className="flex items-center gap-2 text-sm text-gray-700 cursor-pointer w-fit">
+                        <Checkbox
+                          checked={updatePricingOnImport}
+                          onCheckedChange={(v) =>
+                            setUpdatePricingOnImport(v === true)
+                          }
+                        />
+                        Update cost &amp; price from CSV during adjustment
+                      </label>
                       <div className="space-y-1">
                         <Label className="text-sm font-semibold text-gray-700 flex items-center gap-2">
                           <FileText className="h-4 w-4 text-orange-600" />
@@ -792,6 +828,16 @@ const StockAdjustPage = () => {
                                       <th className="text-right px-3 py-2 font-semibold text-gray-700">
                                         New Stock
                                       </th>
+                                      {updatePricingOnImport && (
+                                        <>
+                                          <th className="text-right px-3 py-2 font-semibold text-gray-700">
+                                            Cost
+                                          </th>
+                                          <th className="text-right px-3 py-2 font-semibold text-gray-700">
+                                            Price
+                                          </th>
+                                        </>
+                                      )}
                                     </tr>
                                   </thead>
                                   <tbody>
@@ -860,6 +906,20 @@ const StockAdjustPage = () => {
                                               </span>
                                             )}
                                           </td>
+                                          {updatePricingOnImport && (
+                                            <>
+                                              <td className="px-3 py-2 text-right text-gray-700">
+                                                {row.csvCost != null
+                                                  ? `₱${row.csvCost.toFixed(2)}`
+                                                  : "—"}
+                                              </td>
+                                              <td className="px-3 py-2 text-right text-gray-700">
+                                                {row.csvPrice != null
+                                                  ? `₱${row.csvPrice.toFixed(2)}`
+                                                  : "—"}
+                                              </td>
+                                            </>
+                                          )}
                                         </tr>
                                       );
                                     })}
@@ -1118,6 +1178,56 @@ const StockAdjustPage = () => {
                           </div>
                         </div>
                       )}
+
+                      {/* Unit Cost + Selling Price */}
+                      <div className="space-y-2">
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                          <div className="space-y-2">
+                            <Label className="text-sm font-semibold text-gray-700 flex items-center gap-2">
+                              <DollarSign className="h-4 w-4 text-emerald-600" />
+                              Unit Cost (₱)
+                            </Label>
+                            <Input
+                              type="number"
+                              step="0.01"
+                              min="0"
+                              value={adjustFormData.unitCost}
+                              onChange={(e) =>
+                                setAdjustFormData({
+                                  ...adjustFormData,
+                                  unitCost: e.target.value,
+                                })
+                              }
+                              placeholder="0.00"
+                              className="h-11 border-emerald-200 focus:border-emerald-500 focus:ring-2 focus:ring-emerald-200"
+                            />
+                          </div>
+                          <div className="space-y-2">
+                            <Label className="text-sm font-semibold text-gray-700 flex items-center gap-2">
+                              <DollarSign className="h-4 w-4 text-emerald-600" />
+                              Selling Price (₱)
+                            </Label>
+                            <Input
+                              type="number"
+                              step="0.01"
+                              min="0"
+                              value={adjustFormData.sellingPrice}
+                              onChange={(e) =>
+                                setAdjustFormData({
+                                  ...adjustFormData,
+                                  sellingPrice: e.target.value,
+                                })
+                              }
+                              placeholder="0.00"
+                              className="h-11 border-emerald-200 focus:border-emerald-500 focus:ring-2 focus:ring-emerald-200"
+                            />
+                          </div>
+                        </div>
+                        <p className="text-xs text-gray-500">
+                          Optional. Filling cost/price also updates the
+                          product&apos;s cost and price.
+                        </p>
+                      </div>
 
                       {/* Reason */}
                       <div className="space-y-2">
