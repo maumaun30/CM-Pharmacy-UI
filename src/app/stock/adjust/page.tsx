@@ -24,7 +24,9 @@ import {
 } from "@/components/ui/select";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import ProductCombobox from "@/components/ProductCombobox";
+import { Badge } from "@/components/ui/badge";
 import { toast } from "sonner";
+import dayjs from "dayjs";
 import {
   ArrowLeft,
   Building2,
@@ -37,13 +39,23 @@ import {
   Trash2,
   FileText,
   XCircle,
+  Upload,
+  Download,
+  CheckCircle2,
+  ChevronDown,
+  ChevronUp,
+  X,
 } from "lucide-react";
-import { motion } from "framer-motion";
+import { motion, AnimatePresence } from "framer-motion";
 
 interface Product {
   id: number;
   name: string;
   sku: string;
+  barcode?: string;
+  category?: string;
+  cost: number;
+  price: number;
   current_stock: number;
 }
 
@@ -52,6 +64,44 @@ interface Branch {
   name: string;
   code: string;
 }
+
+interface ImportPreviewRow {
+  csvName: string;
+  csvSku: string;
+  csvBarcode: string;
+  csvDelta: number;
+  matchedProduct: Product | null;
+  matchedBy: "sku" | "barcode" | "name" | null;
+  status: "matched" | "unmatched";
+}
+
+const parseCSVLine = (line: string): string[] => {
+  const result: string[] = [];
+  let current = "";
+  let inQuotes = false;
+  for (let i = 0; i < line.length; i++) {
+    const char = line[i];
+    if (char === '"') {
+      if (inQuotes && line[i + 1] === '"') { current += '"'; i++; }
+      else inQuotes = !inQuotes;
+    } else if (char === "," && !inQuotes) {
+      result.push(current.trim());
+      current = "";
+    } else {
+      current += char;
+    }
+  }
+  result.push(current.trim());
+  return result;
+};
+
+// The adjustment column is a DELTA, not a target level: +10 adds ten, -5 removes
+// five. "Total Stock" is the header the /stock/add export already writes, so the
+// same exported file works on both pages; "Adjustment" is accepted as an alias
+// for files people build by hand. parseInt handles a leading "+" fine.
+const ADJUSTMENT_HEADERS = ["Adjustment", "Total Stock"];
+
+const REASON_MAX = 500;
 
 const StockAdjustPage = () => {
   const router = useRouter();
@@ -77,7 +127,16 @@ const StockAdjustPage = () => {
     batchNumber: "",
   });
 
-  const fetchProducts = useCallback(async () => {
+  // CSV bulk-adjust state
+  const [importLoading, setImportLoading] = useState(false);
+  const [importPreview, setImportPreview] = useState<ImportPreviewRow[] | null>(
+    null,
+  );
+  const [showUnmatched, setShowUnmatched] = useState(false);
+  const [importConfirmLoading, setImportConfirmLoading] = useState(false);
+  const [importReason, setImportReason] = useState("Physical count correction");
+
+  const fetchProducts = useCallback(async (): Promise<Product[]> => {
     try {
       // Adjustments target the user's active branch, so resolve each product's
       // stock AT that branch. /products returns per-branch rows in branch_stocks
@@ -97,12 +156,18 @@ const StockAdjustPage = () => {
           id: p.id,
           name: p.name,
           sku: p.sku,
+          barcode: p.barcode ?? undefined,
+          category: p.category?.name ?? "",
+          cost: parseFloat(p.cost) || 0,
+          price: parseFloat(p.price) || 0,
           current_stock: Number(raw) || 0,
         };
       });
       setProducts(mapped);
+      return mapped;
     } catch {
       toast.error("Failed to fetch products");
+      return [];
     } finally {
       setFetchLoading(false);
     }
@@ -179,6 +244,227 @@ const StockAdjustPage = () => {
       setLoading(false);
     }
   };
+
+  // Mirrors the /stock/add export so one exported file can be filled in and
+  // replayed on either page. "Adjustment" ships blank as the fill-in column;
+  // Category/Cost/Price are reference-only here (adjustments never touch them).
+  const handleExportCSV = () => {
+    if (!activeBranch) return;
+
+    const rows = products.map((p) => ({
+      Name: p.name,
+      SKU: p.sku,
+      Barcode: p.barcode || "",
+      Category: p.category || "",
+      Cost: p.cost.toFixed(2),
+      Price: p.price.toFixed(2),
+      "Current Stock": p.current_stock,
+      Adjustment: "",
+    }));
+
+    const headers = Object.keys(rows[0] ?? {});
+    const csv = [
+      headers.join(","),
+      ...rows.map((row) =>
+        headers
+          .map(
+            (h) =>
+              `"${String(row[h as keyof typeof row]).replace(/"/g, '""')}"`,
+          )
+          .join(","),
+      ),
+    ].join("\n");
+
+    const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    const safeBranch = activeBranch.name.replace(/[^a-z0-9]+/gi, "-");
+    a.download = `stock_adjust_${safeBranch}_${dayjs().format("YYYY-MM-DD_HHmm")}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+    toast.success(`Exported ${rows.length} products`);
+  };
+
+  const handleImportCSV = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    setImportLoading(true);
+    const reader = new FileReader();
+    reader.onload = async (event) => {
+      try {
+        const text = event.target?.result as string;
+        const lines = text.split(/\r?\n/).filter(Boolean);
+
+        const headers = parseCSVLine(lines[0]).map((h) => h.trim());
+
+        // parseCSVLine already unescapes RFC4180 doubled quotes, so don't strip
+        // quotes again — product names containing a " (e.g. 5" Syringe) would
+        // get mangled and fail to match.
+        const getValue = (row: string[], key: string) => {
+          const idx = headers.indexOf(key);
+          return idx >= 0 ? (row[idx]?.trim() ?? "") : "";
+        };
+        const deltaHeader =
+          ADJUSTMENT_HEADERS.find((h) => headers.includes(h)) ?? null;
+
+        if (!deltaHeader) {
+          toast.error(
+            'CSV needs an "Adjustment" (or "Total Stock") column with the +/- quantity',
+          );
+          setImportLoading(false);
+          return;
+        }
+
+        const parsedRows = lines
+          .slice(1)
+          .map((line) => {
+            const row = parseCSVLine(line);
+            return {
+              name: getValue(row, "Name"),
+              sku: getValue(row, "SKU"),
+              barcode: getValue(row, "Barcode"),
+              delta: parseInt(getValue(row, deltaHeader)) || 0,
+            };
+          })
+          .filter((r) => r.name || r.sku); // skip blank rows
+
+        // Always refetch so matching runs against live stock, not a stale closure
+        const freshProducts = await fetchProducts();
+
+        const bySkuMap = new Map<string, Product>();
+        const byBarcodeMap = new Map<string, Product>();
+        const byNameMap = new Map<string, Product>();
+
+        for (const p of freshProducts) {
+          if (p.sku) bySkuMap.set(p.sku.toLowerCase(), p);
+          if (p.barcode) byBarcodeMap.set(p.barcode.toLowerCase(), p);
+          if (p.name) byNameMap.set(p.name.toLowerCase(), p);
+        }
+
+        const preview: ImportPreviewRow[] = parsedRows.map((row) => {
+          let matchedProduct: Product | null = null;
+          let matchedBy: ImportPreviewRow["matchedBy"] = null;
+
+          // Priority: SKU > Barcode > Name
+          if (row.sku && bySkuMap.has(row.sku.toLowerCase())) {
+            matchedProduct = bySkuMap.get(row.sku.toLowerCase())!;
+            matchedBy = "sku";
+          } else if (
+            row.barcode &&
+            byBarcodeMap.has(row.barcode.toLowerCase())
+          ) {
+            matchedProduct = byBarcodeMap.get(row.barcode.toLowerCase())!;
+            matchedBy = "barcode";
+          } else if (row.name && byNameMap.has(row.name.toLowerCase())) {
+            matchedProduct = byNameMap.get(row.name.toLowerCase())!;
+            matchedBy = "name";
+          }
+
+          return {
+            csvName: row.name,
+            csvSku: row.sku,
+            csvBarcode: row.barcode,
+            csvDelta: row.delta,
+            matchedProduct,
+            matchedBy,
+            status: matchedProduct ? "matched" : "unmatched",
+          };
+        });
+
+        setImportPreview(preview);
+      } catch {
+        toast.error("Failed to parse CSV file");
+      } finally {
+        setImportLoading(false);
+      }
+    };
+    reader.readAsText(file);
+    e.target.value = "";
+  };
+
+  const handleConfirmImport = async () => {
+    if (!importPreview || !activeBranch) return;
+
+    const reason = importReason.trim();
+    if (!reason) {
+      toast.error("A reason is required for bulk adjustments");
+      return;
+    }
+
+    // Zero means "no change" — the whole point of exporting every product is
+    // that most rows stay blank. Only non-zero deltas are sent.
+    const toImport = importPreview.filter(
+      (r) => r.status === "matched" && r.csvDelta !== 0,
+    );
+
+    if (toImport.length === 0) {
+      toast.error("No matched products with a non-zero adjustment");
+      return;
+    }
+
+    setImportConfirmLoading(true);
+    let success = 0;
+    let failed = 0;
+    let firstError = "";
+
+    // Process in parallel batches of 20 to avoid overwhelming the server
+    const BATCH_SIZE = 20;
+    for (let i = 0; i < toImport.length; i += BATCH_SIZE) {
+      const batch = toImport.slice(i, i + BATCH_SIZE);
+      const results = await Promise.allSettled(
+        batch.map((row) =>
+          api.post("/stock/adjust", {
+            productId: row.matchedProduct!.id,
+            quantity: row.csvDelta,
+            reason,
+          }),
+        ),
+      );
+
+      for (const result of results) {
+        if (result.status === "fulfilled") {
+          success++;
+        } else {
+          failed++;
+          if (!firstError) {
+            const err = (result as PromiseRejectedResult).reason;
+            firstError =
+              err?.response?.data?.message ||
+              err?.message ||
+              "Unknown server error";
+          }
+        }
+      }
+    }
+
+    setImportConfirmLoading(false);
+    setImportPreview(null);
+
+    if (failed > 0 && success === 0) {
+      toast.error(`Bulk adjustment failed: ${firstError}`);
+    } else if (failed > 0) {
+      toast.warning(
+        `Adjusted ${success} products, ${failed} failed. First error: ${firstError}`,
+      );
+      router.push("/stock");
+    } else {
+      toast.success(`Successfully adjusted stock for ${success} products`);
+      router.push("/stock");
+    }
+  };
+
+  const matchedRows =
+    importPreview?.filter((r) => r.status === "matched") ?? [];
+  const unmatchedRows =
+    importPreview?.filter((r) => r.status === "unmatched") ?? [];
+  const applicableRows = matchedRows.filter((r) => r.csvDelta !== 0);
+  // The API clamps at zero (Math.max(0, before + qty)), so a deduction bigger
+  // than what's on hand silently lands at 0 instead of erroring. Flag it here.
+  const clampedRows = applicableRows.filter(
+    (r) => r.matchedProduct!.current_stock + r.csvDelta < 0,
+  );
 
   const selectedAdjustProduct = products.find(
     (p) => p.id === parseInt(adjustFormData.productId),
@@ -303,7 +589,398 @@ const StockAdjustPage = () => {
                 </TabsList>
 
                 {/* Adjustment Tab */}
-                <TabsContent value="adjust" className="mt-6">
+                <TabsContent value="adjust" className="mt-6 space-y-6">
+                  {/* ── CSV BULK ADJUSTMENT SECTION ── */}
+                  <Card className="overflow-hidden border-2 border-orange-100">
+                    <div className="bg-gradient-to-r from-orange-50 to-amber-50 px-6 py-4 border-b-2 border-orange-100 flex items-center justify-between">
+                      <h3 className="text-lg font-bold text-gray-800 flex items-center gap-2">
+                        <Upload className="h-5 w-5 text-orange-600" />
+                        Bulk Adjust via CSV
+                      </h3>
+                      <div className="flex items-center gap-2">
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={handleExportCSV}
+                          disabled={!activeBranch || products.length === 0}
+                          className="border-orange-300 hover:bg-orange-50 cursor-pointer"
+                        >
+                          <Download className="h-4 w-4 mr-2 text-orange-600" />
+                          Export CSV
+                        </Button>
+                        <label
+                          className={
+                            importLoading ? "pointer-events-none opacity-60" : ""
+                          }
+                        >
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            className="border-orange-300 hover:bg-orange-50 cursor-pointer"
+                            disabled={importLoading}
+                            asChild
+                          >
+                            <span>
+                              {importLoading ? (
+                                <>
+                                  <Loader2 className="h-4 w-4 mr-2 text-orange-600 animate-spin" />
+                                  Parsing...
+                                </>
+                              ) : (
+                                <>
+                                  <Upload className="h-4 w-4 mr-2 text-orange-600" />
+                                  Import CSV
+                                </>
+                              )}
+                            </span>
+                          </Button>
+                          <input
+                            type="file"
+                            accept=".csv"
+                            className="hidden"
+                            onChange={handleImportCSV}
+                            disabled={importLoading}
+                          />
+                        </label>
+                      </div>
+                    </div>
+
+                    <div className="px-6 py-3 space-y-3">
+                      <p className="text-xs text-gray-500">
+                        CSV must include an{" "}
+                        <span className="font-semibold text-gray-700">
+                          Adjustment
+                        </span>{" "}
+                        column (the{" "}
+                        <span className="font-semibold text-gray-700">
+                          Total Stock
+                        </span>{" "}
+                        column from the Add Stock export is also accepted). The
+                        value is a{" "}
+                        <span className="font-semibold text-gray-700">
+                          change
+                        </span>
+                        , not a target level:{" "}
+                        <span className="font-semibold text-emerald-700">
+                          +10
+                        </span>{" "}
+                        adds ten,{" "}
+                        <span className="font-semibold text-red-700">-5</span>{" "}
+                        deducts five, and blank or{" "}
+                        <span className="font-semibold text-gray-700">0</span>{" "}
+                        rows are skipped. Products are matched by{" "}
+                        <span className="font-semibold text-gray-700">SKU</span>{" "}
+                        first, then{" "}
+                        <span className="font-semibold text-gray-700">
+                          Barcode
+                        </span>
+                        , then{" "}
+                        <span className="font-semibold text-gray-700">Name</span>
+                        . The{" "}
+                        <span className="font-semibold text-gray-700">
+                          Category
+                        </span>
+                        ,{" "}
+                        <span className="font-semibold text-gray-700">Cost</span>{" "}
+                        and{" "}
+                        <span className="font-semibold text-gray-700">
+                          Price
+                        </span>{" "}
+                        columns are for reference only and are ignored on import.
+                      </p>
+                      <div className="space-y-1">
+                        <Label className="text-sm font-semibold text-gray-700 flex items-center gap-2">
+                          <FileText className="h-4 w-4 text-orange-600" />
+                          Reason for all rows *
+                        </Label>
+                        <Input
+                          value={importReason}
+                          maxLength={REASON_MAX}
+                          onChange={(e) => setImportReason(e.target.value)}
+                          placeholder="e.g., Physical count correction — Aug 2026"
+                          className="h-11 border-orange-200 focus:border-orange-500 focus:ring-2 focus:ring-orange-200"
+                        />
+                      </div>
+                    </div>
+
+                    {/* Import Preview */}
+                    <AnimatePresence>
+                      {importPreview && (
+                        <motion.div
+                          initial={{ opacity: 0, height: 0 }}
+                          animate={{ opacity: 1, height: "auto" }}
+                          exit={{ opacity: 0, height: 0 }}
+                          className="px-6 pb-6 space-y-4"
+                        >
+                          {/* Summary */}
+                          <div className="flex flex-wrap gap-3 p-4 bg-gray-50 border-2 border-gray-200 rounded-xl">
+                            <div className="flex items-center gap-2">
+                              <CheckCircle2 className="h-5 w-5 text-emerald-600" />
+                              <span className="text-sm font-semibold text-gray-700">
+                                {matchedRows.length} matched
+                              </span>
+                            </div>
+                            <div className="flex items-center gap-2">
+                              <AlertCircle className="h-5 w-5 text-amber-500" />
+                              <span className="text-sm font-semibold text-gray-700">
+                                {unmatchedRows.length} unmatched
+                              </span>
+                            </div>
+                            <div className="flex items-center gap-2">
+                              <TrendingUp className="h-5 w-5 text-emerald-600" />
+                              <span className="text-sm font-semibold text-gray-700">
+                                {
+                                  applicableRows.filter((r) => r.csvDelta > 0)
+                                    .length
+                                }{" "}
+                                additions
+                              </span>
+                            </div>
+                            <div className="flex items-center gap-2">
+                              <TrendingDown className="h-5 w-5 text-red-500" />
+                              <span className="text-sm font-semibold text-gray-700">
+                                {
+                                  applicableRows.filter((r) => r.csvDelta < 0)
+                                    .length
+                                }{" "}
+                                deductions
+                              </span>
+                            </div>
+                          </div>
+
+                          {clampedRows.length > 0 && (
+                            <div className="p-4 bg-red-50 border-2 border-red-200 rounded-xl flex items-start gap-3">
+                              <AlertTriangle className="h-5 w-5 text-red-600 flex-shrink-0 mt-0.5" />
+                              <div className="text-sm text-red-800">
+                                <p className="font-semibold mb-1">
+                                  {clampedRows.length} row
+                                  {clampedRows.length === 1 ? "" : "s"} deduct
+                                  more than is on hand
+                                </p>
+                                <p>
+                                  Stock cannot go below zero — those products
+                                  will land at 0 instead of the negative value.
+                                  They are marked below.
+                                </p>
+                              </div>
+                            </div>
+                          )}
+
+                          {/* Matched rows table */}
+                          {matchedRows.length > 0 && (
+                            <div>
+                              <p className="text-sm font-bold text-gray-700 mb-2 flex items-center gap-1">
+                                <CheckCircle2 className="h-4 w-4 text-emerald-600" />
+                                Matched Products
+                              </p>
+                              <div className="border-2 border-orange-100 rounded-xl overflow-hidden max-h-64 overflow-y-auto">
+                                <table className="w-full text-sm">
+                                  <thead className="bg-orange-50 sticky top-0">
+                                    <tr>
+                                      <th className="text-left px-3 py-2 font-semibold text-gray-700">
+                                        Product
+                                      </th>
+                                      <th className="text-left px-3 py-2 font-semibold text-gray-700">
+                                        Matched By
+                                      </th>
+                                      <th className="text-right px-3 py-2 font-semibold text-gray-700">
+                                        Current
+                                      </th>
+                                      <th className="text-right px-3 py-2 font-semibold text-gray-700">
+                                        Adjustment
+                                      </th>
+                                      <th className="text-right px-3 py-2 font-semibold text-gray-700">
+                                        New Stock
+                                      </th>
+                                    </tr>
+                                  </thead>
+                                  <tbody>
+                                    {matchedRows.map((row, i) => {
+                                      const current =
+                                        row.matchedProduct!.current_stock;
+                                      const raw = current + row.csvDelta;
+                                      const clamped = raw < 0;
+                                      return (
+                                        <tr
+                                          key={i}
+                                          className="border-t border-orange-50 hover:bg-orange-50/50"
+                                        >
+                                          <td className="px-3 py-2 text-gray-800 font-medium">
+                                            {row.matchedProduct?.name}
+                                          </td>
+                                          <td className="px-3 py-2">
+                                            <Badge
+                                              variant="outline"
+                                              className={
+                                                row.matchedBy === "sku"
+                                                  ? "bg-blue-50 text-blue-700 border-blue-200 text-xs"
+                                                  : row.matchedBy === "barcode"
+                                                    ? "bg-purple-50 text-purple-700 border-purple-200 text-xs"
+                                                    : "bg-gray-50 text-gray-700 border-gray-200 text-xs"
+                                              }
+                                            >
+                                              {row.matchedBy?.toUpperCase()}
+                                            </Badge>
+                                          </td>
+                                          <td className="px-3 py-2 text-right text-gray-600">
+                                            {current}
+                                          </td>
+                                          <td
+                                            className={`px-3 py-2 text-right font-bold ${
+                                              row.csvDelta > 0
+                                                ? "text-emerald-700"
+                                                : row.csvDelta < 0
+                                                  ? "text-red-700"
+                                                  : "text-gray-400"
+                                            }`}
+                                          >
+                                            {row.csvDelta === 0 ? (
+                                              <span className="font-normal">
+                                                skipped (0)
+                                              </span>
+                                            ) : (
+                                              `${row.csvDelta > 0 ? "+" : ""}${row.csvDelta}`
+                                            )}
+                                          </td>
+                                          <td className="px-3 py-2 text-right">
+                                            {row.csvDelta === 0 ? (
+                                              <span className="text-gray-400">
+                                                —
+                                              </span>
+                                            ) : clamped ? (
+                                              <span className="font-bold text-red-600">
+                                                0
+                                                <span className="ml-1 text-xs font-normal">
+                                                  (clamped from {raw})
+                                                </span>
+                                              </span>
+                                            ) : (
+                                              <span className="font-bold text-gray-800">
+                                                {raw}
+                                              </span>
+                                            )}
+                                          </td>
+                                        </tr>
+                                      );
+                                    })}
+                                  </tbody>
+                                </table>
+                              </div>
+                            </div>
+                          )}
+
+                          {/* Unmatched rows (collapsible) */}
+                          {unmatchedRows.length > 0 && (
+                            <div>
+                              <button
+                                type="button"
+                                onClick={() => setShowUnmatched((v) => !v)}
+                                className="text-sm font-semibold text-amber-600 flex items-center gap-1 hover:underline"
+                              >
+                                <AlertCircle className="h-4 w-4" />
+                                {unmatchedRows.length} unmatched rows (will be
+                                skipped)
+                                {showUnmatched ? (
+                                  <ChevronUp className="h-4 w-4" />
+                                ) : (
+                                  <ChevronDown className="h-4 w-4" />
+                                )}
+                              </button>
+                              <AnimatePresence>
+                                {showUnmatched && (
+                                  <motion.div
+                                    initial={{ opacity: 0, height: 0 }}
+                                    animate={{ opacity: 1, height: "auto" }}
+                                    exit={{ opacity: 0, height: 0 }}
+                                    className="mt-2 border-2 border-amber-100 rounded-xl overflow-hidden max-h-48 overflow-y-auto"
+                                  >
+                                    <table className="w-full text-sm">
+                                      <thead className="bg-amber-50 sticky top-0">
+                                        <tr>
+                                          <th className="text-left px-3 py-2 font-semibold text-gray-700">
+                                            CSV Name
+                                          </th>
+                                          <th className="text-left px-3 py-2 font-semibold text-gray-700">
+                                            SKU
+                                          </th>
+                                          <th className="text-left px-3 py-2 font-semibold text-gray-700">
+                                            Barcode
+                                          </th>
+                                        </tr>
+                                      </thead>
+                                      <tbody>
+                                        {unmatchedRows.map((row, i) => (
+                                          <tr
+                                            key={i}
+                                            className="border-t border-amber-50"
+                                          >
+                                            <td className="px-3 py-2 text-gray-600">
+                                              {row.csvName || "—"}
+                                            </td>
+                                            <td className="px-3 py-2 text-gray-500 font-mono text-xs">
+                                              {row.csvSku || "—"}
+                                            </td>
+                                            <td className="px-3 py-2 text-gray-500 font-mono text-xs">
+                                              {row.csvBarcode || "—"}
+                                            </td>
+                                          </tr>
+                                        ))}
+                                      </tbody>
+                                    </table>
+                                  </motion.div>
+                                )}
+                              </AnimatePresence>
+                            </div>
+                          )}
+
+                          {/* Action buttons */}
+                          <div className="flex gap-3">
+                            <Button
+                              onClick={handleConfirmImport}
+                              disabled={
+                                importConfirmLoading ||
+                                applicableRows.length === 0 ||
+                                !importReason.trim()
+                              }
+                              className="flex-1 bg-gradient-to-r from-orange-600 to-red-600 hover:from-orange-700 hover:to-red-700 text-white font-bold"
+                            >
+                              {importConfirmLoading ? (
+                                <>
+                                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                                  Adjusting...
+                                </>
+                              ) : (
+                                <>
+                                  <Package className="h-4 w-4 mr-2" />
+                                  Confirm Adjustment ({applicableRows.length}{" "}
+                                  products)
+                                </>
+                              )}
+                            </Button>
+                            <Button
+                              variant="outline"
+                              onClick={() => setImportPreview(null)}
+                              disabled={importConfirmLoading}
+                              className="border-gray-300 hover:bg-gray-50"
+                            >
+                              <X className="h-4 w-4 mr-1" />
+                              Cancel
+                            </Button>
+                          </div>
+                        </motion.div>
+                      )}
+                    </AnimatePresence>
+                  </Card>
+
+                  {/* Divider */}
+                  <div className="flex items-center gap-3">
+                    <div className="flex-1 h-px bg-orange-100" />
+                    <span className="text-sm font-semibold text-gray-400 uppercase tracking-wider">
+                      or adjust single product
+                    </span>
+                    <div className="flex-1 h-px bg-orange-100" />
+                  </div>
+
                   <Card className="overflow-hidden border-2 border-emerald-100">
                     <div className="bg-gradient-to-r from-emerald-50 to-green-50 px-6 py-4 border-b-2 border-emerald-100">
                       <h3 className="text-lg font-bold text-gray-800 flex items-center gap-2">
