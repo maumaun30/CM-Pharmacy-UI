@@ -55,6 +55,7 @@ import {
   CheckSquare,
   Square,
   XSquare,
+  Layers,
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import Link from "next/link";
@@ -103,6 +104,20 @@ interface Product {
   totalStock: number;
   margin_percentage?: number;
   margin_amount?: number;
+}
+
+// One delivery row from GET /stock/product/:id. The stocks table logs every
+// movement; the batch modal only surfaces the incoming (PURCHASE) ones.
+interface BatchRow {
+  id: number;
+  batch_number: string | null;
+  expiry_date: string | null;
+  quantity: number;
+  unit_cost: string | number | null;
+  supplier: string | null;
+  transaction_type: string;
+  created_at: string;
+  branch?: Branch | null;
 }
 
 // One parsed CSV row from the importer, keyed by the sample-CSV headers.
@@ -238,9 +253,14 @@ export default function ProductList() {
     quantity: "",
     cost: "",
     price: "",
+    expiry_date: "",
     branch_id: "",
   });
   const [addStockLoading, setAddStockLoading] = useState(false);
+  const [batchOpen, setBatchOpen] = useState(false);
+  const [batchProduct, setBatchProduct] = useState<Product | null>(null);
+  const [batchRows, setBatchRows] = useState<BatchRow[]>([]);
+  const [batchLoading, setBatchLoading] = useState(false);
 
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
   const [bulkDeleteOpen, setBulkDeleteOpen] = useState(false);
@@ -781,7 +801,7 @@ export default function ProductList() {
 
   const openAddStock = useCallback((product: Product) => {
     setAddStockProduct(product);
-    setAddStockForm({ quantity: "", cost: "", price: "", branch_id: "" });
+    setAddStockForm({ quantity: "", cost: "", price: "", expiry_date: "", branch_id: "" });
     setAddStockOpen(true);
   }, []);
 
@@ -798,6 +818,7 @@ export default function ProductList() {
     const targetBranchId = activeBranchId ?? parseInt(addStockForm.branch_id);
     const newCost = addStockForm.cost !== "" ? parseFloat(addStockForm.cost) : undefined;
     const newPrice = addStockForm.price !== "" ? parseFloat(addStockForm.price) : undefined;
+    const newExpiry = addStockForm.expiry_date !== "" ? addStockForm.expiry_date : undefined;
     try {
       setAddStockLoading(true);
       await api.post("/stock/add", {
@@ -805,6 +826,7 @@ export default function ProductList() {
         quantity,
         unitCost: newCost,
         sellingPrice: newPrice,
+        expiryDate: newExpiry,
         branchId: addStockForm.branch_id !== "" ? parseInt(addStockForm.branch_id) : undefined,
       });
       // Patch the row in place instead of refetching the whole list — avoids
@@ -822,13 +844,14 @@ export default function ProductList() {
             totalStock: (p.totalStock || 0) + quantity,
             cost: newCost ?? p.cost,
             price: newPrice ?? p.price,
+            expiry_date: newExpiry ?? p.expiry_date,
             branch_stocks,
           };
         }),
       );
       toast.success(
-        newCost !== undefined || newPrice !== undefined
-          ? "Stock added and product pricing updated"
+        newCost !== undefined || newPrice !== undefined || newExpiry !== undefined
+          ? "Stock added and product details updated"
           : "Stock added",
       );
       setAddStockOpen(false);
@@ -839,6 +862,38 @@ export default function ProductList() {
       setAddStockLoading(false);
     }
   }, [addStockProduct, addStockForm, activeBranchId]);
+
+  // Batch list = the product's incoming deliveries, each carrying its own batch
+  // number and expiry. The API scopes rows to the caller's active branch (an
+  // admin in all-branches view gets every branch, hence the Branch column).
+  const openBatches = useCallback(async (product: Product) => {
+    setBatchProduct(product);
+    setBatchRows([]);
+    setBatchOpen(true);
+    setBatchLoading(true);
+    try {
+      const res = await api.get(`/stock/product/${product.id}`, {
+        params: { limit: 200 },
+      });
+      const rows: BatchRow[] = (res.data?.stocks ?? []).filter(
+        (r: BatchRow) => r.transaction_type === "PURCHASE",
+      );
+      // Soonest expiry first so what needs moving sits at the top; rows with no
+      // expiry recorded sink to the bottom rather than masquerading as urgent.
+      rows.sort((a, b) => {
+        if (!a.expiry_date && !b.expiry_date)
+          return dayjs(b.created_at).valueOf() - dayjs(a.created_at).valueOf();
+        if (!a.expiry_date) return 1;
+        if (!b.expiry_date) return -1;
+        return dayjs(a.expiry_date).valueOf() - dayjs(b.expiry_date).valueOf();
+      });
+      setBatchRows(rows);
+    } catch (err: any) {
+      toast.error(err.response?.data?.message || "Error loading batches");
+    } finally {
+      setBatchLoading(false);
+    }
+  }, []);
 
   const filtered = useMemo(() => {
     let data = products.filter((p) => {
@@ -1637,7 +1692,17 @@ export default function ProductList() {
                                   <Button
                                     variant="ghost"
                                     size="icon"
+                                    onClick={() => openBatches(prod)}
+                                    title="View batches & expiry"
+                                    className="h-8 w-8 hover:bg-amber-50"
+                                  >
+                                    <Layers className="h-4 w-4 text-amber-600" />
+                                  </Button>
+                                  <Button
+                                    variant="ghost"
+                                    size="icon"
                                     onClick={() => handleOpenModal(prod)}
+                                    title="Edit product"
                                     className="h-8 w-8 hover:bg-blue-50"
                                   >
                                     <Pencil className="h-4 w-4 text-blue-600" />
@@ -2316,9 +2381,31 @@ export default function ProductList() {
                     />
                   </div>
                 </div>
+                <div>
+                  <Label className="mb-2 text-sm font-semibold text-gray-700">
+                    New Expiry Date
+                  </Label>
+                  <Input
+                    type="date"
+                    value={addStockForm.expiry_date}
+                    onChange={(e) =>
+                      setAddStockForm({
+                        ...addStockForm,
+                        expiry_date: e.target.value,
+                      })
+                    }
+                    className="h-11 border-emerald-200 focus:border-emerald-500 focus:ring-2 focus:ring-emerald-200"
+                  />
+                  {addStockProduct?.expiry_date && (
+                    <p className="mt-1 text-xs text-gray-500">
+                      Current: {dayjs(addStockProduct.expiry_date).format("MMM D, YYYY")}
+                    </p>
+                  )}
+                </div>
                 <p className="text-xs text-gray-500">
-                  Leave cost/price blank to keep current values. Filling them
-                  also updates the product&apos;s cost/price.
+                  Leave a field blank to keep its current value. Filling
+                  cost, price, or expiry also updates the product&apos;s
+                  master record.
                 </p>
               </div>
 
@@ -2339,6 +2426,123 @@ export default function ProductList() {
                     <Loader2 className="h-4 w-4 mr-2 animate-spin" />
                   )}
                   Add Stock
+                </Button>
+              </DialogFooter>
+            </DialogContent>
+          </Dialog>
+
+          {/* Batch / expiry list */}
+          <Dialog open={batchOpen} onOpenChange={setBatchOpen}>
+            <DialogContent className="sm:max-w-2xl bg-white">
+              <DialogHeader>
+                <DialogTitle className="text-2xl font-bold text-gray-800 flex items-center gap-2">
+                  <Layers className="h-6 w-6 text-amber-600" />
+                  Batches - {batchProduct?.name}
+                </DialogTitle>
+              </DialogHeader>
+
+              <div className="py-2">
+                {batchLoading ? (
+                  <div className="flex items-center justify-center gap-2 py-10 text-gray-500">
+                    <Loader2 className="h-5 w-5 animate-spin" />
+                    Loading batches...
+                  </div>
+                ) : batchRows.length === 0 ? (
+                  <div className="flex flex-col items-center gap-2 py-10 text-gray-500">
+                    <Package className="h-8 w-8 text-gray-300" />
+                    <p className="text-sm">No deliveries recorded yet</p>
+                  </div>
+                ) : (
+                  <div className="border-2 border-amber-100 rounded-xl overflow-hidden max-h-96 overflow-y-auto">
+                    <table className="w-full text-sm">
+                      <thead className="bg-amber-50 sticky top-0">
+                        <tr>
+                          <th className="text-left px-3 py-2 font-semibold text-gray-700">
+                            Batch No
+                          </th>
+                          <th className="text-left px-3 py-2 font-semibold text-gray-700">
+                            Expiry
+                          </th>
+                          <th className="text-right px-3 py-2 font-semibold text-gray-700">
+                            Qty In
+                          </th>
+                          <th className="text-left px-3 py-2 font-semibold text-gray-700">
+                            Received
+                          </th>
+                          {!activeBranchId && (
+                            <th className="text-left px-3 py-2 font-semibold text-gray-700">
+                              Branch
+                            </th>
+                          )}
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {batchRows.map((row) => {
+                          const expired = isExpired(row.expiry_date ?? undefined);
+                          const soon = isExpiringSoon(row.expiry_date ?? undefined);
+                          return (
+                            <tr
+                              key={row.id}
+                              className="border-t border-amber-50 hover:bg-amber-50/40"
+                            >
+                              <td className="px-3 py-2 font-mono text-xs text-gray-700">
+                                {row.batch_number || "—"}
+                              </td>
+                              <td className="px-3 py-2">
+                                {row.expiry_date ? (
+                                  <Badge
+                                    variant="outline"
+                                    className={
+                                      expired
+                                        ? "bg-red-100 text-red-800 border-red-200"
+                                        : soon
+                                          ? "bg-amber-100 text-amber-800 border-amber-200"
+                                          : "bg-emerald-50 text-emerald-700 border-emerald-200"
+                                    }
+                                  >
+                                    {dayjs(row.expiry_date).format("MMM D, YYYY")}
+                                    {expired
+                                      ? " · Expired"
+                                      : soon
+                                        ? " · Soon"
+                                        : ""}
+                                  </Badge>
+                                ) : (
+                                  <span className="text-gray-400">—</span>
+                                )}
+                              </td>
+                              <td className="px-3 py-2 text-right font-bold text-emerald-700">
+                                +{row.quantity}
+                              </td>
+                              <td className="px-3 py-2 text-gray-600 text-xs">
+                                {dayjs(row.created_at).format("MMM D, YYYY")}
+                              </td>
+                              {!activeBranchId && (
+                                <td className="px-3 py-2 text-gray-600 text-xs">
+                                  {row.branch?.name || "—"}
+                                </td>
+                              )}
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+                <p className="mt-3 text-xs text-gray-500">
+                  Delivery history — quantity received per batch. Stock is
+                  deducted from the branch total, not from a specific batch, so
+                  these figures are not remaining-per-batch counts.
+                </p>
+              </div>
+
+              <DialogFooter>
+                <Button
+                  variant="outline"
+                  onClick={() => setBatchOpen(false)}
+                  className="border-gray-300"
+                >
+                  Close
                 </Button>
               </DialogFooter>
             </DialogContent>

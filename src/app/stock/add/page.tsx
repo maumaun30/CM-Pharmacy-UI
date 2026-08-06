@@ -52,6 +52,7 @@ interface Product {
   name: string;
   sku: string;
   barcode?: string;
+  category?: string;
   current_stock: number;
   cost: number;
   price: number;
@@ -70,6 +71,8 @@ interface ImportPreviewRow {
   csvStock: number;
   csvCost: number | null;
   csvPrice: number | null;
+  csvBatchNumber: string;
+  csvExpiryDate: string | null;
   matchedProduct: Product | null;
   matchedBy: "sku" | "barcode" | "name" | null;
   status: "matched" | "unmatched";
@@ -93,6 +96,15 @@ const parseCSVLine = (line: string): string[] => {
   }
   result.push(current.trim());
   return result;
+};
+
+// Expiry cells are optional and hand-typed, so accept YYYY-MM-DD (what the
+// export writes) or anything Date can parse (Excel likes M/D/YYYY) and fall
+// back to null. A junk date must never block the row's stock from importing.
+const parseCSVDate = (raw: string): string | null => {
+  if (!raw) return null;
+  const d = dayjs(raw);
+  return d.isValid() ? d.format("YYYY-MM-DD") : null;
 };
 
 const AddStockForm = () => {
@@ -135,6 +147,7 @@ const AddStockForm = () => {
         name: p.name,
         sku: p.sku,
         barcode: p.barcode ?? undefined,
+        category: p.category?.name ?? "",
         current_stock: p.currentStock ?? p.totalStock ?? p.current_stock ?? 0,
         cost: parseFloat(p.cost) || 0,
         price: parseFloat(p.price) || 0,
@@ -189,7 +202,8 @@ const AddStockForm = () => {
   };
 
   // Export all products currently stocked at the active branch, with the
-  // branch's current stock, cost, and price columns.
+  // branch's current stock, cost, and price columns. Category is reference-only
+  // (import ignores it); Batch No / Expiry Date ship blank as fill-in columns.
   const handleExportCSV = () => {
     if (!activeBranch) return;
 
@@ -197,10 +211,13 @@ const AddStockForm = () => {
       Name: p.name,
       SKU: p.sku,
       Barcode: p.barcode || "",
+      Category: p.category || "",
       Cost: p.cost.toFixed(2),
       Price: p.price.toFixed(2),
       "Current Stock": p.current_stock,
       "Total Stock": "",
+      "Batch No": "",
+      "Expiry Date": "",
     }));
 
     const headers = Object.keys(rows[0] ?? {});
@@ -262,6 +279,9 @@ const AddStockForm = () => {
               totalStock: parseInt(getValue(row, "Total Stock")) || 0,
               cost: costRaw ? parseFloat(costRaw) : null,
               price: priceRaw ? parseFloat(priceRaw) : null,
+              // Category column is export-only reference; deliberately ignored.
+              batchNumber: getValue(row, "Batch No"),
+              expiryDate: parseCSVDate(getValue(row, "Expiry Date")),
             };
           })
           .filter((r) => r.name || r.sku); // skip blank rows
@@ -306,6 +326,8 @@ const AddStockForm = () => {
             csvStock: row.totalStock,
             csvCost: row.cost,
             csvPrice: row.price,
+            csvBatchNumber: row.batchNumber,
+            csvExpiryDate: row.expiryDate,
             matchedProduct,
             matchedBy,
             status: matchedProduct ? "matched" : "unmatched",
@@ -351,8 +373,8 @@ const AddStockForm = () => {
             quantity: row.csvStock,
             unitCost: updatePricingOnImport && row.csvCost != null ? row.csvCost : null,
             sellingPrice: updatePricingOnImport && row.csvPrice != null ? row.csvPrice : null,
-            batchNumber: null,
-            expiryDate: null,
+            batchNumber: row.csvBatchNumber || null,
+            expiryDate: row.csvExpiryDate,
             supplier: null,
             transactionType: "PURCHASE",
           }),
@@ -395,6 +417,11 @@ const AddStockForm = () => {
     importPreview?.filter((r) => r.status === "matched") ?? [];
   const unmatchedRows =
     importPreview?.filter((r) => r.status === "unmatched") ?? [];
+
+  // Only widen the preview table when the file actually carries batch/expiry.
+  const showBatchColumns = matchedRows.some(
+    (r) => r.csvBatchNumber || r.csvExpiryDate,
+  );
 
   const selectedProduct = products.find(
     (p) => p.id === parseInt(formData.productId),
@@ -563,7 +590,20 @@ const AddStockForm = () => {
                     <span className="font-semibold text-gray-700">Cost</span>{" "}
                     and{" "}
                     <span className="font-semibold text-gray-700">Price</span>{" "}
-                    columns can also update product pricing.
+                    columns can also update product pricing, and optional{" "}
+                    <span className="font-semibold text-gray-700">
+                      Batch No
+                    </span>{" "}
+                    /{" "}
+                    <span className="font-semibold text-gray-700">
+                      Expiry Date
+                    </span>{" "}
+                    (YYYY-MM-DD) columns are recorded per delivery. The{" "}
+                    <span className="font-semibold text-gray-700">
+                      Category
+                    </span>{" "}
+                    column in the export is for reference only and is ignored on
+                    import.
                   </p>
                   <label className="flex items-center gap-2 text-sm text-gray-700 cursor-pointer w-fit">
                     <Checkbox
@@ -636,6 +676,16 @@ const AddStockForm = () => {
                                       </th>
                                     </>
                                   )}
+                                  {showBatchColumns && (
+                                    <>
+                                      <th className="text-left px-3 py-2 font-semibold text-gray-700">
+                                        Batch No
+                                      </th>
+                                      <th className="text-left px-3 py-2 font-semibold text-gray-700">
+                                        Expiry
+                                      </th>
+                                    </>
+                                  )}
                                 </tr>
                               </thead>
                               <tbody>
@@ -680,6 +730,20 @@ const AddStockForm = () => {
                                         <td className="px-3 py-2 text-right text-gray-700">
                                           {row.csvPrice != null
                                             ? `₱${row.csvPrice.toFixed(2)}`
+                                            : "—"}
+                                        </td>
+                                      </>
+                                    )}
+                                    {showBatchColumns && (
+                                      <>
+                                        <td className="px-3 py-2 text-gray-600 font-mono text-xs">
+                                          {row.csvBatchNumber || "—"}
+                                        </td>
+                                        <td className="px-3 py-2 text-gray-600 text-xs">
+                                          {row.csvExpiryDate
+                                            ? dayjs(row.csvExpiryDate).format(
+                                                "MMM D, YYYY",
+                                              )
                                             : "—"}
                                         </td>
                                       </>
