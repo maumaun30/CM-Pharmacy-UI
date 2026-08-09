@@ -61,6 +61,10 @@ import { Badge } from "@/components/ui/badge";
 import Link from "next/link";
 import dayjs from "dayjs";
 import { motion } from "framer-motion";
+import { downloadCSV } from "@/lib/csv";
+import { buildExportCsv } from "@/lib/inventory-import/export";
+import InventoryImportDialog from "@/components/inventory-import/InventoryImportDialog";
+import type { MatchableProduct } from "@/lib/inventory-import/types";
 
 interface Category {
   id: number;
@@ -118,24 +122,6 @@ interface BatchRow {
   transaction_type: string;
   created_at: string;
   branch?: Branch | null;
-}
-
-// One parsed CSV row from the importer, keyed by the sample-CSV headers.
-interface ImportRow {
-  name: string;
-  brand_name: string;
-  generic_name: string | null;
-  sku: string;
-  barcode: string;
-  cost: number;
-  price: number;
-  dosage: string | null;
-  form: string | null;
-  expiry_date: string | null;
-  requires_prescription: boolean;
-  track_inventory: boolean;
-  status: "ACTIVE" | "INACTIVE";
-  categoryName: string;
 }
 
 const calculateMargin = (price: number, cost: number) => {
@@ -224,13 +210,7 @@ export default function ProductList() {
   });
   const [loading, setLoading] = useState(false);
   const [fetchLoading, setFetchLoading] = useState(true);
-  const [importLoading, setImportLoading] = useState(false);
-  // Parsed CSV held while the user decides whether rows matching existing
-  // SKUs should overwrite those products' columns or be skipped.
-  const [pendingImport, setPendingImport] = useState<{
-    rows: ImportRow[];
-    duplicates: number;
-  } | null>(null);
+  const [importOpen, setImportOpen] = useState(false);
 
   const [search, setSearch] = useState("");
   const [sortBy, setSortBy] = useState<keyof Product>("id");
@@ -302,250 +282,6 @@ export default function ProductList() {
       return next;
     });
   }, []);
-
-  const handleExportCSV = () => {
-    const rows = filtered.map((p) => ({
-      ID: p.id,
-      Name: p.name,
-      "Brand Name": p.brand_name,
-      "Generic Name": p.generic_name || "",
-      SKU: p.sku,
-      Barcode: p.barcode || "",
-      Cost: p.cost.toFixed(2),
-      Price: p.price.toFixed(2),
-      Dosage: p.dosage || "",
-      Form: p.form || "",
-      Category: p.category?.name || "",
-      "Requires Prescription": p.requires_prescription ? "Yes" : "No",
-      "Track Inventory": p.track_inventory === false ? "No" : "Yes",
-      Status: p.status,
-      "Expiry Date": p.expiry_date
-        ? dayjs(p.expiry_date).format("YYYY-MM-DD")
-        : "",
-    }));
-
-    const headers = Object.keys(rows[0]);
-    const csv = [
-      headers.join(","),
-      ...rows.map((row) =>
-        headers
-          .map(
-            (h) =>
-              `"${String(row[h as keyof typeof row]).replace(/"/g, '""')}"`,
-          )
-          .join(","),
-      ),
-    ].join("\n");
-
-    const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = `products_${dayjs().format("YYYY-MM-DD")}.csv`;
-    a.click();
-    URL.revokeObjectURL(url);
-    toast.success(`Exported ${rows.length} products`);
-  };
-
-
-  const handleImportCSV = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-
-    const reader = new FileReader();
-    reader.onload = async (event) => {
-      setImportLoading(true);
-      try {
-        const text = event.target?.result as string;
-        const lines = text.split(/\r?\n/).filter(Boolean);
-
-        const parseCSVLine = (line: string): string[] => {
-          const result: string[] = [];
-          let current = "";
-          let inQuotes = false;
-          for (let i = 0; i < line.length; i++) {
-            const char = line[i];
-            if (char === '"') {
-              if (inQuotes && line[i + 1] === '"') {
-                current += '"';
-                i++;
-              } else {
-                inQuotes = !inQuotes;
-              }
-            } else if (char === "," && !inQuotes) {
-              result.push(current.trim());
-              current = "";
-            } else {
-              current += char;
-            }
-          }
-          result.push(current.trim());
-          return result;
-        };
-
-        const headers = parseCSVLine(lines[0]).map((h) =>
-          h.replace(/"/g, "").trim(),
-        );
-
-        const getValue = (row: string[], key: string) => {
-          const idx = headers.indexOf(key);
-          return idx >= 0 ? (row[idx]?.replace(/"/g, "").trim() ?? "") : "";
-        };
-
-        const parsedProducts: ImportRow[] = lines.slice(1).map((line) => {
-          const row = parseCSVLine(line);
-          return {
-            name: getValue(row, "Name"),
-            brand_name: getValue(row, "Brand Name"),
-            generic_name: getValue(row, "Generic Name") || null,
-            sku: getValue(row, "SKU"),
-            barcode: getValue(row, "Barcode"),
-            cost: parseFloat(getValue(row, "Cost")) || 0,
-            price: parseFloat(getValue(row, "Price")) || 0,
-            dosage: getValue(row, "Dosage") || null,
-            form: getValue(row, "Form") || null,
-            expiry_date: getValue(row, "Expiry Date") || null,
-            requires_prescription:
-              getValue(row, "Requires Prescription") === "Yes",
-            track_inventory:
-              getValue(row, "Track Inventory") !== "No", // default to tracked
-            status:
-              (getValue(row, "Status") as "ACTIVE" | "INACTIVE") || "ACTIVE",
-            categoryName: getValue(row, "Category"),
-          };
-        });
-
-        // Rows matching an existing SKU need a decision from the user
-        // (overwrite vs skip), so pause and prompt instead of importing.
-        const existingSkus = new Set(products.map((p) => p.sku));
-        const duplicates = parsedProducts.filter(
-          (p) => p.sku && existingSkus.has(p.sku),
-        ).length;
-
-        if (duplicates > 0) {
-          setPendingImport({ rows: parsedProducts, duplicates });
-        } else {
-          await runImport(parsedProducts, false);
-        }
-      } catch {
-        toast.error("Failed to read or parse CSV file");
-      } finally {
-        setImportLoading(false);
-      }
-    };
-    reader.readAsText(file);
-    e.target.value = "";
-  };
-
-  // Executes the parsed CSV. When overwriteExisting is true, rows whose SKU
-  // matches an existing product replace ALL of that product's columns with
-  // the CSV values (empty cells clear the column); otherwise those rows are
-  // skipped and only new SKUs are created.
-  const runImport = async (rows: ImportRow[], overwriteExisting: boolean) => {
-    setImportLoading(true);
-    try {
-      const existingBySku = new Map(products.map((p) => [p.sku, p.id]));
-      // Duplicate SKUs within the CSV itself: first row wins.
-      const seenSkus = new Set<string>();
-      const localCategories = [...categories];
-
-      let created = 0;
-      let updated = 0;
-      let skipped = 0;
-      let failed = 0;
-
-      for (const row of rows) {
-        if (!row.name || !row.sku) {
-          failed++;
-          continue;
-        }
-
-        if (seenSkus.has(row.sku)) {
-          skipped++;
-          continue;
-        }
-        seenSkus.add(row.sku);
-
-        const existingId = existingBySku.get(row.sku);
-        if (existingId !== undefined && !overwriteExisting) {
-          skipped++;
-          continue;
-        }
-
-        let matchedCat = localCategories.find(
-          (c) => c.name.toLowerCase() === row.categoryName.toLowerCase(),
-        );
-        if (!matchedCat) {
-          if (!row.categoryName) {
-            failed++;
-            continue;
-          }
-          try {
-            // Create the category on the fly
-            const res = await api.post("/categories", {
-              name: row.categoryName,
-            });
-            matchedCat = res.data;
-            // Add to local categories so subsequent rows reuse it
-            localCategories.push(res.data);
-            setCategories((prev) => [...prev, res.data]);
-          } catch {
-            failed++;
-            continue;
-          }
-        }
-        if (!matchedCat) {
-          failed++;
-          continue;
-        }
-
-        // API request contract is camelCase (same payload as the edit form).
-        const payload = {
-          name: row.name,
-          brandName: row.brand_name,
-          genericName: row.generic_name,
-          sku: row.sku,
-          barcode: row.barcode || null,
-          cost: row.cost,
-          price: row.price,
-          dosage: row.dosage,
-          form: row.form,
-          expiryDate: row.expiry_date,
-          requiresPrescription: row.requires_prescription,
-          trackInventory: row.track_inventory,
-          status: row.status,
-          categoryId: matchedCat.id,
-        };
-
-        try {
-          if (existingId !== undefined) {
-            await api.put(`/products/${existingId}`, payload);
-            updated++;
-          } else {
-            await api.post("/products", payload);
-            created++;
-          }
-        } catch (err: any) {
-          // If it's a duplicate SKU/barcode error from server, count as skipped
-          const msg = err.response?.data?.message || "";
-          if (msg.includes("already exists")) {
-            skipped++;
-          } else {
-            failed++;
-          }
-        }
-      }
-
-      const parts = [`Imported ${created} products`];
-      if (updated > 0) parts.push(`${updated} overwritten`);
-      if (skipped > 0) parts.push(`${skipped} skipped`);
-      if (failed > 0) parts.push(`${failed} failed`);
-      toast.success(parts.join(", "));
-      fetchProducts();
-    } finally {
-      setImportLoading(false);
-    }
-  };
 
   const fetchProducts = useCallback(async () => {
     try {
@@ -895,6 +631,38 @@ export default function ProductList() {
     }
   }, []);
 
+  // The import library takes a narrow product shape so it stays independent of
+  // this page's Product interface. current_stock is branch-scoped, so resolve it
+  // against the branch the user is actually looking at.
+  const matchableProducts: MatchableProduct[] = useMemo(
+    () =>
+      products.map((p) => ({
+        id: p.id,
+        name: p.name,
+        sku: p.sku,
+        barcode: p.barcode ?? null,
+        cost: p.cost,
+        price: p.price,
+        expiry_date: p.expiry_date ?? null,
+        requires_prescription: p.requires_prescription,
+        track_inventory: p.track_inventory,
+        status: p.status,
+        category_id: p.category_id,
+        currentStock: getStockForBranch(p, activeBranchId ?? null),
+      })),
+    [products, activeBranchId],
+  );
+
+  const handleExportCSV = () => {
+    if (matchableProducts.length === 0) {
+      toast.error("Nothing to export");
+      return;
+    }
+    const csv = buildExportCsv(matchableProducts, categories);
+    downloadCSV(`inventory_${dayjs().format("YYYY-MM-DD_HHmm")}.csv`, csv);
+    toast.success(`Exported ${matchableProducts.length} products`);
+  };
+
   const filtered = useMemo(() => {
     let data = products.filter((p) => {
       const matchesSearch =
@@ -1095,51 +863,15 @@ export default function ProductList() {
                       <Download className="h-4 w-4 mr-2 text-emerald-600" />
                       Export CSV
                     </Button>
-                    <label
-                      className={
-                        importLoading ? "pointer-events-none opacity-60" : ""
-                      }
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => setImportOpen(true)}
+                      className="border-emerald-300 hover:bg-emerald-50 h-9"
                     >
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        className="border-emerald-300 hover:bg-emerald-50 h-9 cursor-pointer"
-                        disabled={importLoading}
-                        asChild
-                      >
-                        <span>
-                          {importLoading ? (
-                            <>
-                              <Loader2 className="h-4 w-4 mr-2 text-emerald-600 animate-spin" />
-                              Importing...
-                            </>
-                          ) : (
-                            <>
-                              <Upload className="h-4 w-4 mr-2 text-emerald-600" />
-                              Import CSV
-                            </>
-                          )}
-                        </span>
-                      </Button>
-                      <input
-                        type="file"
-                        accept=".csv"
-                        className="hidden"
-                        onChange={handleImportCSV}
-                        disabled={importLoading}
-                      />
-                    </label>
-                    <span className="text-xs text-gray-500">
-                      Import creates products (existing SKUs can be
-                      overwritten) — add stock quantities via{" "}
-                      <Link
-                        href="/stock/add"
-                        className="text-emerald-600 underline"
-                      >
-                        Add Stock
-                      </Link>
-                      .
-                    </span>
+                      <Upload className="h-4 w-4 mr-2 text-emerald-600" />
+                      Import CSV
+                    </Button>
                   </div>
 
                   {someSelected && (
@@ -2646,74 +2378,6 @@ export default function ProductList() {
               </DialogFooter>
             </DialogContent>
           </Dialog>
-          {/* Import Overwrite Dialog */}
-          <Dialog
-            open={pendingImport !== null}
-            onOpenChange={(open) => {
-              if (!open) setPendingImport(null);
-            }}
-          >
-            <DialogContent className="sm:max-w-md bg-white">
-              <DialogHeader>
-                <DialogTitle className="text-2xl font-bold text-emerald-700 flex items-center gap-2">
-                  <Upload className="h-6 w-6" />
-                  Products Already Exist
-                </DialogTitle>
-              </DialogHeader>
-
-              <div className="py-4">
-                <p className="text-gray-700 mb-4">
-                  <span className="font-bold text-gray-900">
-                    {pendingImport?.duplicates}
-                  </span>{" "}
-                  of {pendingImport?.rows.length} rows in this CSV match
-                  existing products by SKU. Overwrite them or skip them?
-                </p>
-                <div className="p-4 bg-amber-50 border-2 border-amber-200 rounded-lg">
-                  <div className="flex items-start gap-2 text-sm text-amber-800">
-                    <AlertCircle className="h-4 w-4 shrink-0 mt-0.5" />
-                    <span>
-                      Overwrite replaces <strong>all product columns</strong>{" "}
-                      (name, brand, prices, category, status, expiry, etc.)
-                      with the CSV values — empty cells clear the column.
-                      Stock quantities are not affected.
-                    </span>
-                  </div>
-                </div>
-              </div>
-
-              <DialogFooter className="flex-col sm:flex-row gap-2">
-                <Button
-                  variant="outline"
-                  onClick={() => setPendingImport(null)}
-                  className="w-full sm:w-auto border-gray-300"
-                >
-                  Cancel
-                </Button>
-                <Button
-                  variant="outline"
-                  onClick={() => {
-                    const pending = pendingImport;
-                    setPendingImport(null);
-                    if (pending) runImport(pending.rows, false);
-                  }}
-                  className="w-full sm:w-auto border-emerald-300 hover:bg-emerald-50"
-                >
-                  Skip Existing
-                </Button>
-                <Button
-                  onClick={() => {
-                    const pending = pendingImport;
-                    setPendingImport(null);
-                    if (pending) runImport(pending.rows, true);
-                  }}
-                  className="w-full sm:w-auto bg-amber-600 hover:bg-amber-700 text-white"
-                >
-                  Overwrite All Columns
-                </Button>
-              </DialogFooter>
-            </DialogContent>
-          </Dialog>
           {/* Bulk Edit Category Dialog */}
           <Dialog
             open={bulkEditCategoryOpen}
@@ -2773,6 +2437,18 @@ export default function ProductList() {
               </DialogFooter>
             </DialogContent>
           </Dialog>
+          <InventoryImportDialog
+            open={importOpen}
+            onOpenChange={setImportOpen}
+            products={matchableProducts}
+            categories={categories}
+            branches={branches}
+            defaultBranchId={activeBranchId ?? null}
+            onDone={() => {
+              fetchProducts();
+              fetchCategories();
+            }}
+          />
         </div>
       </ProtectedRoute>
     </RoleProtectedRoute>
