@@ -90,6 +90,11 @@ export interface ImportSummary {
 export interface ImportPlan {
   rows: PlanRow[];
   presentColumns: CanonicalColumn[];
+  // Headers in the file that this import does not act on. Surfaced in the
+  // dialog so an old-format CSV explains itself instead of silently doing
+  // nothing. See ResolvedColumns for the ignored/unknown distinction.
+  ignoredColumns: string[];
+  unknownColumns: string[];
   summary: ImportSummary;
 }
 

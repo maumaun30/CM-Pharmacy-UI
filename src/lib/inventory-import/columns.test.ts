@@ -25,18 +25,45 @@ describe("resolveColumns", () => {
     expect(r.indexOf["Qty Change"]).toBe(2);
   });
 
-  // Old products exports carry Brand Name etc. Unknown headers are ignored,
-  // not errors.
-  it("ignores unknown headers", () => {
+  // Old products exports carry Brand Name etc. Unrecognized headers are
+  // surfaced as unknown, not errors.
+  it("surfaces unrecognized headers as unknown", () => {
     const r = resolveColumns(["SKU", "Brand Name", "Dosage"]);
     expect(r.present).toEqual(["SKU"]);
     expect(r.unknown).toEqual(["Brand Name", "Dosage"]);
+    expect(r.ignored).toEqual([]);
   });
 
-  it("ignores Current Stock, which is export-only reference", () => {
+  it("classifies Current Stock as ignored, which is export-only reference", () => {
     const r = resolveColumns(["SKU", "Current Stock"]);
     expect(r.present).toEqual(["SKU"]);
+    expect(r.ignored).toContain("Current Stock");
     expect(r.unknown).toEqual([]);
+  });
+
+  it("classifies a Qty Change alias shadowed by the canonical header as ignored", () => {
+    const r = resolveColumns(["Qty Change", "Total Stock"]);
+    expect(r.indexOf["Qty Change"]).toBe(0);
+    expect(r.ignored).toContain("Total Stock");
+    expect(r.unknown).toEqual([]);
+  });
+
+  it("classifies a second, unused Qty Change alias as ignored", () => {
+    const r = resolveColumns(["SKU", "Total Stock", "Adjustment"]);
+    expect(r.indexOf["Qty Change"]).toBe(1);
+    expect(r.ignored).toContain("Adjustment");
+  });
+
+  it("classifies a duplicate canonical header as ignored", () => {
+    const r = resolveColumns(["SKU", "SKU", "Name"]);
+    expect(r.indexOf.SKU).toBe(0);
+    expect(r.ignored).toContain("SKU");
+    expect(r.unknown).toEqual([]);
+  });
+
+  it("treats an empty header as unknown", () => {
+    const r = resolveColumns(["SKU", ""]);
+    expect(r.unknown).toContain("");
   });
 
   it("matches headers case-insensitively and ignores surrounding space", () => {

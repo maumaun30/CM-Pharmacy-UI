@@ -26,6 +26,13 @@ const IGNORED_COLUMNS = ["Current Stock", "ID"];
 export interface ResolvedColumns {
   indexOf: Partial<Record<CanonicalColumn, number>>;
   present: CanonicalColumn[];
+  // Recognized headers this import deliberately does not act on: the
+  // export-only reference columns, a Qty Change alias shadowed by the
+  // canonical header, and duplicate occurrences of a header already claimed.
+  ignored: string[];
+  // Headers this import does not recognize at all — e.g. Brand Name and
+  // Dosage from an old products export. Surfaced to the user so an
+  // old-format file explains itself instead of silently doing nothing.
   unknown: string[];
 }
 
@@ -55,14 +62,26 @@ export const resolveColumns = (headers: string[]): ResolvedColumns => {
     }
   }
 
-  const unknown = headers.filter(
-    (h, i) =>
-      !claimed.has(i) && !IGNORED_COLUMNS.some((c) => norm(c) === norm(h)),
-  );
+  const ignored: string[] = [];
+  const unknown: string[] = [];
+
+  headers.forEach((h, i) => {
+    if (claimed.has(i)) return;
+    const n = norm(h);
+    const isCanonicalDuplicate = CANONICAL_COLUMNS.some((c) => norm(c) === n);
+    const isAlias = QTY_CHANGE_ALIASES.some((a) => norm(a) === n);
+    const isIgnoredColumn = IGNORED_COLUMNS.some((c) => norm(c) === n);
+    if (isCanonicalDuplicate || isAlias || isIgnoredColumn) {
+      ignored.push(h);
+    } else {
+      unknown.push(h);
+    }
+  });
 
   return {
     indexOf,
     present: CANONICAL_COLUMNS.filter((c) => indexOf[c] !== undefined),
+    ignored,
     unknown,
   };
 };
