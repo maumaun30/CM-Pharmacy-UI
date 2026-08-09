@@ -191,14 +191,10 @@ export default function ProductList() {
   const [editingProduct, setEditingProduct] = useState<Product | null>(null);
   const [formData, setFormData] = useState({
     name: "",
-    brand_name: "",
-    generic_name: "",
     sku: "",
     barcode: "",
     cost: "",
     price: "",
-    dosage: "",
-    form: "",
     expiry_date: "",
     requires_prescription: false,
     track_inventory: true,
@@ -341,14 +337,10 @@ export default function ProductList() {
       );
       setFormData({
         name: product.name,
-        brand_name: product.brand_name,
-        generic_name: product.generic_name || "",
         sku: product.sku,
         barcode: product.barcode || "",
         cost: product.cost.toString(),
         price: product.price.toString(),
-        dosage: product.dosage || "",
-        form: product.form || "",
         expiry_date: product.expiry_date
           ? dayjs(product.expiry_date).format("YYYY-MM-DD")
           : "",
@@ -364,14 +356,10 @@ export default function ProductList() {
       setEditingProduct(null);
       setFormData({
         name: "",
-        brand_name: "",
-        generic_name: "",
         sku: "",
         barcode: "",
         cost: "",
         price: "",
-        dosage: "",
-        form: "",
         expiry_date: "",
         requires_prescription: false,
         track_inventory: true,
@@ -393,14 +381,10 @@ export default function ProductList() {
   const handleSubmit = useCallback(async () => {
     const {
       name,
-      brand_name,
-      generic_name,
       sku,
       barcode,
       cost,
       price,
-      dosage,
-      form,
       expiry_date,
       requires_prescription,
       track_inventory,
@@ -423,14 +407,10 @@ export default function ProductList() {
       // state stays snake_case because it mirrors the snake_case API responses.
       const payload = {
         name,
-        brandName: brand_name,
-        genericName: generic_name || null,
         sku,
         barcode: formData.barcode || null,
         cost: parseFloat(cost),
         price: parseFloat(price),
-        dosage: dosage || null,
-        form: form || null,
         expiryDate: expiry_date || null,
         requiresPrescription: requires_prescription,
         trackInventory: track_inventory,
@@ -1347,9 +1327,6 @@ export default function ProductList() {
                                   <div className="font-semibold text-gray-800">
                                     {prod.name}
                                   </div>
-                                  <div className="text-xs text-gray-600">
-                                    {prod.brand_name}
-                                  </div>
                                   <div className="flex flex-wrap gap-1 mt-1">
                                     {prod.requires_prescription && (
                                       <Badge
@@ -1562,80 +1539,18 @@ export default function ProductList() {
                       className="h-11 border-emerald-200 focus:border-emerald-500 focus:ring-2 focus:ring-emerald-200"
                     />
                   </div>
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                    <div>
-                      <Label className="mb-2 text-sm font-semibold text-gray-700">
-                        Brand Name
-                      </Label>
-                      <Input
-                        value={formData.brand_name}
-                        onChange={(e) =>
-                          setFormData({
-                            ...formData,
-                            brand_name: e.target.value,
-                          })
-                        }
-                        placeholder="e.g., Biogesic"
-                        className="h-11 border-emerald-200 focus:border-emerald-500 focus:ring-2 focus:ring-emerald-200"
-                      />
-                    </div>
-                    <div>
-                      <Label className="mb-2 text-sm font-semibold text-gray-700">
-                        Generic Name
-                      </Label>
-                      <Input
-                        value={formData.generic_name}
-                        onChange={(e) =>
-                          setFormData({
-                            ...formData,
-                            generic_name: e.target.value,
-                          })
-                        }
-                        placeholder="e.g., Acetaminophen"
-                        className="h-11 border-emerald-200 focus:border-emerald-500 focus:ring-2 focus:ring-emerald-200"
-                      />
-                    </div>
-                  </div>
-                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-                    <div>
-                      <Label className="mb-2 text-sm font-semibold text-gray-700">
-                        SKU *
-                      </Label>
-                      <Input
-                        value={formData.sku}
-                        onChange={(e) =>
-                          setFormData({ ...formData, sku: e.target.value })
-                        }
-                        placeholder="e.g., MED001"
-                        className="h-11 border-emerald-200 focus:border-emerald-500 focus:ring-2 focus:ring-emerald-200"
-                      />
-                    </div>
-                    <div>
-                      <Label className="mb-2 text-sm font-semibold text-gray-700">
-                        Dosage
-                      </Label>
-                      <Input
-                        value={formData.dosage}
-                        onChange={(e) =>
-                          setFormData({ ...formData, dosage: e.target.value })
-                        }
-                        placeholder="e.g., 500mg"
-                        className="h-11 border-emerald-200 focus:border-emerald-500 focus:ring-2 focus:ring-emerald-200"
-                      />
-                    </div>
-                    <div>
-                      <Label className="mb-2 text-sm font-semibold text-gray-700">
-                        Form
-                      </Label>
-                      <Input
-                        value={formData.form}
-                        onChange={(e) =>
-                          setFormData({ ...formData, form: e.target.value })
-                        }
-                        placeholder="e.g., Tablet, Capsule"
-                        className="h-11 border-emerald-200 focus:border-emerald-500 focus:ring-2 focus:ring-emerald-200"
-                      />
-                    </div>
+                  <div>
+                    <Label className="mb-2 text-sm font-semibold text-gray-700">
+                      SKU *
+                    </Label>
+                    <Input
+                      value={formData.sku}
+                      onChange={(e) =>
+                        setFormData({ ...formData, sku: e.target.value })
+                      }
+                      placeholder="e.g., MED001"
+                      className="h-11 border-emerald-200 focus:border-emerald-500 focus:ring-2 focus:ring-emerald-200"
+                    />
                   </div>
 
                   <div>
