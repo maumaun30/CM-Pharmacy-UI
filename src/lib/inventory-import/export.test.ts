@@ -67,16 +67,110 @@ it("omits the four hidden fields entirely", () => {
 });
 
 // The round-trip guarantee: exporting and re-importing changes nothing.
+// Widened beyond the single happy-path product because diffProductFields
+// re-normalizes both sides symmetrically and would absorb formatting bugs
+// (e.g. a missing .toFixed(2) or a raw ISO date) that a single plain product
+// can't expose. These fixtures target the cases that could genuinely break:
+// commas and quotes in text fields, INACTIVE status, an orphaned category,
+// null barcode/expiry, and a zero cost.
 it("round-trips to a plan with zero changes", () => {
-  const csv = buildExportCsv(products, categories);
+  const roundTripProducts: MatchableProduct[] = [
+    ...products,
+    {
+      id: 2,
+      name: "Ibuprofen, 200mg",
+      sku: "BG2",
+      barcode: "4801",
+      cost: 12,
+      price: 18,
+      expiry_date: "2027-06-30T00:00:00.000Z",
+      requires_prescription: false,
+      track_inventory: true,
+      status: "ACTIVE",
+      category_id: 3,
+      currentStock: 20,
+    },
+    {
+      id: 3,
+      name: '5" Syringe',
+      sku: "BG3",
+      barcode: "4802",
+      cost: 3,
+      price: 5,
+      expiry_date: "2027-06-30T00:00:00.000Z",
+      requires_prescription: false,
+      track_inventory: true,
+      status: "ACTIVE",
+      category_id: 3,
+      currentStock: 100,
+    },
+    {
+      id: 4,
+      name: "Amoxicillin",
+      sku: "BG4",
+      barcode: "4803",
+      cost: 8,
+      price: 12,
+      expiry_date: "2027-06-30T00:00:00.000Z",
+      requires_prescription: true,
+      track_inventory: true,
+      status: "INACTIVE",
+      category_id: 3,
+      currentStock: 5,
+    },
+    {
+      id: 5,
+      name: "Orphaned Category Item",
+      sku: "BG5",
+      barcode: "4804",
+      cost: 7,
+      price: 9,
+      expiry_date: "2027-06-30T00:00:00.000Z",
+      requires_prescription: false,
+      track_inventory: true,
+      status: "ACTIVE",
+      category_id: 999,
+      currentStock: 15,
+    },
+    {
+      id: 6,
+      name: "No Barcode No Expiry",
+      sku: "BG6",
+      barcode: null,
+      cost: 4,
+      price: 6,
+      expiry_date: null,
+      requires_prescription: false,
+      track_inventory: true,
+      status: "ACTIVE",
+      category_id: 3,
+      currentStock: 8,
+    },
+    {
+      id: 7,
+      name: "Zero Cost Item",
+      sku: "BG7",
+      barcode: "4805",
+      cost: 0,
+      price: 1,
+      expiry_date: "2027-06-30T00:00:00.000Z",
+      requires_prescription: false,
+      track_inventory: true,
+      status: "ACTIVE",
+      category_id: 3,
+      currentStock: 30,
+    },
+  ];
+  const csv = buildExportCsv(roundTripProducts, categories);
   const plan = buildImportPlan({
     text: csv,
-    products,
+    products: roundTripProducts,
     categories,
     mode: "delivery",
     updatePricing: true,
   });
   expect(plan.summary.changes).toBe(0);
   expect(plan.summary.errors).toBe(0);
-  expect(plan.rows[0].status).toBe("unchanged");
+  expect(plan.rows).toHaveLength(roundTripProducts.length);
+  expect(plan.rows.every((row) => row.status === "unchanged")).toBe(true);
 });

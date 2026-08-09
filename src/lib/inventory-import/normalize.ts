@@ -32,7 +32,11 @@ const day = (v: string | null | undefined): string => {
   return d.isValid() ? d.format("YYYY-MM-DD") : "";
 };
 
-const bool = (v: boolean): string => (v ? "Yes" : "No");
+// Mirrors the export's `=== false ? "No" : "Yes"`. Both treat undefined as
+// tracked, matching the DB column (boolean not null default true). If the two
+// disagreed, an undefined value would report every product as changed on
+// every import.
+const bool = (v?: boolean): string => (v === false ? "No" : "Yes");
 
 const findCategory = (categories: CategoryRef[], name: string) =>
   categories.find((c) => c.name.trim().toLowerCase() === name.trim().toLowerCase());

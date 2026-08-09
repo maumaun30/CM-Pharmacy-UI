@@ -126,6 +126,24 @@ describe("diffProductFields — no false negatives", () => {
     ]);
   });
 
+  // Mirrors the export's `=== false ? "No" : "Yes"` — undefined must be
+  // treated as tracked on both sides, or an undefined value would report
+  // every product as changed on every import.
+  it("treats an undefined track_inventory as tracked, matching the export", () => {
+    const untracked = {
+      ...product,
+      track_inventory: undefined as unknown as boolean,
+    };
+    expect(
+      diffProductFields(
+        { trackInventory: true },
+        untracked,
+        categories,
+        { updatePricing: true },
+      ),
+    ).toEqual([]);
+  });
+
   it("detects deliberately clearing a value", () => {
     expect(diff({ barcode: "" })).toEqual([
       { field: "Barcode", from: "4800", to: "" },
