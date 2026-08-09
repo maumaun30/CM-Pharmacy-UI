@@ -62,11 +62,19 @@ const ImportPreviewTable = ({ rows, showAll, updatePricing }: Props) => {
         {virtualizer.getVirtualItems().map((v) => {
           const row = visible[v.index];
           const style = STATUS_STYLE[row.status];
+          /* Rows are variable height — an update row stacks a name,
+             changed-fields line and a "matched by" line. estimateSize is
+             only the first-paint guess; measureElement feeds the real
+             height back, and data-index is how the virtualizer maps it to
+             this row. Do NOT set an explicit height here or measurement is
+             defeated and rows overlap. */
           return (
             <div
               key={row.lineNumber}
-              className="absolute left-0 grid w-full grid-cols-[7rem_1fr_8rem_7rem_6rem] items-center gap-2 border-b border-gray-100 px-3 text-sm"
-              style={{ height: v.size, transform: `translateY(${v.start}px)` }}
+              data-index={v.index}
+              ref={virtualizer.measureElement}
+              className="absolute left-0 grid w-full grid-cols-[7rem_1fr_8rem_7rem_6rem] items-center gap-2 border-b border-gray-100 px-3 py-2 text-sm"
+              style={{ transform: `translateY(${v.start}px)` }}
             >
               <span className="truncate font-mono text-xs">{row.sku || "—"}</span>
               <span className="min-w-0">
