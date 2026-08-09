@@ -399,6 +399,11 @@ export interface ImportSummary {
 export interface ImportPlan {
   rows: PlanRow[];
   presentColumns: CanonicalColumn[];
+  // Headers in the file that this import does not act on. Surfaced in the
+  // dialog so an old-format CSV explains itself instead of silently doing
+  // nothing. See ResolvedColumns for the ignored/unknown distinction.
+  ignoredColumns: string[];
+  unknownColumns: string[];
   summary: ImportSummary;
 }
 
@@ -764,7 +769,11 @@ const day = (v: string | null | undefined): string => {
   return d.isValid() ? d.format("YYYY-MM-DD") : "";
 };
 
-const bool = (v: boolean): string => (v ? "Yes" : "No");
+// Mirrors the export's `=== false ? "No" : "Yes"`. Both treat undefined as
+// tracked, matching the DB column (boolean not null default true). If the two
+// disagreed, an undefined value would report every product as changed on
+// every import.
+const bool = (v?: boolean): string => (v === false ? "No" : "Yes");
 
 const findCategory = (categories: CategoryRef[], name: string) =>
   categories.find((c) => c.name.trim().toLowerCase() === name.trim().toLowerCase());
@@ -821,7 +830,12 @@ export const diffProductFields = (
       bool(fields.trackInventory),
     );
   }
-  if (fields.categoryName !== undefined) {
+  // A blank Category cell says nothing about category — the same doctrine
+  // text() applies to every other field. Without this guard it resolves to the
+  // sentinel "new:" and the executor creates a category with an empty name.
+  // Category is still required to CREATE a product; plan.ts enforces that
+  // separately via its missing-field check.
+  if (fields.categoryName !== undefined && text(fields.categoryName) !== "") {
     const stored = categories.find((c) => c.id === product.category_id);
     const incoming = findCategory(categories, fields.categoryName);
     // An unknown category name will be created on apply, so it is a change.
@@ -1158,15 +1172,99 @@ describe("validation", () => {
     expect(r.rows[0].errorMessage).toContain("Category");
   });
 
-  it("treats an unparseable quantity as zero rather than a huge number", () => {
+  it("errors on an unreadable quantity rather than silently coercing it", () => {
     const r = plan("SKU,Qty Change\nBG1,abc");
+    expect(r.rows[0].status).toBe("error");
     expect(r.rows[0].qtyChange).toBe(0);
-    expect(r.rows[0].status).toBe("unchanged");
+  });
+
+  // parseInt would read this as 5 and move real stock.
+  it("errors on a partially numeric quantity", () => {
+    const r = plan("SKU,Qty Change\nBG1,5abc");
+    expect(r.rows[0].status).toBe("error");
+    expect(r.rows[0].errorMessage).toContain("Qty Change");
+  });
+
+  it("errors on a fractional quantity rather than truncating it", () => {
+    const r = plan("SKU,Qty Change\nBG1,3.7");
+    expect(r.rows[0].status).toBe("error");
   });
 
   it("errors when the file has no SKU, Barcode or Name column", () => {
     const r = plan("Qty Change\n5");
     expect(r.rows[0].status).toBe("error");
+  });
+});
+
+// Blank means "do this deliberately"; junk means "the user made a mistake".
+// Collapsing the two silently drops edits, and for dates actively destroys
+// stored data by reading as "clear this field".
+describe("blank vs unreadable cells", () => {
+  it("errors on an unreadable expiry date instead of clearing it", () => {
+    const r = plan("SKU,Expiry Date\nBG1,asdf");
+    expect(r.rows[0].status).toBe("error");
+    expect(r.rows[0].errorMessage).toContain("Expiry Date");
+    expect(r.rows[0].fields.expiryDate).toBeUndefined();
+  });
+
+  it("treats a blank expiry cell as a deliberate clear", () => {
+    const r = plan("SKU,Expiry Date\nBG1,");
+    expect(r.rows[0].fields.expiryDate).toBeNull();
+    expect(r.rows[0].status).not.toBe("error");
+  });
+
+  it("errors on an unreadable cost instead of ignoring it", () => {
+    const r = plan("SKU,Cost\nBG1,abc", { updatePricing: true });
+    expect(r.rows[0].status).toBe("error");
+    expect(r.rows[0].errorMessage).toContain("Cost");
+  });
+
+  it("errors on an unreadable price even when pricing updates are off", () => {
+    // The cell is unreadable regardless of whether we would have sent it.
+    const r = plan("SKU,Price\nBG1,1.2.3");
+    expect(r.rows[0].status).toBe("error");
+  });
+
+  it("treats a blank cost cell as saying nothing", () => {
+    const r = plan("SKU,Cost\nBG1,", { updatePricing: true });
+    expect(r.rows[0].fields.cost).toBeUndefined();
+    expect(r.rows[0].status).toBe("unchanged");
+  });
+
+  it("reports every unreadable cell on the row at once", () => {
+    const r = plan("SKU,Cost,Expiry Date\nBG1,abc,nope", {
+      updatePricing: true,
+    });
+    expect(r.rows[0].errorMessage).toContain("Cost");
+    expect(r.rows[0].errorMessage).toContain("Expiry Date");
+  });
+});
+
+// A blank Status cell must not coerce to ACTIVE — that silently puts a
+// discontinued product back on sale.
+describe("status", () => {
+  it("says nothing when the Status cell is blank", () => {
+    const r = plan("SKU,Status\nBG1,");
+    expect(r.rows[0].fields.status).toBeUndefined();
+    expect(r.rows[0].status).toBe("unchanged");
+  });
+
+  it("reads Status case-insensitively", () => {
+    const r = plan("SKU,Status\nBG1,inactive");
+    expect(r.rows[0].fields.status).toBe("INACTIVE");
+    expect(r.rows[0].status).toBe("update");
+  });
+
+  it("accepts an explicit ACTIVE without reporting a change", () => {
+    const r = plan("SKU,Status\nBG1,ACTIVE");
+    expect(r.rows[0].fields.status).toBe("ACTIVE");
+    expect(r.rows[0].status).toBe("unchanged");
+  });
+
+  it("errors on a Status value that is neither ACTIVE nor INACTIVE", () => {
+    const r = plan("SKU,Status\nBG1,disabled");
+    expect(r.rows[0].status).toBe("error");
+    expect(r.rows[0].errorMessage).toContain("Status");
   });
 });
 
@@ -1252,6 +1350,11 @@ export const buildImportPlan = (input: {
     cols.indexOf.Name !== undefined;
 
   const planRows: PlanRow[] = rows.map((row, i) => {
+    // Internal row identity only — used as a Map key by the executor and a
+    // React key by the preview, never displayed. It counts NON-BLANK rows,
+    // because parseCSVFile drops blank lines before this indexing, so it will
+    // not match the user's spreadsheet row number in a file with interior
+    // blank lines. Make it a true source line number before ever showing it.
     const lineNumber = i + 2; // 1-based, +1 for the header line
     const sku = at(row, "SKU") ?? "";
     const name = at(row, "Name") ?? "";
@@ -1288,12 +1391,38 @@ export const buildImportPlan = (input: {
     if (cols.indexOf.Barcode !== undefined) fields.barcode = barcode;
     if (cols.indexOf.Category !== undefined)
       fields.categoryName = at(row, "Category") ?? "";
-    if (cols.indexOf.Cost !== undefined)
-      fields.cost = parseNumberCell(at(row, "Cost") ?? "");
-    if (cols.indexOf.Price !== undefined)
-      fields.price = parseNumberCell(at(row, "Price") ?? "");
-    if (cols.indexOf["Expiry Date"] !== undefined)
-      fields.expiryDate = parseCSVDate(at(row, "Expiry Date") ?? "");
+    // Blank and junk are different instructions and must not collapse. A
+    // blank cell is deliberate ("clear this", "no quantity"); a cell holding
+    // content that will not parse is a user mistake. Silently dropping the
+    // latter is bad for numbers and destructive for dates — an unreadable
+    // expiry cell would otherwise read as "clear the expiry" and wipe a real
+    // stored date on apply.
+    const cellErrors: string[] = [];
+
+    const numberCell = (col: CanonicalColumn): number | undefined => {
+      const raw = at(row, col);
+      if (raw === undefined) return undefined; // column absent
+      if (!raw.trim()) return undefined; // blank cell: say nothing
+      const n = parseNumberCell(raw);
+      if (n === undefined) cellErrors.push(`${col} "${raw}" is not a number`);
+      return n;
+    };
+
+    if (cols.indexOf.Cost !== undefined) fields.cost = numberCell("Cost");
+    if (cols.indexOf.Price !== undefined) fields.price = numberCell("Price");
+    if (cols.indexOf["Expiry Date"] !== undefined) {
+      const raw = at(row, "Expiry Date") ?? "";
+      if (!raw.trim()) {
+        fields.expiryDate = null; // blank: clear it deliberately
+      } else {
+        const parsed = parseCSVDate(raw);
+        if (parsed === null) {
+          cellErrors.push(`Expiry Date "${raw}" is not a date`);
+        } else {
+          fields.expiryDate = parsed;
+        }
+      }
+    }
     if (cols.indexOf["Requires Prescription"] !== undefined)
       fields.requiresPrescription = parseBoolCell(
         at(row, "Requires Prescription") ?? "",
@@ -1301,17 +1430,40 @@ export const buildImportPlan = (input: {
     if (cols.indexOf["Track Inventory"] !== undefined)
       fields.trackInventory = parseBoolCell(at(row, "Track Inventory") ?? "");
     if (cols.indexOf.Status !== undefined) {
-      const raw = (at(row, "Status") ?? "").trim().toUpperCase();
-      fields.status = raw === "INACTIVE" ? "INACTIVE" : "ACTIVE";
+      const rawStatus = at(row, "Status") ?? "";
+      const status = rawStatus.trim().toUpperCase();
+      if (!status) {
+        // Blank says nothing about status, exactly as for Cost and Expiry
+        // Date. Coercing it to ACTIVE would silently put a discontinued
+        // product back on sale.
+      } else if (status === "ACTIVE" || status === "INACTIVE") {
+        fields.status = status;
+      } else {
+        cellErrors.push(`Status "${rawStatus}" is not ACTIVE or INACTIVE`);
+      }
     }
 
-    const qtyRaw = at(row, "Qty Change") ?? "";
-    const qtyChange = Number.isFinite(parseInt(qtyRaw, 10))
-      ? parseInt(qtyRaw, 10)
-      : 0;
+    // Blank means "no movement" — the normal state of most rows in a full
+    // export. Anything else must be a clean whole number: parseInt alone
+    // would read "5abc" as 5 and "3.7" as 3, turning a malformed cell into a
+    // real stock movement with no warning.
+    const qtyRaw = (at(row, "Qty Change") ?? "").trim();
+    let qtyChange = 0;
+    if (qtyRaw) {
+      if (/^-?\d+$/.test(qtyRaw)) {
+        qtyChange = parseInt(qtyRaw, 10);
+      } else {
+        cellErrors.push(`Qty Change "${qtyRaw}" is not a whole number`);
+      }
+    }
 
     const { product, matchedBy } = match({ sku, barcode, name });
     const row0: PlanRow = { ...base, fields, qtyChange, matchedBy };
+
+    // Unreadable cells fail the row before anything else is decided.
+    if (cellErrors.length > 0) {
+      return { ...row0, status: "error", errorMessage: cellErrors.join("; ") };
+    }
 
     if (mode === "delivery" && qtyChange < 0) {
       return {
@@ -1374,14 +1526,20 @@ export const buildImportPlan = (input: {
     errors: planRows.filter((r) => r.status === "error").length,
   };
 
-  return { rows: planRows, presentColumns: cols.present, summary };
+  return {
+    rows: planRows,
+    presentColumns: cols.present,
+    ignoredColumns: cols.ignored,
+    unknownColumns: cols.unknown,
+    summary,
+  };
 };
 ```
 
 - [ ] **Step 4: Run to verify pass**
 
 Run: `npm test -- plan`
-Expected: PASS, 16 tests.
+Expected: PASS, 28 tests.
 
 - [ ] **Step 5: Commit**
 
@@ -1777,20 +1935,27 @@ export const executeImportPlan = async (
     return res.data.id as number;
   };
 
-  const total = actionable.length;
+  // Every actionable row ticks once in phase 1; rows with a quantity tick
+  // again in phase 2. Both counts are known upfront, so the indicator can
+  // actually reach its total instead of stalling short.
+  const total =
+    actionable.length + actionable.filter((r) => r.qtyChange !== 0).length;
   let done = 0;
   const tick = () => {
     done++;
     onProgress?.(done, total);
   };
 
-  // Pre-resolve every new category serially.
-  for (const row of actionable.filter((r) => r.status === "new")) {
+  // Pre-resolve every category serially, for EVERY actionable row that names
+  // one — not just new products. Update rows resolve categories too, and doing
+  // that inside the parallel batches lets two rows naming the same new category
+  // race and create it twice.
+  for (const row of actionable) {
     if (row.fields.categoryName) {
       try {
         await categoryId(row.fields.categoryName);
-      } catch (e) {
-        // Leave it — the row's own attempt below will fail and be counted.
+      } catch {
+        // Leave it — each row's own attempt in phase 1 fails and is counted there.
       }
     }
   }
@@ -1807,7 +1972,15 @@ export const executeImportPlan = async (
 
         if (row.status === "update") {
           if (!overwriteExisting) {
-            return { row, productId: null, kind: "skipped" as const };
+            // The checkbox governs product master data only. Keep the resolved
+            // id so phase 2 still applies this row's stock movement — someone
+            // who declines to overwrite the sheet's prices still expects the
+            // delivery to arrive.
+            return {
+              row,
+              productId: row.matchedProduct!.id,
+              kind: "skipped" as const,
+            };
           }
           const body: Record<string, unknown> = {};
           const f = row.fields;
@@ -1863,6 +2036,7 @@ export const executeImportPlan = async (
       if (kind === "updated") result.updated++;
       if (kind === "skipped") result.skipped++;
       if (productId != null) resolved.set(row.lineNumber, productId);
+      tick();
     }
   }
 
@@ -2173,10 +2347,22 @@ const ImportPreviewTable = ({ rows, showAll, updatePricing }: Props) => {
           const row = visible[v.index];
           const style = STATUS_STYLE[row.status];
           return (
+          {/* NOTE: this comment belongs ABOVE the `return (`, as a plain JS
+              block comment. A {/* … *""/} JSX comment cannot sit here — the map
+              callback returns a single root element, so there is no enclosing
+              JSX to host a comment child. */}
+          /* Rows are variable height — an update row stacks a name, a
+             changed-fields line and a "matched by" line. estimateSize is only
+             the first-paint guess; measureElement feeds the real height back,
+             and data-index is how the virtualizer maps it to this row. Do NOT
+             set an explicit height here or measurement is defeated and rows
+             overlap. */
             <div
               key={row.lineNumber}
-              className="absolute left-0 grid w-full grid-cols-[7rem_1fr_8rem_7rem_6rem] items-center gap-2 border-b border-gray-100 px-3 text-sm"
-              style={{ height: v.size, transform: `translateY(${v.start}px)` }}
+              data-index={v.index}
+              ref={virtualizer.measureElement}
+              className="absolute left-0 grid w-full grid-cols-[7rem_1fr_8rem_7rem_6rem] items-center gap-2 border-b border-gray-100 px-3 py-2 text-sm"
+              style={{ transform: `translateY(${v.start}px)` }}
             >
               <span className="truncate font-mono text-xs">{row.sku || "—"}</span>
               <span className="min-w-0">
@@ -2273,7 +2459,7 @@ Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>"
 ```tsx
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 import { Loader2, Upload } from "lucide-react";
 
@@ -2342,6 +2528,14 @@ const InventoryImportDialog = ({
     });
   }, [fileText, products, categories, mode, updatePricing]);
 
+  // Radix keeps this component mounted while the dialog is closed, so plain
+  // useState would capture the branch once at page mount. Without this resync,
+  // switching branch via BranchSwitcher and then opening the importer silently
+  // targets the OLD branch — a delivery lands in the wrong store.
+  useEffect(() => {
+    if (open) setBranchId(defaultBranchId);
+  }, [open, defaultBranchId]);
+
   const handleFile = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -2368,7 +2562,10 @@ const InventoryImportDialog = ({
   const handleConfirm = async () => {
     if (!plan || branchId == null) return;
     setApplying(true);
-    setProgress({ done: 0, total: plan.summary.changes });
+    // Left null until the executor's first tick. The executor computes its own
+    // total (phase-1 rows plus rows needing a stock call), so guessing one here
+    // from summary.changes would render a number that jumps on first update.
+    setProgress(null);
     try {
       const result = await executeImportPlan(plan.rows, {
         client: api,
@@ -2398,6 +2595,18 @@ const InventoryImportDialog = ({
       reset();
       onOpenChange(false);
       onDone();
+    } catch (err) {
+      // executeImportPlan handles per-row failures itself and reports them in
+      // its result, so reaching here means something structural broke — a
+      // dropped connection, an expired token. Without this catch the spinner
+      // would simply stop with no message, leaving the user unsure what landed.
+      const e = err as {
+        response?: { data?: { message?: string } };
+        message?: string;
+      };
+      toast.error(
+        `Import failed: ${e?.response?.data?.message ?? e?.message ?? "Unknown error"}`,
+      );
     } finally {
       setApplying(false);
       setProgress(null);
@@ -2408,11 +2617,26 @@ const InventoryImportDialog = ({
     <Dialog
       open={open}
       onOpenChange={(next) => {
+        // Guard every close route at the source. shadcn's DialogContent renders
+        // its own X button, which no onEscapeKeyDown/onInteractOutside handler
+        // can intercept — without this, a user could dismiss the dialog and
+        // lose all sight of an import that is still issuing writes.
+        if (applying && !next) return;
         if (!next) reset();
         onOpenChange(next);
       }}
     >
-      <DialogContent className="max-w-5xl">
+      <DialogContent
+        className="max-w-5xl"
+        // An import in flight is issuing real writes. Let Radix dismiss the
+        // dialog and the user loses all sight of it while it keeps running.
+        onEscapeKeyDown={(e) => {
+          if (applying) e.preventDefault();
+        }}
+        onInteractOutside={(e) => {
+          if (applying) e.preventDefault();
+        }}
+      >
         <DialogHeader>
           <DialogTitle>Import inventory CSV</DialogTitle>
         </DialogHeader>
@@ -2530,6 +2754,12 @@ const InventoryImportDialog = ({
                 </Button>
               </div>
 
+              {plan.unknownColumns.length > 0 && (
+                <p className="text-xs text-gray-500">
+                  Ignored columns: {plan.unknownColumns.join(", ")}
+                </p>
+              )}
+
               <ImportPreviewTable
                 rows={plan.rows}
                 showAll={showAll}
@@ -2635,9 +2865,8 @@ The page's `Product` is wider than the import library needs, and `currentStock` 
 // The import library takes a narrow product shape so it stays independent of
 // this page's Product interface. current_stock is branch-scoped, so resolve it
 // against the branch the user is actually looking at.
-const matchableProducts: MatchableProduct[] = useMemo(
-  () =>
-    products.map((p) => ({
+const toMatchable = useCallback(
+  (p: Product): MatchableProduct => ({
       id: p.id,
       name: p.name,
       sku: p.sku,
@@ -2649,23 +2878,45 @@ const matchableProducts: MatchableProduct[] = useMemo(
       track_inventory: p.track_inventory,
       status: p.status,
       category_id: p.category_id,
-      currentStock: getStockForBranch(p, activeBranchId ?? null),
-    })),
-  [products, activeBranchId],
+    currentStock: getStockForBranch(p, activeBranchId ?? null),
+  }),
+  [activeBranchId],
+);
+
+// Full catalogue — the dialog matches CSV rows against this. Must NOT be the
+// filtered list, or a filtered-out SKU would be treated as a new product.
+const matchableProducts = useMemo(
+  () => products.map(toMatchable),
+  [products, toMatchable],
+);
+
+// What Export CSV writes: only the rows the user currently has in view.
+const exportProducts = useMemo(
+  () => filtered.map(toMatchable),
+  [filtered, toMatchable],
 );
 ```
 
 - [ ] **Step 4: Add the new export handler**
 
 ```tsx
+// Exports the FILTERED view, matching what the user is looking at and what
+// the old products export did. Safe with a partial file: the import only
+// touches columns present in the header and only sends rows that changed, so
+// products absent from the file are left alone.
+//
+// Note this is deliberately NOT the same list handed to the dialog. The dialog
+// needs every product for matching — give it the filtered list and any
+// filtered-out SKU in the CSV would look unmatched and be created as a
+// DUPLICATE product.
 const handleExportCSV = () => {
-  if (matchableProducts.length === 0) {
+  if (exportProducts.length === 0) {
     toast.error("Nothing to export");
     return;
   }
-  const csv = buildExportCsv(matchableProducts, categories);
+  const csv = buildExportCsv(exportProducts, categories);
   downloadCSV(`inventory_${dayjs().format("YYYY-MM-DD_HHmm")}.csv`, csv);
-  toast.success(`Exported ${matchableProducts.length} products`);
+  toast.success(`Exported ${exportProducts.length} products`);
 };
 ```
 
@@ -2891,8 +3142,11 @@ npm test && npx tsc --noEmit && npm run lint && npm run build
 
 - [ ] **Step 5: Commit**
 
+Stage explicitly — `git add -A` would sweep in the unrelated uncommitted
+`src/app/favicon.ico` deletion that predates this branch.
+
 ```bash
-git add -A
+git add docs/superpowers/specs/2026-08-09-unified-inventory-import-design.md
 git commit -m "docs: record manual verification results for unified import
 
 Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>"
