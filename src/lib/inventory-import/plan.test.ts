@@ -104,10 +104,22 @@ describe("validation", () => {
     expect(r.rows[0].errorMessage).toContain("Category");
   });
 
-  it("treats an unparseable quantity as zero rather than a huge number", () => {
+  it("errors on an unreadable quantity rather than silently coercing it", () => {
     const r = plan("SKU,Qty Change\nBG1,abc");
+    expect(r.rows[0].status).toBe("error");
     expect(r.rows[0].qtyChange).toBe(0);
-    expect(r.rows[0].status).toBe("unchanged");
+  });
+
+  // parseInt would read this as 5 and move real stock.
+  it("errors on a partially numeric quantity", () => {
+    const r = plan("SKU,Qty Change\nBG1,5abc");
+    expect(r.rows[0].status).toBe("error");
+    expect(r.rows[0].errorMessage).toContain("Qty Change");
+  });
+
+  it("errors on a fractional quantity rather than truncating it", () => {
+    const r = plan("SKU,Qty Change\nBG1,3.7");
+    expect(r.rows[0].status).toBe("error");
   });
 
   it("errors when the file has no SKU, Barcode or Name column", () => {
@@ -169,6 +181,34 @@ describe("pricing gate", () => {
   it("counts it when pricing is on", () => {
     const r = plan("SKU,Price\nBG1,99", { updatePricing: true });
     expect(r.rows[0].status).toBe("update");
+  });
+});
+
+// A blank Status cell must not coerce to ACTIVE — that silently puts a
+// discontinued product back on sale.
+describe("status", () => {
+  it("says nothing when the Status cell is blank", () => {
+    const r = plan("SKU,Status\nBG1,");
+    expect(r.rows[0].fields.status).toBeUndefined();
+    expect(r.rows[0].status).toBe("unchanged");
+  });
+
+  it("reads Status case-insensitively", () => {
+    const r = plan("SKU,Status\nBG1,inactive");
+    expect(r.rows[0].fields.status).toBe("INACTIVE");
+    expect(r.rows[0].status).toBe("update");
+  });
+
+  it("accepts an explicit ACTIVE without reporting a change", () => {
+    const r = plan("SKU,Status\nBG1,ACTIVE");
+    expect(r.rows[0].fields.status).toBe("ACTIVE");
+    expect(r.rows[0].status).toBe("unchanged");
+  });
+
+  it("errors on a Status value that is neither ACTIVE nor INACTIVE", () => {
+    const r = plan("SKU,Status\nBG1,disabled");
+    expect(r.rows[0].status).toBe("error");
+    expect(r.rows[0].errorMessage).toContain("Status");
   });
 });
 

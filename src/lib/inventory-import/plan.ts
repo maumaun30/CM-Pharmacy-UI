@@ -40,7 +40,12 @@ export const buildImportPlan = (input: {
     cols.indexOf.Name !== undefined;
 
   const planRows: PlanRow[] = rows.map((row, i) => {
-    const lineNumber = i + 2; // 1-based, +1 for the header line
+    // Internal row identity only — used as a Map key by the executor and a
+    // React key by the preview, never displayed. It counts NON-BLANK rows,
+    // because parseCSVFile drops blank lines before this indexing, so it will
+    // not match the user's spreadsheet row number in a file with interior
+    // blank lines. Make it a true source line number before ever showing it.
+    const lineNumber = i + 2;
     const sku = at(row, "SKU") ?? "";
     const name = at(row, "Name") ?? "";
     const barcode = at(row, "Barcode") ?? "";
@@ -115,14 +120,32 @@ export const buildImportPlan = (input: {
     if (cols.indexOf["Track Inventory"] !== undefined)
       fields.trackInventory = parseBoolCell(at(row, "Track Inventory") ?? "");
     if (cols.indexOf.Status !== undefined) {
-      const raw = (at(row, "Status") ?? "").trim().toUpperCase();
-      fields.status = raw === "INACTIVE" ? "INACTIVE" : "ACTIVE";
+      const rawStatus = at(row, "Status") ?? "";
+      const status = rawStatus.trim().toUpperCase();
+      if (!status) {
+        // Blank says nothing about status, exactly as for Cost and Expiry
+        // Date. Coercing it to ACTIVE would silently put a discontinued
+        // product back on sale.
+      } else if (status === "ACTIVE" || status === "INACTIVE") {
+        fields.status = status;
+      } else {
+        cellErrors.push(`Status "${rawStatus}" is not ACTIVE or INACTIVE`);
+      }
     }
 
-    const qtyRaw = at(row, "Qty Change") ?? "";
-    const qtyChange = Number.isFinite(parseInt(qtyRaw, 10))
-      ? parseInt(qtyRaw, 10)
-      : 0;
+    // Blank means "no movement" — the normal state of most rows in a full
+    // export. Anything else must be a clean whole number: parseInt alone
+    // would read "5abc" as 5 and "3.7" as 3, turning a malformed cell into a
+    // real stock movement with no warning.
+    const qtyRaw = (at(row, "Qty Change") ?? "").trim();
+    let qtyChange = 0;
+    if (qtyRaw) {
+      if (/^-?\d+$/.test(qtyRaw)) {
+        qtyChange = parseInt(qtyRaw, 10);
+      } else {
+        cellErrors.push(`Qty Change "${qtyRaw}" is not a whole number`);
+      }
+    }
 
     const { product, matchedBy } = match({ sku, barcode, name });
     const row0: PlanRow = { ...base, fields, qtyChange, matchedBy };
