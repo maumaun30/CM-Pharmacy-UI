@@ -158,6 +158,11 @@ const InventoryImportDialog = ({
     <Dialog
       open={open}
       onOpenChange={(next) => {
+        // Guard every close route at the source. shadcn's DialogContent renders
+        // its own X button, which no onEscapeKeyDown/onInteractOutside handler
+        // can intercept — without this, a user could dismiss the dialog and
+        // lose all sight of an import that is still issuing writes.
+        if (applying && !next) return;
         if (!next) reset();
         onOpenChange(next);
       }}
