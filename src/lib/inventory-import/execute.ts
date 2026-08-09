@@ -1,0 +1,228 @@
+import type {
+  CategoryRef,
+  ImportMode,
+  ImportResult,
+  PlanRow,
+} from "./types";
+
+export interface ImportApiClient {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- structurally mirrors AxiosResponse<any>
+  post: (url: string, body: unknown) => Promise<{ data: any }>;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- structurally mirrors AxiosResponse<any>
+  put: (url: string, body: unknown) => Promise<{ data: any }>;
+}
+
+export interface ExecuteOptions {
+  client: ImportApiClient;
+  mode: ImportMode;
+  branchId: number;
+  reason: string;
+  updatePricing: boolean;
+  overwriteExisting: boolean;
+  categories: CategoryRef[];
+  onProgress?: (done: number, total: number) => void;
+}
+
+const BATCH_SIZE = 20;
+
+const errorMessage = (e: unknown): string => {
+  const err = e as { response?: { data?: { message?: string } }; message?: string };
+  return err?.response?.data?.message || err?.message || "Unknown server error";
+};
+
+const chunk = <T,>(items: T[], size: number): T[][] => {
+  const out: T[][] = [];
+  for (let i = 0; i < items.length; i += size) out.push(items.slice(i, i + size));
+  return out;
+};
+
+/**
+ * Applies a plan in two phases.
+ *
+ * Phase 1 resolves a product id for every actionable row — creating or updating
+ * as needed. Phase 2 moves stock for rows that have both a resolved id and a
+ * non-zero quantity. The split exists because a newly created product has no id
+ * until its POST returns.
+ *
+ * Rows with status "unchanged" or "error" produce no requests at all.
+ */
+export const executeImportPlan = async (
+  rows: PlanRow[],
+  options: ExecuteOptions,
+): Promise<ImportResult> => {
+  const {
+    client,
+    mode,
+    branchId,
+    reason,
+    updatePricing,
+    overwriteExisting,
+    onProgress,
+  } = options;
+
+  const result: ImportResult = {
+    created: 0,
+    updated: 0,
+    stocked: 0,
+    skipped: 0,
+    failed: 0,
+    firstError: "",
+  };
+
+  const fail = (e: unknown) => {
+    result.failed++;
+    if (!result.firstError) result.firstError = errorMessage(e);
+  };
+
+  const actionable = rows.filter(
+    (r) => r.status === "new" || r.status === "update" || r.status === "stock-only",
+  );
+
+  // Categories are resolved serially before the batches so two rows naming the
+  // same new category cannot race and create it twice.
+  const categories = [...options.categories];
+  const categoryId = async (name: string): Promise<number> => {
+    const found = categories.find(
+      (c) => c.name.trim().toLowerCase() === name.trim().toLowerCase(),
+    );
+    if (found) return found.id;
+    const res = await client.post("/categories", { name });
+    categories.push(res.data);
+    return res.data.id as number;
+  };
+
+  const total = actionable.length;
+  let done = 0;
+  const tick = () => {
+    done++;
+    onProgress?.(done, total);
+  };
+
+  // Pre-resolve every new category serially.
+  for (const row of actionable.filter((r) => r.status === "new")) {
+    if (row.fields.categoryName) {
+      try {
+        await categoryId(row.fields.categoryName);
+      } catch (e) {
+        // Leave it — the row's own attempt below will fail and be counted.
+      }
+    }
+  }
+
+  // ── Phase 1: resolve a product id per row ──────────────────────────────
+  const resolved = new Map<number, number>(); // lineNumber -> productId
+
+  for (const batch of chunk(actionable, BATCH_SIZE)) {
+    const settled = await Promise.allSettled(
+      batch.map(async (row) => {
+        if (row.status === "stock-only") {
+          return { row, productId: row.matchedProduct!.id, kind: "none" as const };
+        }
+
+        if (row.status === "update") {
+          if (!overwriteExisting) {
+            return { row, productId: null, kind: "skipped" as const };
+          }
+          const body: Record<string, unknown> = {};
+          const f = row.fields;
+          if (f.name !== undefined) body.name = f.name;
+          if (f.sku !== undefined) body.sku = f.sku;
+          if (f.barcode !== undefined) body.barcode = f.barcode || null;
+          if (f.expiryDate !== undefined && mode === "adjustment")
+            body.expiryDate = f.expiryDate;
+          if (f.requiresPrescription !== undefined)
+            body.requiresPrescription = f.requiresPrescription;
+          if (f.trackInventory !== undefined) body.trackInventory = f.trackInventory;
+          if (f.status !== undefined) body.status = f.status;
+          if (f.categoryName !== undefined)
+            body.categoryId = await categoryId(f.categoryName);
+          if (updatePricing) {
+            if (f.cost !== undefined) body.cost = f.cost;
+            if (f.price !== undefined) body.price = f.price;
+          }
+          await client.put(`/products/${row.matchedProduct!.id}`, body);
+          return { row, productId: row.matchedProduct!.id, kind: "updated" as const };
+        }
+
+        // status === "new"
+        const f = row.fields;
+        const body: Record<string, unknown> = {
+          name: f.name,
+          sku: f.sku,
+          barcode: f.barcode || null,
+          cost: f.cost,
+          price: f.price,
+          categoryId: await categoryId(f.categoryName!),
+          requiresPrescription: f.requiresPrescription ?? false,
+          trackInventory: f.trackInventory ?? true,
+          status: f.status ?? "ACTIVE",
+        };
+        // In delivery mode /stock/add writes the expiry onto the product, so
+        // sending it here too would be a redundant second write.
+        if (f.expiryDate !== undefined && mode === "adjustment")
+          body.expiryDate = f.expiryDate;
+        const res = await client.post("/products", body);
+        return { row, productId: res.data.id as number, kind: "created" as const };
+      }),
+    );
+
+    for (const s of settled) {
+      if (s.status === "rejected") {
+        fail(s.reason);
+        tick();
+        continue;
+      }
+      const { row, productId, kind } = s.value;
+      if (kind === "created") result.created++;
+      if (kind === "updated") result.updated++;
+      if (kind === "skipped") result.skipped++;
+      if (productId != null) resolved.set(row.lineNumber, productId);
+    }
+  }
+
+  // ── Phase 2: move stock ────────────────────────────────────────────────
+  const stockRows = actionable.filter(
+    (r) => r.qtyChange !== 0 && resolved.has(r.lineNumber),
+  );
+
+  for (const batch of chunk(stockRows, BATCH_SIZE)) {
+    const settled = await Promise.allSettled(
+      batch.map((row) => {
+        const productId = resolved.get(row.lineNumber)!;
+        const unitCost = updatePricing && row.fields.cost != null ? row.fields.cost : null;
+        const sellingPrice =
+          updatePricing && row.fields.price != null ? row.fields.price : null;
+
+        if (mode === "delivery") {
+          return client.post("/stock/add", {
+            productId,
+            branchId,
+            quantity: row.qtyChange,
+            batchNumber: row.batchNumber || null,
+            expiryDate: row.fields.expiryDate ?? null,
+            unitCost,
+            sellingPrice,
+            supplier: null,
+            transactionType: "PURCHASE",
+          });
+        }
+        return client.post("/stock/adjust", {
+          productId,
+          branchId,
+          quantity: row.qtyChange,
+          reason,
+          unitCost,
+          sellingPrice,
+        });
+      }),
+    );
+
+    for (const s of settled) {
+      if (s.status === "rejected") fail(s.reason);
+      else result.stocked++;
+      tick();
+    }
+  }
+
+  return result;
+};
