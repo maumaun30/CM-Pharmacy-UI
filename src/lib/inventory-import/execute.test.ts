@@ -117,6 +117,29 @@ it("skips matched rows when overwriteExisting is false", async () => {
   expect(result.skipped).toBe(1);
 });
 
+it("still moves stock for an update row when overwriteExisting is false", async () => {
+  const client = fakeClient();
+  const result = await run(
+    [
+      row({
+        status: "update",
+        matchedProduct: product,
+        fields: { name: "X" },
+        changedFields: [{ field: "Name", from: "Biogesic", to: "X" }],
+        qtyChange: 25,
+      }),
+    ],
+    client,
+    { overwriteExisting: false },
+  );
+  expect(client.put).not.toHaveBeenCalled();
+  expect(result.skipped).toBe(1);
+  expect(client.post).toHaveBeenCalledWith(
+    "/stock/add",
+    expect.objectContaining({ productId: 1, quantity: 25 }),
+  );
+});
+
 it("posts a delivery to /stock/add with the target branch", async () => {
   const client = fakeClient();
   await run(
@@ -203,6 +226,26 @@ it("creates an unknown category once and reuses it", async () => {
   expect(categoryCalls).toHaveLength(1);
 });
 
+it("creates an unknown category once for two update rows naming it", async () => {
+  const client = fakeClient();
+  client.post.mockImplementation(async (url: string) => {
+    if (url === "/categories") return { data: { id: 77, name: "Vitamins" } };
+    return { data: {} };
+  });
+  const updateRow = (lineNumber: number, sku: string) =>
+    row({
+      lineNumber,
+      status: "update",
+      sku,
+      matchedProduct: { ...product, sku },
+      fields: { categoryName: "Vitamins" },
+      changedFields: [{ field: "Category", from: "Analgesic", to: "Vitamins" }],
+    });
+  await run([updateRow(2, "BG1"), updateRow(3, "BG2")], client);
+  const categoryCalls = client.post.mock.calls.filter((c) => c[0] === "/categories");
+  expect(categoryCalls).toHaveLength(1);
+});
+
 // A row whose product phase failed must not silently vanish from the totals.
 it("counts a failed product upsert and skips its stock call", async () => {
   const client = fakeClient();
@@ -227,13 +270,28 @@ it("counts a failed product upsert and skips its stock call", async () => {
   expect(client.post).not.toHaveBeenCalled();
 });
 
-it("reports progress as it works", async () => {
+it("reports progress that reaches its total", async () => {
   const client = fakeClient();
   const onProgress = vi.fn();
   await run(
-    [row({ status: "stock-only", matchedProduct: product, qtyChange: 1 })],
+    [
+      row({ status: "stock-only", matchedProduct: product, qtyChange: 1 }),
+      row({
+        lineNumber: 3,
+        status: "update",
+        matchedProduct: product,
+        fields: { name: "X" },
+        changedFields: [{ field: "Name", from: "Biogesic", to: "X" }],
+        qtyChange: 0,
+      }),
+    ],
     client,
     { onProgress },
   );
-  expect(onProgress).toHaveBeenCalled();
+  // 2 actionable rows tick in phase 1; only 1 of them has a nonzero quantity
+  // and ticks again in phase 2 — total is 3, and the final call must reach it.
+  const [finalDone, finalTotal] =
+    onProgress.mock.calls[onProgress.mock.calls.length - 1];
+  expect(finalTotal).toBe(3);
+  expect(finalDone).toBe(finalTotal);
 });

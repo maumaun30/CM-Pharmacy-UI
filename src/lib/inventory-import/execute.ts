@@ -91,20 +91,27 @@ export const executeImportPlan = async (
     return res.data.id as number;
   };
 
-  const total = actionable.length;
+  // Every actionable row ticks once in phase 1; rows with a quantity tick
+  // again in phase 2. Both counts are known upfront, so the indicator can
+  // actually reach its total instead of stalling short.
+  const total =
+    actionable.length + actionable.filter((r) => r.qtyChange !== 0).length;
   let done = 0;
   const tick = () => {
     done++;
     onProgress?.(done, total);
   };
 
-  // Pre-resolve every new category serially.
-  for (const row of actionable.filter((r) => r.status === "new")) {
+  // Pre-resolve every category serially, for EVERY actionable row that names
+  // one — not just new products. Update rows resolve categories too, and doing
+  // that inside the parallel batches lets two rows naming the same new category
+  // race and create it twice.
+  for (const row of actionable) {
     if (row.fields.categoryName) {
       try {
         await categoryId(row.fields.categoryName);
-      } catch (e) {
-        // Leave it — the row's own attempt below will fail and be counted.
+      } catch {
+        // Leave it — each row's own attempt in phase 1 fails and is counted there.
       }
     }
   }
@@ -121,7 +128,15 @@ export const executeImportPlan = async (
 
         if (row.status === "update") {
           if (!overwriteExisting) {
-            return { row, productId: null, kind: "skipped" as const };
+            // The checkbox governs product master data only. Keep the resolved
+            // id so phase 2 still applies this row's stock movement — someone
+            // who declines to overwrite the sheet's prices still expects the
+            // delivery to arrive.
+            return {
+              row,
+              productId: row.matchedProduct!.id,
+              kind: "skipped" as const,
+            };
           }
           const body: Record<string, unknown> = {};
           const f = row.fields;
@@ -177,6 +192,7 @@ export const executeImportPlan = async (
       if (kind === "updated") result.updated++;
       if (kind === "skipped") result.skipped++;
       if (productId != null) resolved.set(row.lineNumber, productId);
+      tick();
     }
   }
 
