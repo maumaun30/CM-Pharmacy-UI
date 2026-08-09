@@ -86,6 +86,19 @@ describe("diffProductFields — no false positives", () => {
   it("reports nothing when no fields are present", () => {
     expect(diff({})).toEqual([]);
   });
+
+  it("treats a blank Category cell as saying nothing about category", () => {
+    expect(diff({ categoryName: "" })).toEqual([]);
+  });
+
+  // Guards the group above: every other test here asserts [], so all of them
+  // would pass against a diffProductFields that always returned []. This one
+  // would not.
+  it("detects a change under the same conditions", () => {
+    expect(diff({ cost: 10, name: "Changed" })).toEqual([
+      { field: "Name", from: "Biogesic", to: "Changed" },
+    ]);
+  });
 });
 
 describe("diffProductFields — no false negatives", () => {

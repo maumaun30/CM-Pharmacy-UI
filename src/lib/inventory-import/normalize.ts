@@ -89,7 +89,12 @@ export const diffProductFields = (
       bool(fields.trackInventory),
     );
   }
-  if (fields.categoryName !== undefined) {
+  // A blank Category cell says nothing about category — the same doctrine
+  // text() applies to every other field. Without this guard it resolves to the
+  // sentinel "new:" and the executor creates a category with an empty name.
+  // Category is still required to CREATE a product; plan.ts enforces that
+  // separately via its missing-field check.
+  if (fields.categoryName !== undefined && text(fields.categoryName) !== "") {
     const stored = categories.find((c) => c.id === product.category_id);
     const incoming = findCategory(categories, fields.categoryName);
     // An unknown category name will be created on apply, so it is a change.
