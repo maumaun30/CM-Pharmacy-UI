@@ -122,6 +122,9 @@ error in the preview and blocks only that row. The category is looked up case-in
 created via `POST /categories` if absent, with the new category pushed into the local list so
 later rows reuse it (existing behavior, `products/page.tsx:475-500`).
 
+A matched row whose product fields are all unchanged (see section 3.1) issues **no product request
+at all**.
+
 **Then, if `Qty Change` ≠ 0**, the stock call fires against the resolved product id and the target
 branch:
 
@@ -135,6 +138,39 @@ use (20 concurrent), replacing the sequential loop at `products/page.tsx:457`. O
 within a row the product upsert must complete before its stock call, because a newly created
 product has no id until the POST returns. Implement as two phases — batch all product upserts
 first, then batch all stock calls against the resolved ids.
+
+### 3.1 Change detection
+
+A full export contains every product, but a real import changes a handful of rows. Sending a
+request per row would make a no-op re-import cost one `PUT /products/:id` per product. Each of
+those costs four DB round trips — SELECT, UPDATE, `fetchProductWithStocks` re-read, and a
+`createLog` INSERT whose metadata embeds the full `{ before, after }` objects
+(`productController.js:276-284`) — and writes an "Updated product" audit row for a change that did
+not happen, burying real history on the logs page.
+
+So the import diffs client-side and **skips requests for rows with nothing to do**.
+
+A matched row is **changed** if any of these hold:
+
+- a product field present in the CSV differs from the stored value, after normalization
+- `Qty Change` ≠ 0
+- (unmatched rows are always "new", never diffed)
+
+Values are compared normalized, never as raw strings, or nothing will ever compare equal:
+
+| Field | Normalization |
+|---|---|
+| `Cost`, `Price` | Parse to number, compare to 2 decimal places. `"10.00"` equals `10`. |
+| `Expiry Date` | `dayjs(...).format("YYYY-MM-DD")` on both sides; both empty/null compare equal. |
+| `Requires Prescription`, `Track Inventory` | Map `Yes`/`No` to boolean before comparing. |
+| `Category` | Compare by resolved category id, not by name string, and case-insensitively. |
+| `Name`, `SKU`, `Barcode`, `Status` | Trim; treat `""` and `null` as equal. |
+
+**When the pricing checkbox is off, `Cost` and `Price` differences do not count as changes.** Those
+values are not sent, so a row differing only in price has no work to do and must not fire a PUT.
+
+Headers absent from the file are not compared — the same rule that governs which keys are sent
+(section 3).
 
 #### Expiry date handling
 
@@ -222,17 +258,36 @@ list, category list, and branch context.
 
 ### 7. Preview and result reporting
 
-The preview table lists every parsed row with a status:
+The preview is built entirely in the browser. The only server request before it renders is the
+single `GET /products` refetch already needed for matching, so previewing a large file costs the
+server nothing regardless of row count.
+
+**The table shows changed rows only, by default.** A summary line above it reads e.g.
+`4,312 rows read · 128 changes · 4,180 unchanged (hidden) · 4 errors`, with a toggle to show all
+rows. Errors are always visible regardless of the toggle. Unchanged rows are never sent.
+
+Row statuses:
 
 | Status | Meaning |
 |---|---|
-| `matched · SKU` / `matched · Barcode` / `matched · Name` | Will update this existing product. |
-| `new` | Will create a product. |
-| `error: <reason>` | Row is excluded from the run; other rows proceed. |
+| `new` | Will create a product, and stock it if `Qty Change` ≠ 0. |
+| `update` | Will `PUT` the differing fields. The changed fields are named in the row. |
+| `stock only` | Product fields match; only `Qty Change` fires. |
+| `unchanged` | No request. Hidden unless "show all" is toggled on. |
+| `error: <reason>` | Excluded from the run; other rows proceed. |
 
 Columns shown: SKU, Name, status, `Current Stock` → resulting stock, `Qty Change`, and — only when
 the pricing checkbox is ticked — `Cost` and `Price`. This mirrors the conditional-column behavior
 already in `stock/adjust/page.tsx`.
+
+For `update` rows the changed fields are listed as `old → new` so the user sees exactly what the
+file will overwrite before confirming. This is the visible half of the section 4 safety change.
+
+Toggling the pricing checkbox re-runs the diff, because it changes which fields count (section 3.1).
+Row counts in the summary update live.
+
+Rendering is virtualized or capped — a 5000-row file must not lock the browser. With the
+changes-only default this is rarely hit in practice, but "show all" on a full catalog will.
 
 After the run, a single toast summarizes: `created`, `updated`, `stocked`, `skipped`, `failed`.
 The first server error message is surfaced verbatim. Failures are per-row and do not abort the
@@ -250,7 +305,13 @@ The project has no test scripts, so verification is manual against a local stack
 (`npm run db:up` + `db:bootstrap` in the API, `npm run dev` in both projects). The cases that must
 pass before this is considered done:
 
-1. Export from products page, re-import unchanged → zero changes reported, no stock movement.
+1. Export from products page, re-import unchanged → preview reports 0 changes, confirm sends
+   **zero HTTP requests**, and no new rows appear on the logs page. Verify in the network tab, not
+   just by the toast. This is the section 3.1 regression check.
+1b. Same file, edit one product's name and one product's `Qty Change` → exactly 2 rows shown,
+   exactly 2 requests sent.
+1c. Same file with the pricing checkbox off, edit only a `Cost` cell → 0 changes. Tick the
+   checkbox → that row appears as `update`.
 2. Two-column `SKU, Qty Change` file, delivery mode → stock rises, no product field is blanked.
    This is the section 4 regression check.
 3. File with one unmatched SKU and a `Qty Change` → product is created *and* stocked in one run.
@@ -272,3 +333,10 @@ pass before this is considered done:
   phase. It must still be counted in the `failed` total, not vanish.
 - **Mode is per-file, not per-row.** A user with a mixed delivery-and-correction sheet must run it
   twice. This was chosen deliberately over a per-row mode column for simplicity.
+- **Under-normalized diffing silently disables changes-only.** If `Cost` compares as `"10.00" !==
+  10`, every row reports as changed and the feature reverts to the behavior it was added to
+  prevent. Test 1 is the guard: it must assert zero network requests, not just a zero count in the
+  toast.
+- **Over-normalized diffing silently drops real edits.** The inverse: if trimming or date coercion
+  is too aggressive, an intentional edit is classified unchanged and never sent, with no error.
+  Test 1b guards this direction.
