@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 import { Loader2, Upload } from "lucide-react";
 
@@ -69,6 +69,14 @@ const InventoryImportDialog = ({
     });
   }, [fileText, products, categories, mode, updatePricing]);
 
+  // Radix keeps this component mounted while the dialog is closed, so plain
+  // useState would capture the branch once at page mount. Without this resync,
+  // switching branch via BranchSwitcher and then opening the importer silently
+  // targets the OLD branch — a delivery lands in the wrong store.
+  useEffect(() => {
+    if (open) setBranchId(defaultBranchId);
+  }, [open, defaultBranchId]);
+
   const handleFile = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -95,7 +103,10 @@ const InventoryImportDialog = ({
   const handleConfirm = async () => {
     if (!plan || branchId == null) return;
     setApplying(true);
-    setProgress({ done: 0, total: plan.summary.changes });
+    // Left null until the executor's first tick. The executor computes its own
+    // total (phase-1 rows plus rows needing a stock call), so guessing one here
+    // from summary.changes would render a number that jumps on first update.
+    setProgress(null);
     try {
       const result = await executeImportPlan(plan.rows, {
         client: api,
@@ -125,6 +136,18 @@ const InventoryImportDialog = ({
       reset();
       onOpenChange(false);
       onDone();
+    } catch (err) {
+      // executeImportPlan handles per-row failures itself and reports them in
+      // its result, so reaching here means something structural broke — a
+      // dropped connection, an expired token. Without this catch the spinner
+      // would simply stop with no message, leaving the user unsure what landed.
+      const e = err as {
+        response?: { data?: { message?: string } };
+        message?: string;
+      };
+      toast.error(
+        `Import failed: ${e?.response?.data?.message ?? e?.message ?? "Unknown error"}`,
+      );
     } finally {
       setApplying(false);
       setProgress(null);
@@ -139,7 +162,17 @@ const InventoryImportDialog = ({
         onOpenChange(next);
       }}
     >
-      <DialogContent className="max-w-5xl">
+      <DialogContent
+        className="max-w-5xl"
+        // An import in flight is issuing real writes. Let Radix dismiss the
+        // dialog and the user loses all sight of it while it keeps running.
+        onEscapeKeyDown={(e) => {
+          if (applying) e.preventDefault();
+        }}
+        onInteractOutside={(e) => {
+          if (applying) e.preventDefault();
+        }}
+      >
         <DialogHeader>
           <DialogTitle>Import inventory CSV</DialogTitle>
         </DialogHeader>
