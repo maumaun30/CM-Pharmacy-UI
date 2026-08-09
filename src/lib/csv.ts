@@ -3,27 +3,41 @@ import customParseFormat from "dayjs/plugin/customParseFormat";
 
 dayjs.extend(customParseFormat);
 
-// RFC4180 line splitter. Callers must NOT strip quotes again afterwards —
-// doubled quotes are already unescaped here, and a second pass mangles names
-// that legitimately contain a quote (e.g. 5" Syringe).
+// RFC4180 line splitter. A `"` only opens a quoted field when it is the
+// first character of that field; once inside a quoted field a doubled `""`
+// is unescaped to a literal `"` and any other `"` closes the field. A `"`
+// appearing anywhere else — e.g. mid-field as in 5" Syringe — is just a
+// literal character, so unquoted fields containing a quote still split on
+// their commas correctly. Callers must NOT strip quotes again afterwards —
+// quoted-field escaping is already handled here.
 export const parseCSVLine = (line: string): string[] => {
   const result: string[] = [];
   let current = "";
   let inQuotes = false;
+  let atFieldStart = true;
   for (let i = 0; i < line.length; i++) {
     const char = line[i];
-    if (char === '"') {
-      if (inQuotes && line[i + 1] === '"') {
-        current += '"';
-        i++;
+    if (inQuotes) {
+      if (char === '"') {
+        if (line[i + 1] === '"') {
+          current += '"';
+          i++;
+        } else {
+          inQuotes = false;
+        }
       } else {
-        inQuotes = !inQuotes;
+        current += char;
       }
-    } else if (char === "," && !inQuotes) {
+    } else if (char === '"' && atFieldStart) {
+      inQuotes = true;
+      atFieldStart = false;
+    } else if (char === ",") {
       result.push(current.trim());
       current = "";
+      atFieldStart = true;
     } else {
       current += char;
+      atFieldStart = false;
     }
   }
   result.push(current.trim());

@@ -22,6 +22,13 @@ describe("parseCSVLine", () => {
   it("returns an empty trailing field", () => {
     expect(parseCSVLine("a,b,")).toEqual(["a", "b", ""]);
   });
+
+  // Regression: a `"` mid-field (not at the start of the field) must be
+  // treated as a literal character, not a quote-state toggle — otherwise the
+  // comma right after it gets swallowed into the field and the SKU is lost.
+  it("treats an unquoted mid-field quote as a literal character", () => {
+    expect(parseCSVLine('5" Syringe,SYR5')).toEqual(['5" Syringe', "SYR5"]);
+  });
 });
 
 describe("parseCSVFile", () => {
@@ -51,6 +58,14 @@ describe("parseCSVDate", () => {
   it("returns null for blank or junk rather than throwing", () => {
     expect(parseCSVDate("")).toBeNull();
     expect(parseCSVDate("not a date")).toBeNull();
+  });
+
+  it("resolves an ambiguous date as M/D, not D/M", () => {
+    expect(parseCSVDate("3/4/2027")).toBe("2027-03-04");
+  });
+
+  it("falls back to D/M/YYYY when the month can't be M/D", () => {
+    expect(parseCSVDate("25/12/2027")).toBe("2027-12-25");
   });
 });
 
