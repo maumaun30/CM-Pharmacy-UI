@@ -218,8 +218,13 @@ Removed from `CM-Pharmacy-UI/src/app/products/page.tsx`:
 - the create/edit form modal inputs
 - the products table columns
 - any sort keys and filter options referencing them
-- the `Product` and form-state interfaces
+- the form-state interfaces (`formData`, `ImportRow`)
 - the CSV export columns and import parsing
+- the `{prod.brand_name}` subtitle rendered under the Name cell (`products/page.tsx:1598`)
+
+The `Product` interface **keeps** `brand_name` and `generic_name`, because the page's client-side
+search filters on them (`products/page.tsx:902-903`). Dropping them from the type would break that
+filter. Keeping it mirrors the API-side decision below: hidden, but still findable.
 
 Deliberately **not** changed:
 
