@@ -631,38 +631,6 @@ export default function ProductList() {
     }
   }, []);
 
-  // The import library takes a narrow product shape so it stays independent of
-  // this page's Product interface. current_stock is branch-scoped, so resolve it
-  // against the branch the user is actually looking at.
-  const matchableProducts: MatchableProduct[] = useMemo(
-    () =>
-      products.map((p) => ({
-        id: p.id,
-        name: p.name,
-        sku: p.sku,
-        barcode: p.barcode ?? null,
-        cost: p.cost,
-        price: p.price,
-        expiry_date: p.expiry_date ?? null,
-        requires_prescription: p.requires_prescription,
-        track_inventory: p.track_inventory,
-        status: p.status,
-        category_id: p.category_id,
-        currentStock: getStockForBranch(p, activeBranchId ?? null),
-      })),
-    [products, activeBranchId],
-  );
-
-  const handleExportCSV = () => {
-    if (matchableProducts.length === 0) {
-      toast.error("Nothing to export");
-      return;
-    }
-    const csv = buildExportCsv(matchableProducts, categories);
-    downloadCSV(`inventory_${dayjs().format("YYYY-MM-DD_HHmm")}.csv`, csv);
-    toast.success(`Exported ${matchableProducts.length} products`);
-  };
-
   const filtered = useMemo(() => {
     let data = products.filter((p) => {
       const matchesSearch =
@@ -730,6 +698,59 @@ export default function ProductList() {
     filterExpiry,
     activeBranchId,
   ]);
+
+  // The import library takes a narrow product shape so it stays independent of
+  // this page's Product interface. current_stock is branch-scoped, so resolve it
+  // against the branch the user is actually looking at.
+  const toMatchable = useCallback(
+    (p: Product): MatchableProduct => ({
+      id: p.id,
+      name: p.name,
+      sku: p.sku,
+      barcode: p.barcode ?? null,
+      cost: p.cost,
+      price: p.price,
+      expiry_date: p.expiry_date ?? null,
+      requires_prescription: p.requires_prescription,
+      track_inventory: p.track_inventory,
+      status: p.status,
+      category_id: p.category_id,
+      currentStock: getStockForBranch(p, activeBranchId ?? null),
+    }),
+    [activeBranchId],
+  );
+
+  // Full catalogue — the dialog matches CSV rows against this. Must NOT be the
+  // filtered list, or a filtered-out SKU would be treated as a new product.
+  const matchableProducts = useMemo(
+    () => products.map(toMatchable),
+    [products, toMatchable],
+  );
+
+  // What Export CSV writes: only the rows the user currently has in view.
+  const exportProducts = useMemo(
+    () => filtered.map(toMatchable),
+    [filtered, toMatchable],
+  );
+
+  // Exports the FILTERED view, matching what the user is looking at and what
+  // the old products export did. Safe with a partial file: the import only
+  // touches columns present in the header and only sends rows that changed, so
+  // products absent from the file are left alone.
+  //
+  // Note this is deliberately NOT the same list handed to the dialog. The dialog
+  // needs every product for matching — give it the filtered list and any
+  // filtered-out SKU in the CSV would look unmatched and be created as a
+  // DUPLICATE product.
+  const handleExportCSV = () => {
+    if (exportProducts.length === 0) {
+      toast.error("Nothing to export");
+      return;
+    }
+    const csv = buildExportCsv(exportProducts, categories);
+    downloadCSV(`inventory_${dayjs().format("YYYY-MM-DD_HHmm")}.csv`, csv);
+    toast.success(`Exported ${exportProducts.length} products`);
+  };
 
   const paginated = useMemo(() => {
     const start = (page - 1) * perPage;
