@@ -169,7 +169,7 @@ const InventoryImportDialog = ({
         </DialogHeader>
 
         <div className="space-y-4">
-          <div className="grid gap-4 sm:grid-cols-2">
+          <div className="grid gap-4 sm:grid-cols-3">
             <div className="space-y-1">
               <Label>Mode</Label>
               <div className="flex gap-2">
@@ -192,6 +192,16 @@ const InventoryImportDialog = ({
               </div>
             </div>
 
+            {branchId != null && (
+              <div className="space-y-1">
+                <Label>Active branch</Label>
+                <p className="flex h-9 items-center gap-2 text-sm font-medium text-gray-800">
+                  <Building2 className="h-4 w-4 shrink-0 text-emerald-600" />
+                  <span className="truncate">{branchName}</span>
+                </p>
+              </div>
+            )}
+
             {mode === "adjustment" && (
               <div className="space-y-1">
                 <Label htmlFor="import-reason">Reason</Label>
@@ -204,14 +214,6 @@ const InventoryImportDialog = ({
               </div>
             )}
           </div>
-
-          {branchId != null && (
-            <p className="flex items-center gap-2 text-sm text-gray-600">
-              <Building2 className="h-4 w-4 text-emerald-600" />
-              Stock movements go to <strong>{branchName}</strong>. Switch branches
-              in the top bar to import elsewhere.
-            </p>
-          )}
 
           <div>
             <Label htmlFor="import-file" className="cursor-pointer">
@@ -227,10 +229,14 @@ const InventoryImportDialog = ({
               className="hidden"
               onChange={handleFile}
             />
+            {/* whitespace-nowrap on each code span: without it a narrow dialog
+                breaks "Qty Change" across two lines and it stops reading as one
+                column name. */}
             <p className="mt-2 text-xs text-gray-500">
-              Needs a <code>Qty Change</code> column (<code>Total Stock</code> and{" "}
-              <code>Adjustment</code> also accepted). Columns you leave out are not
-              touched.
+              Needs a <code className="whitespace-nowrap">Qty Change</code> column
+              (<code className="whitespace-nowrap">Total Stock</code> and{" "}
+              <code className="whitespace-nowrap">Adjustment</code> also accepted).
+              Columns you leave out are not touched.
             </p>
           </div>
 
@@ -239,8 +245,11 @@ const InventoryImportDialog = ({
               <div className="flex flex-wrap items-center justify-between gap-2 text-sm">
                 <span>
                   {plan.summary.rowsRead.toLocaleString()} rows read ·{" "}
-                  <strong>{plan.summary.changes.toLocaleString()} changes</strong> ·{" "}
-                  {plan.summary.unchanged.toLocaleString()} unchanged
+                  <strong>
+                    {plan.summary.changes.toLocaleString()}{" "}
+                    {plan.summary.changes === 1 ? "change" : "changes"}
+                  </strong>{" "}
+                  · {plan.summary.unchanged.toLocaleString()} unchanged
                   {showAll ? "" : " (hidden)"} · {plan.summary.errors} errors
                 </span>
                 <Button
@@ -286,7 +295,9 @@ const InventoryImportDialog = ({
                 <Loader2 className="mr-2 h-4 w-4 animate-spin" /> Importing…
               </>
             ) : (
-              `Import ${plan?.summary.changes ?? 0} changes`
+              `Import ${plan?.summary.changes ?? 0} ${
+                plan?.summary.changes === 1 ? "change" : "changes"
+              }`
             )}
           </Button>
         </DialogFooter>
