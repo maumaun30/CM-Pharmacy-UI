@@ -154,7 +154,11 @@ const InventoryImportDialog = ({
       }}
     >
       <DialogContent
-        className="max-w-5xl"
+        // sm:max-w-5xl, not max-w-5xl. DialogContent's own classes end in
+        // `sm:max-w-lg`; an unprefixed override is a different tailwind-merge
+        // group, so both survive and the sm: variant wins above 640px — the
+        // dialog silently stays 32rem wide. The prefix must match to replace it.
+        className="sm:max-w-5xl"
         // An import in flight is issuing real writes. Let Radix dismiss the
         // dialog and the user loses all sight of it while it keeps running.
         onEscapeKeyDown={(e) => {
@@ -168,7 +172,10 @@ const InventoryImportDialog = ({
           <DialogTitle>Import inventory CSV</DialogTitle>
         </DialogHeader>
 
-        <div className="space-y-5">
+        {/* min-w-0: DialogContent is a grid, and grid children default to
+            min-width:auto — without this the preview table's min-width pushes
+            this column wider than the dialog instead of scrolling inside it. */}
+        <div className="min-w-0 space-y-5">
           {/* items-end: Reason is the second column but belongs beside Mode,
               which sits at the bottom of the first. Bottom-aligning the cells
               lines the input up with the mode buttons instead of with Active
