@@ -293,6 +293,31 @@ it("does not create a category for a blank Category cell but still moves stock",
   expect(result.failed).toBe(0);
 });
 
+it("does not create a category for a whitespace-only Category cell but still moves stock", async () => {
+  const client = fakeClient();
+  const result = await run(
+    [
+      row({
+        status: "update",
+        matchedProduct: product,
+        fields: { categoryName: "   " },
+        changedFields: [{ field: "Category", from: "Analgesic", to: "   " }],
+        qtyChange: 25,
+      }),
+    ],
+    client,
+  );
+  const categoryCalls = client.post.mock.calls.filter((c) => c[0] === "/categories");
+  expect(categoryCalls).toHaveLength(0);
+  const body = client.put.mock.calls[0][1] as Record<string, unknown>;
+  expect(body).not.toHaveProperty("categoryId");
+  expect(client.post).toHaveBeenCalledWith(
+    "/stock/add",
+    expect.objectContaining({ productId: 1, quantity: 25 }),
+  );
+  expect(result.failed).toBe(0);
+});
+
 it("includes expiryDate on the PUT when delivery mode has no quantity change", async () => {
   const client = fakeClient();
   await run(

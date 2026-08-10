@@ -107,7 +107,10 @@ export const executeImportPlan = async (
   // that inside the parallel batches lets two rows naming the same new category
   // race and create it twice.
   for (const row of actionable) {
-    if (row.fields.categoryName) {
+    // .trim() matters: a whitespace-only cell is truthy, and the API's
+    // `if (!name)` check does not catch it — it would create a category
+    // literally named "   ". Must match the per-row guard below.
+    if (row.fields.categoryName?.trim()) {
       try {
         await categoryId(row.fields.categoryName);
       } catch {
