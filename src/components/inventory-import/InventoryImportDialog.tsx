@@ -169,7 +169,11 @@ const InventoryImportDialog = ({
         </DialogHeader>
 
         <div className="space-y-5">
-          <div className="grid gap-5 sm:grid-cols-2">
+          {/* items-end: Reason is the second column but belongs beside Mode,
+              which sits at the bottom of the first. Bottom-aligning the cells
+              lines the input up with the mode buttons instead of with Active
+              branch two rows above it. */}
+          <div className="grid items-end gap-5 sm:grid-cols-2">
             <div className="space-y-4">
               {branchId != null && (
                 <div className="space-y-2">
@@ -187,7 +191,6 @@ const InventoryImportDialog = ({
                   <Button
                     type="button"
                     variant={mode === "delivery" ? "default" : "outline"}
-                    size="sm"
                     onClick={() => setMode("delivery")}
                   >
                     Delivery
@@ -195,7 +198,6 @@ const InventoryImportDialog = ({
                   <Button
                     type="button"
                     variant={mode === "adjustment" ? "default" : "outline"}
-                    size="sm"
                     onClick={() => setMode("adjustment")}
                   >
                     Adjustment
