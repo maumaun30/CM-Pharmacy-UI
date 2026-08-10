@@ -1423,12 +1423,23 @@ export const buildImportPlan = (input: {
         }
       }
     }
+    // Booleans obey the same absent/blank/unreadable rule as every other
+    // field. parseBoolCell returns undefined for BOTH blank and junk, so
+    // without this a cell of "Y" or "Required" is silently discarded and the
+    // row reports unchanged — the wrong way to fail on a prescription flag.
+    const boolCell = (col: CanonicalColumn): boolean | undefined => {
+      const raw = at(row, col);
+      if (raw === undefined) return undefined; // column absent
+      if (!raw.trim()) return undefined; // blank cell: say nothing
+      const b = parseBoolCell(raw);
+      if (b === undefined) cellErrors.push(`${col} "${raw}" is not Yes or No`);
+      return b;
+    };
+
     if (cols.indexOf["Requires Prescription"] !== undefined)
-      fields.requiresPrescription = parseBoolCell(
-        at(row, "Requires Prescription") ?? "",
-      );
+      fields.requiresPrescription = boolCell("Requires Prescription");
     if (cols.indexOf["Track Inventory"] !== undefined)
-      fields.trackInventory = parseBoolCell(at(row, "Track Inventory") ?? "");
+      fields.trackInventory = boolCell("Track Inventory");
     if (cols.indexOf.Status !== undefined) {
       const rawStatus = at(row, "Status") ?? "";
       const status = rawStatus.trim().toUpperCase();
@@ -1987,13 +1998,25 @@ export const executeImportPlan = async (
           if (f.name !== undefined) body.name = f.name;
           if (f.sku !== undefined) body.sku = f.sku;
           if (f.barcode !== undefined) body.barcode = f.barcode || null;
-          if (f.expiryDate !== undefined && mode === "adjustment")
+          // /stock/add writes a non-null expiry onto the product itself, so
+          // sending it here too would double-write. Every other case must go
+          // on the product upsert: adjustment mode makes no stock call, a
+          // zero-qty row never reaches phase 2, and a deliberate blank (null)
+          // is ignored by /stock/add's `if (expiryDate)` guard so it would
+          // never clear.
+          const stockAddSetsExpiry =
+            mode === "delivery" && row.qtyChange !== 0 && f.expiryDate != null;
+          if (f.expiryDate !== undefined && !stockAddSetsExpiry)
             body.expiryDate = f.expiryDate;
           if (f.requiresPrescription !== undefined)
             body.requiresPrescription = f.requiresPrescription;
           if (f.trackInventory !== undefined) body.trackInventory = f.trackInventory;
           if (f.status !== undefined) body.status = f.status;
-          if (f.categoryName !== undefined)
+          // Blank means "say nothing about category" — the same guard
+          // normalize.ts applies. Without it, categoryId("") finds no match,
+          // POSTs a category with an empty name, gets a 400, and the row's
+          // phase-1 promise rejects — taking its stock movement down with it.
+          if (f.categoryName !== undefined && f.categoryName.trim() !== "")
             body.categoryId = await categoryId(f.categoryName);
           if (updatePricing) {
             if (f.cost !== undefined) body.cost = f.cost;
@@ -2016,9 +2039,12 @@ export const executeImportPlan = async (
           trackInventory: f.trackInventory ?? true,
           status: f.status ?? "ACTIVE",
         };
-        // In delivery mode /stock/add writes the expiry onto the product, so
-        // sending it here too would be a redundant second write.
-        if (f.expiryDate !== undefined && mode === "adjustment")
+        // Same rule as the update path: only skip it when /stock/add will
+        // actually set it. A new product with an expiry and no quantity would
+        // otherwise be created with a null expiry.
+        const newStockAddSetsExpiry =
+          mode === "delivery" && row.qtyChange !== 0 && f.expiryDate != null;
+        if (f.expiryDate !== undefined && !newStockAddSetsExpiry)
           body.expiryDate = f.expiryDate;
         const res = await client.post("/products", body);
         return { row, productId: res.data.id as number, kind: "created" as const };
