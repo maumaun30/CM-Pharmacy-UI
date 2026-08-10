@@ -270,6 +270,91 @@ it("counts a failed product upsert and skips its stock call", async () => {
   expect(client.post).not.toHaveBeenCalled();
 });
 
+it("does not create a category for a blank Category cell but still moves stock", async () => {
+  const client = fakeClient();
+  const result = await run(
+    [
+      row({
+        status: "update",
+        matchedProduct: product,
+        fields: { categoryName: "" },
+        changedFields: [{ field: "Category", from: "Analgesic", to: "" }],
+        qtyChange: 25,
+      }),
+    ],
+    client,
+  );
+  const categoryCalls = client.post.mock.calls.filter((c) => c[0] === "/categories");
+  expect(categoryCalls).toHaveLength(0);
+  expect(client.post).toHaveBeenCalledWith(
+    "/stock/add",
+    expect.objectContaining({ productId: 1, quantity: 25 }),
+  );
+  expect(result.failed).toBe(0);
+});
+
+it("includes expiryDate on the PUT when delivery mode has no quantity change", async () => {
+  const client = fakeClient();
+  await run(
+    [
+      row({
+        status: "update",
+        matchedProduct: product,
+        fields: { expiryDate: "2027-01-01" },
+        changedFields: [{ field: "Expiry Date", from: "", to: "2027-01-01" }],
+        qtyChange: 0,
+      }),
+    ],
+    client,
+  );
+  expect(client.put).toHaveBeenCalledWith(
+    "/products/1",
+    expect.objectContaining({ expiryDate: "2027-01-01" }),
+  );
+});
+
+it("omits expiryDate on the PUT when delivery mode has a nonzero quantity change", async () => {
+  const client = fakeClient();
+  await run(
+    [
+      row({
+        status: "update",
+        matchedProduct: product,
+        fields: { expiryDate: "2027-01-01" },
+        changedFields: [{ field: "Expiry Date", from: "", to: "2027-01-01" }],
+        qtyChange: 25,
+      }),
+    ],
+    client,
+  );
+  const body = client.put.mock.calls[0][1] as Record<string, unknown>;
+  expect(body).not.toHaveProperty("expiryDate");
+  expect(client.post).toHaveBeenCalledWith(
+    "/stock/add",
+    expect.objectContaining({ expiryDate: "2027-01-01" }),
+  );
+});
+
+it("includes a deliberate null expiryDate on the PUT even with a nonzero quantity change", async () => {
+  const client = fakeClient();
+  await run(
+    [
+      row({
+        status: "update",
+        matchedProduct: product,
+        fields: { expiryDate: null },
+        changedFields: [{ field: "Expiry Date", from: "2027-01-01", to: "" }],
+        qtyChange: 25,
+      }),
+    ],
+    client,
+  );
+  expect(client.put).toHaveBeenCalledWith(
+    "/products/1",
+    expect.objectContaining({ expiryDate: null }),
+  );
+});
+
 it("reports progress that reaches its total", async () => {
   const client = fakeClient();
   const onProgress = vi.fn();

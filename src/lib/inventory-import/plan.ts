@@ -113,12 +113,23 @@ export const buildImportPlan = (input: {
         }
       }
     }
+    // Booleans obey the same absent/blank/unreadable rule as every other
+    // field. parseBoolCell returns undefined for BOTH blank and junk, so
+    // without this a cell of "Y" or "Required" is silently discarded and the
+    // row reports unchanged — the wrong way to fail on a prescription flag.
+    const boolCell = (col: CanonicalColumn): boolean | undefined => {
+      const raw = at(row, col);
+      if (raw === undefined) return undefined; // column absent
+      if (!raw.trim()) return undefined; // blank cell: say nothing
+      const b = parseBoolCell(raw);
+      if (b === undefined) cellErrors.push(`${col} "${raw}" is not Yes or No`);
+      return b;
+    };
+
     if (cols.indexOf["Requires Prescription"] !== undefined)
-      fields.requiresPrescription = parseBoolCell(
-        at(row, "Requires Prescription") ?? "",
-      );
+      fields.requiresPrescription = boolCell("Requires Prescription");
     if (cols.indexOf["Track Inventory"] !== undefined)
-      fields.trackInventory = parseBoolCell(at(row, "Track Inventory") ?? "");
+      fields.trackInventory = boolCell("Track Inventory");
     if (cols.indexOf.Status !== undefined) {
       const rawStatus = at(row, "Status") ?? "";
       const status = rawStatus.trim().toUpperCase();

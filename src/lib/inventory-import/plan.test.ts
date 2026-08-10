@@ -212,6 +212,26 @@ describe("status", () => {
   });
 });
 
+describe("boolean cells", () => {
+  it("errors on an unreadable Requires Prescription cell instead of silently dropping it", () => {
+    const r = plan("SKU,Requires Prescription\nBG1,Y");
+    expect(r.rows[0].status).toBe("error");
+    expect(r.rows[0].errorMessage).toContain("Requires Prescription");
+  });
+
+  it("treats a blank Requires Prescription cell as saying nothing", () => {
+    const r = plan("SKU,Requires Prescription\nBG1,");
+    expect(r.rows[0].fields.requiresPrescription).toBeUndefined();
+    expect(r.rows[0].status).not.toBe("error");
+  });
+
+  it("parses Track Inventory No as false and reports it as a change", () => {
+    const r = plan("SKU,Track Inventory\nBG1,No");
+    expect(r.rows[0].fields.trackInventory).toBe(false);
+    expect(r.rows[0].status).toBe("update");
+  });
+});
+
 describe("aliases and summary", () => {
   it("reads Total Stock as Qty Change", () => {
     const r = plan("SKU,Total Stock\nBG1,7");
