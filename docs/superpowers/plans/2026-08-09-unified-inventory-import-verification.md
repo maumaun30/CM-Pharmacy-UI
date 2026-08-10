@@ -12,7 +12,7 @@ adjustment. Skip case 4 if you want that snapshot pristine.
 Test file already generated for case 4:
 
 ```
-C:\Users\mauma\AppData\Local\Temp\claude\C--Web-Projects-CM-Pharmacy\6005d8ad-726c-4c59-b055-cb4d0f363133\scratchpad\case4-stock-only.csv
+C:/Users/mauma/AppData/Local/Temp/claude/C--Web-Projects-CM-Pharmacy/6005d8ad-726c-4c59-b055-cb4d0f363133/scratchpad/case4-stock-only.csv
 ```
 
 Reference data from your local DB: 1633 products, no duplicate SKUs, branches

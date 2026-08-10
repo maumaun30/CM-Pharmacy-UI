@@ -1,6 +1,14 @@
 @import "tailwindcss";
 @import "tw-animate-css";
 
+/* Tailwind v4 auto-scans every non-gitignored file for class candidates, and
+   docs contain no classes. Excluding them also avoids a real build break: a
+   Windows path like C:\...\C--Web-Projects\6005d8ad-... starts with `--`, so
+   the scanner reads it as a custom property and decodes the backslashes as CSS
+   hex escapes — \6005d8 exceeds the Unicode maximum and throws
+   "Invalid code point" against this file's line 1. */
+@source not "../../docs";
+
 @custom-variant dark (&:is(.dark *));
 
 @theme inline {
