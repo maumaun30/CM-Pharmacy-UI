@@ -29,8 +29,8 @@ const categories: CategoryRef[] = [
   { id: 4, name: "Antibiotic" },
 ];
 
-const diff = (fields: Parameters<typeof diffProductFields>[0], updatePricing = true) =>
-  diffProductFields(fields, product, categories, { updatePricing });
+const diff = (fields: Parameters<typeof diffProductFields>[0]) =>
+  diffProductFields(fields, product, categories);
 
 describe("parseBoolCell", () => {
   it("maps Yes and No", () => {
@@ -135,12 +135,7 @@ describe("diffProductFields — no false negatives", () => {
       track_inventory: undefined as unknown as boolean,
     };
     expect(
-      diffProductFields(
-        { trackInventory: true },
-        untracked,
-        categories,
-        { updatePricing: true },
-      ),
+      diffProductFields({ trackInventory: true }, untracked, categories),
     ).toEqual([]);
   });
 
@@ -155,15 +150,19 @@ describe("diffProductFields — no false negatives", () => {
   });
 });
 
-describe("diffProductFields — pricing checkbox gate", () => {
-  // Cost and Price are not sent when the checkbox is off, so a row differing
-  // only in price has no work to do and must not be reported as changed.
-  it("ignores cost and price when updatePricing is false", () => {
-    expect(diff({ cost: 99, price: 99 }, false)).toEqual([]);
+describe("diffProductFields — cost and price obey column presence", () => {
+  // These were once gated behind a checkbox that defaulted to off, so an edited
+  // price imported as "0 changes". They now follow the same rule as every other
+  // column: present means the user means it, absent means say nothing.
+  it("reports cost and price when the columns are present", () => {
+    expect(diff({ cost: 99, price: 99 })).toEqual([
+      { field: "Cost", from: "10.00", to: "99.00" },
+      { field: "Price", from: "15.50", to: "99.00" },
+    ]);
   });
 
-  it("still reports other fields when updatePricing is false", () => {
-    expect(diff({ cost: 99, name: "X" }, false)).toEqual([
+  it("says nothing about pricing when the columns are absent", () => {
+    expect(diff({ name: "X" })).toEqual([
       { field: "Name", from: "Biogesic", to: "X" },
     ]);
   });

@@ -57,7 +57,6 @@ export const diffProductFields = (
   fields: CsvProductFields,
   product: MatchableProduct,
   categories: CategoryRef[],
-  options: { updatePricing: boolean },
 ): FieldChange[] => {
   const changes: FieldChange[] = [];
   const push = (field: string, from: string, to: string) => {
@@ -113,15 +112,14 @@ export const diffProductFields = (
     }
   }
 
-  // Cost and Price are not sent when the pricing checkbox is off, so a
-  // difference in them is not work to do and must not count as a change.
-  if (options.updatePricing) {
-    if (fields.cost !== undefined) {
-      push("Cost", formatMoney(product.cost), formatMoney(fields.cost));
-    }
-    if (fields.price !== undefined) {
-      push("Price", formatMoney(product.price), formatMoney(fields.price));
-    }
+  // Cost and Price obey the same presence rule as every other column: in the
+  // file means the user means it. They were once gated behind a checkbox that
+  // defaulted to off, which made an edited price import as "0 changes".
+  if (fields.cost !== undefined) {
+    push("Cost", formatMoney(product.cost), formatMoney(fields.cost));
+  }
+  if (fields.price !== undefined) {
+    push("Price", formatMoney(product.price), formatMoney(fields.price));
   }
 
   return changes;

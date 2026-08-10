@@ -1,12 +1,11 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import { toast } from "sonner";
-import { Loader2, Upload } from "lucide-react";
+import { Building2, Loader2, Upload } from "lucide-react";
 
 import api from "@/lib/api";
 import { Button } from "@/components/ui/button";
-import { Checkbox } from "@/components/ui/checkbox";
 import {
   Dialog,
   DialogContent,
@@ -32,8 +31,15 @@ interface Props {
   onOpenChange: (open: boolean) => void;
   products: MatchableProduct[];
   categories: CategoryRef[];
-  branches: { id: number; name: string }[];
-  defaultBranchId: number | null;
+  /**
+   * The branch the BranchSwitcher is on. There is deliberately no picker in
+   * here: a second branch control is a second thing to get wrong, and a stale
+   * one silently lands a delivery in the wrong store. Read straight from the
+   * prop — never copied into state, so it cannot go stale while Radix keeps
+   * this component mounted between opens.
+   */
+  branchId: number | null;
+  branchName: string;
   onDone: () => void;
 }
 
@@ -42,40 +48,23 @@ const InventoryImportDialog = ({
   onOpenChange,
   products,
   categories,
-  branches,
-  defaultBranchId,
+  branchId,
+  branchName,
   onDone,
 }: Props) => {
   const [fileText, setFileText] = useState<string | null>(null);
   const [mode, setMode] = useState<ImportMode>("delivery");
-  const [branchId, setBranchId] = useState<number | null>(defaultBranchId);
   const [reason, setReason] = useState("Physical count correction");
-  const [updatePricing, setUpdatePricing] = useState(false);
-  const [overwriteExisting, setOverwriteExisting] = useState(true);
   const [showAll, setShowAll] = useState(false);
   const [applying, setApplying] = useState(false);
   const [progress, setProgress] = useState<{ done: number; total: number } | null>(null);
 
-  // Recomputed whenever mode or the pricing flag changes, because both change
-  // which rows count as changed (spec 3.1).
+  // Recomputed on mode change: delivery adds to stock where adjustment sets a
+  // delta, so the same file yields different resulting quantities (spec 3.1).
   const plan: ImportPlan | null = useMemo(() => {
     if (!fileText) return null;
-    return buildImportPlan({
-      text: fileText,
-      products,
-      categories,
-      mode,
-      updatePricing,
-    });
-  }, [fileText, products, categories, mode, updatePricing]);
-
-  // Radix keeps this component mounted while the dialog is closed, so plain
-  // useState would capture the branch once at page mount. Without this resync,
-  // switching branch via BranchSwitcher and then opening the importer silently
-  // targets the OLD branch — a delivery lands in the wrong store.
-  useEffect(() => {
-    if (open) setBranchId(defaultBranchId);
-  }, [open, defaultBranchId]);
+    return buildImportPlan({ text: fileText, products, categories, mode });
+  }, [fileText, products, categories, mode]);
 
   const handleFile = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -113,8 +102,6 @@ const InventoryImportDialog = ({
         mode,
         branchId,
         reason: reason.trim(),
-        updatePricing,
-        overwriteExisting,
         categories,
         onProgress: (done, total) => setProgress({ done, total }),
       });
@@ -123,7 +110,6 @@ const InventoryImportDialog = ({
       if (result.created) parts.push(`${result.created} created`);
       if (result.updated) parts.push(`${result.updated} updated`);
       if (result.stocked) parts.push(`${result.stocked} stock rows`);
-      if (result.skipped) parts.push(`${result.skipped} skipped`);
       if (result.failed) parts.push(`${result.failed} failed`);
 
       if (result.failed > 0 && result.created + result.updated + result.stocked === 0) {
@@ -183,7 +169,7 @@ const InventoryImportDialog = ({
         </DialogHeader>
 
         <div className="space-y-4">
-          <div className="grid gap-4 sm:grid-cols-3">
+          <div className="grid gap-4 sm:grid-cols-2">
             <div className="space-y-1">
               <Label>Mode</Label>
               <div className="flex gap-2">
@@ -206,25 +192,6 @@ const InventoryImportDialog = ({
               </div>
             </div>
 
-            <div className="space-y-1">
-              <Label htmlFor="import-branch">Target branch</Label>
-              <select
-                id="import-branch"
-                className="h-9 w-full rounded-md border border-gray-300 px-2 text-sm"
-                value={branchId ?? ""}
-                onChange={(e) =>
-                  setBranchId(e.target.value ? Number(e.target.value) : null)
-                }
-              >
-                <option value="">Select a branch…</option>
-                {branches.map((b) => (
-                  <option key={b.id} value={b.id}>
-                    {b.name}
-                  </option>
-                ))}
-              </select>
-            </div>
-
             {mode === "adjustment" && (
               <div className="space-y-1">
                 <Label htmlFor="import-reason">Reason</Label>
@@ -238,22 +205,13 @@ const InventoryImportDialog = ({
             )}
           </div>
 
-          <div className="flex flex-wrap items-center gap-6">
-            <label className="flex items-center gap-2 text-sm">
-              <Checkbox
-                checked={updatePricing}
-                onCheckedChange={(v) => setUpdatePricing(v === true)}
-              />
-              Update cost &amp; price from CSV
-            </label>
-            <label className="flex items-center gap-2 text-sm">
-              <Checkbox
-                checked={overwriteExisting}
-                onCheckedChange={(v) => setOverwriteExisting(v === true)}
-              />
-              Overwrite existing products
-            </label>
-          </div>
+          {branchId != null && (
+            <p className="flex items-center gap-2 text-sm text-gray-600">
+              <Building2 className="h-4 w-4 text-emerald-600" />
+              Stock movements go to <strong>{branchName}</strong>. Switch branches
+              in the top bar to import elsewhere.
+            </p>
+          )}
 
           <div>
             <Label htmlFor="import-file" className="cursor-pointer">
@@ -301,17 +259,14 @@ const InventoryImportDialog = ({
                 </p>
               )}
 
-              <ImportPreviewTable
-                rows={plan.rows}
-                showAll={showAll}
-                updatePricing={updatePricing}
-              />
+              <ImportPreviewTable rows={plan.rows} showAll={showAll} />
             </>
           )}
 
           {branchId == null && (
             <p className="text-sm text-amber-700">
-              You are viewing all branches. Pick a target branch before importing.
+              No active branch. Pick one in the branch switcher at the top before
+              importing — stock is stored per branch.
             </p>
           )}
         </div>

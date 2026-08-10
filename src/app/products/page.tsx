@@ -2378,8 +2378,8 @@ export default function ProductList() {
             onOpenChange={setImportOpen}
             products={matchableProducts}
             categories={categories}
-            branches={branches}
-            defaultBranchId={activeBranchId ?? null}
+            branchId={activeBranchId ?? null}
+            branchName={activeBranchName}
             onDone={() => {
               fetchProducts();
               fetchCategories();

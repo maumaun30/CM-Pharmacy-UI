@@ -167,7 +167,6 @@ it("round-trips to a plan with zero changes", () => {
     products: roundTripProducts,
     categories,
     mode: "delivery",
-    updatePricing: true,
   });
   expect(plan.summary.changes).toBe(0);
   expect(plan.summary.errors).toBe(0);

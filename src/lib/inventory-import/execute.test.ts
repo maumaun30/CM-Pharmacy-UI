@@ -44,8 +44,6 @@ const run = (rows: PlanRow[], client: ReturnType<typeof fakeClient>, over = {}) 
     mode: "delivery",
     branchId: 7,
     reason: "",
-    updatePricing: false,
-    overwriteExisting: true,
     categories: [{ id: 3, name: "Analgesic" }],
     ...over,
   });
@@ -81,43 +79,27 @@ it("puts only the fields present on the row", async () => {
   expect(client.put).toHaveBeenCalledWith("/products/1", { name: "Biogesic Forte" });
 });
 
-it("omits cost and price when pricing is off", async () => {
+it("sends cost and price when the columns are present", async () => {
   const client = fakeClient();
   await run(
     [
       row({
         status: "update",
         matchedProduct: product,
-        fields: { name: "X", cost: 99, price: 99 },
+        fields: { name: "X", cost: 99, price: 120 },
         changedFields: [{ field: "Name", from: "Biogesic", to: "X" }],
       }),
     ],
     client,
   );
-  const body = client.put.mock.calls[0][1] as Record<string, unknown>;
-  expect(body).not.toHaveProperty("cost");
-  expect(body).not.toHaveProperty("price");
+  expect(client.put).toHaveBeenCalledWith("/products/1", {
+    name: "X",
+    cost: 99,
+    price: 120,
+  });
 });
 
-it("skips matched rows when overwriteExisting is false", async () => {
-  const client = fakeClient();
-  const result = await run(
-    [
-      row({
-        status: "update",
-        matchedProduct: product,
-        fields: { name: "X" },
-        changedFields: [{ field: "Name", from: "Biogesic", to: "X" }],
-      }),
-    ],
-    client,
-    { overwriteExisting: false },
-  );
-  expect(client.put).not.toHaveBeenCalled();
-  expect(result.skipped).toBe(1);
-});
-
-it("still moves stock for an update row when overwriteExisting is false", async () => {
+it("applies both the field update and the stock movement for one row", async () => {
   const client = fakeClient();
   const result = await run(
     [
@@ -130,10 +112,9 @@ it("still moves stock for an update row when overwriteExisting is false", async 
       }),
     ],
     client,
-    { overwriteExisting: false },
   );
-  expect(client.put).not.toHaveBeenCalled();
-  expect(result.skipped).toBe(1);
+  expect(result.updated).toBe(1);
+  expect(client.put).toHaveBeenCalledWith("/products/1", { name: "X" });
   expect(client.post).toHaveBeenCalledWith(
     "/stock/add",
     expect.objectContaining({ productId: 1, quantity: 25 }),

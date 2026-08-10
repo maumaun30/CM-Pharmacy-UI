@@ -30,7 +30,6 @@ const plan = (text: string, over: Partial<Parameters<typeof buildImportPlan>[0]>
     products,
     categories,
     mode: "delivery",
-    updatePricing: false,
     ...over,
   });
 
@@ -146,41 +145,38 @@ describe("blank vs unreadable cells", () => {
   });
 
   it("errors on an unreadable cost instead of ignoring it", () => {
-    const r = plan("SKU,Cost\nBG1,abc", { updatePricing: true });
+    const r = plan("SKU,Cost\nBG1,abc");
     expect(r.rows[0].status).toBe("error");
     expect(r.rows[0].errorMessage).toContain("Cost");
   });
 
-  it("errors on an unreadable price even when pricing updates are off", () => {
-    // The cell is unreadable regardless of whether we would have sent it.
+  it("errors on an unreadable price", () => {
     const r = plan("SKU,Price\nBG1,1.2.3");
     expect(r.rows[0].status).toBe("error");
   });
 
   it("treats a blank cost cell as saying nothing", () => {
-    const r = plan("SKU,Cost\nBG1,", { updatePricing: true });
+    const r = plan("SKU,Cost\nBG1,");
     expect(r.rows[0].fields.cost).toBeUndefined();
     expect(r.rows[0].status).toBe("unchanged");
   });
 
   it("reports every unreadable cell on the row at once", () => {
-    const r = plan("SKU,Cost,Expiry Date\nBG1,abc,nope", {
-      updatePricing: true,
-    });
+    const r = plan("SKU,Cost,Expiry Date\nBG1,abc,nope");
     expect(r.rows[0].errorMessage).toContain("Cost");
     expect(r.rows[0].errorMessage).toContain("Expiry Date");
   });
 });
 
-describe("pricing gate", () => {
-  it("does not count a price-only difference when pricing is off", () => {
+describe("pricing follows column presence", () => {
+  it("counts a price-only difference as an update", () => {
     const r = plan("SKU,Price\nBG1,99");
-    expect(r.rows[0].status).toBe("unchanged");
+    expect(r.rows[0].status).toBe("update");
   });
 
-  it("counts it when pricing is on", () => {
-    const r = plan("SKU,Price\nBG1,99", { updatePricing: true });
-    expect(r.rows[0].status).toBe("update");
+  it("says nothing about pricing when the column is absent", () => {
+    const r = plan("SKU,Name\nBG1,Biogesic");
+    expect(r.rows[0].status).toBe("unchanged");
   });
 });
 

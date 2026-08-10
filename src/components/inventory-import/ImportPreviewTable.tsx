@@ -19,10 +19,9 @@ const STATUS_STYLE: Record<PlanRow["status"], { label: string; className: string
 interface Props {
   rows: PlanRow[];
   showAll: boolean;
-  updatePricing: boolean;
 }
 
-const ImportPreviewTable = ({ rows, showAll, updatePricing }: Props) => {
+const ImportPreviewTable = ({ rows, showAll }: Props) => {
   // Errors are always visible; unchanged rows are hidden unless asked for.
   const visible = useMemo(
     () => rows.filter((r) => showAll || r.status !== "unchanged"),
@@ -87,10 +86,6 @@ const ImportPreviewTable = ({ rows, showAll, updatePricing }: Props) => {
                 {row.status === "update" && (
                   <span className="block truncate text-xs text-gray-500">
                     {row.changedFields
-                      .filter(
-                        (c) =>
-                          updatePricing || (c.field !== "Cost" && c.field !== "Price"),
-                      )
                       .map((c) => `${c.field}: ${c.from || "—"} → ${c.to || "—"}`)
                       .join(" · ")}
                   </span>

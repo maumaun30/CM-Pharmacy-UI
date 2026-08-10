@@ -28,8 +28,7 @@ happily say "0 changes" after firing 1633 no-op `PUT`s.
 1. Open `/products`. Clear any search or category filter.
 2. Click **Export CSV**. You get `inventory_<date>_<time>.csv`.
 3. Open **DevTools → Network**, clear it, and leave it open.
-4. Click **Import CSV**, choose that exact file unmodified, mode **Delivery**,
-   pick a target branch.
+4. Click **Import CSV**, choose that exact file unmodified, mode **Delivery**.
 
 **Assert:**
 - Summary reads `1633 rows read · 0 changes · 1633 unchanged (hidden) · 0 errors`
@@ -39,6 +38,10 @@ happily say "0 changes" after firing 1633 no-op `PUT`s.
 
 If the summary shows changes on an untouched export, the export's formatting and
 the import's normalization disagree — tell me which fields the preview lists.
+
+This case now also covers Cost and Price. They used to sit behind an off-by-
+default checkbox, so a round-trip never compared them; they are ordinary columns
+now, and `10` vs `"10.00"` must still read as unchanged.
 
 ---
 
@@ -56,8 +59,9 @@ docker exec -i cm-pharmacy-db psql -U cmpharmacy -d cm_pharmacy -c \
  where p.sku in ('680','681','683') and bs.branch_id=1 order by p.sku;"
 ```
 
-Then import `case4-stock-only.csv` — mode **Adjustment** (it contains a negative),
-target branch **Plazang Luma - Arayat**, reason `verification test`.
+Set the BranchSwitcher to **Plazang Luma - Arayat**, then import
+`case4-stock-only.csv` — mode **Adjustment** (it contains a negative), reason
+`verification test`.
 
 **Assert in the preview:**
 - 2 rows shown, not 3 — SKU `683` has `Qty Change` of 0 and is `unchanged`
@@ -75,27 +79,34 @@ To undo: re-import the same file with the signs flipped (`-5`, `3`).
 
 ---
 
-## Case 8 — All-branches mode blocks the import until a branch is picked
+## Case 8 — The importer follows the BranchSwitcher
 
-Stock is branch-scoped; products are global. An admin viewing all branches has
-no branch to write stock into.
+Stock is branch-scoped; products are global. The dialog has no branch picker of
+its own — it reads the switcher, so there is exactly one branch control on the
+page and it cannot disagree with itself.
 
-1. Use the **BranchSwitcher** to select **All branches**.
+1. Note which branch the **BranchSwitcher** shows.
 2. Open **Import CSV** and pick any file with a `Qty Change` column.
 
-**Assert:**
-- The **Target branch** select is empty
-- An amber line reads *"You are viewing all branches. Pick a target branch before importing."*
-- The confirm button is **disabled** even though the preview shows changes
-- Choosing a branch enables it
+**Assert:** the line under Mode reads *"Stock movements go to **&lt;that exact
+branch&gt;**"*.
 
-**Then the part that only manual testing catches:** with the dialog closed,
-switch branch via the BranchSwitcher, and reopen the importer.
+**Then the part that only manual testing catches:** close the dialog, switch
+branch via the BranchSwitcher, reopen the importer.
 
-**Assert:** the Target branch now defaults to the branch you just switched to —
-not the one selected when the page first loaded. This was a real bug; the
-dialog stays mounted while closed, so the default was captured once at page
-mount.
+**Assert:** the named branch is the one you just switched to. The dialog stays
+mounted while closed, so a branch copied into local state would still show the
+old one — and silently land the delivery there. It now reads the prop directly
+on every render.
+
+**Assert on apply:** import a small file, then confirm in the DB that
+`branch_stocks` moved for that branch and no other:
+
+```bash
+docker exec -i cm-pharmacy-db psql -U cmpharmacy -d cm_pharmacy -c \
+"select branch_id, current_stock from branch_stocks \
+ where product_id = (select id from products where sku='680');"
+```
 
 ---
 

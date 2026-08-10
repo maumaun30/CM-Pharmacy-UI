@@ -21,9 +21,8 @@ export const buildImportPlan = (input: {
   products: MatchableProduct[];
   categories: CategoryRef[];
   mode: ImportMode;
-  updatePricing: boolean;
 }): ImportPlan => {
-  const { text, products, categories, mode, updatePricing } = input;
+  const { text, products, categories, mode } = input;
   const { headers, rows } = parseCSVFile(text);
   const cols = resolveColumns(headers);
   const match = buildProductMatcher(products);
@@ -197,9 +196,7 @@ export const buildImportPlan = (input: {
       };
     }
 
-    const changedFields = diffProductFields(fields, product, categories, {
-      updatePricing,
-    });
+    const changedFields = diffProductFields(fields, product, categories);
     const currentStock = product.currentStock;
     const resultingStock = currentStock + qtyChange;
 

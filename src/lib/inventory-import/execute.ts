@@ -17,8 +17,6 @@ export interface ExecuteOptions {
   mode: ImportMode;
   branchId: number;
   reason: string;
-  updatePricing: boolean;
-  overwriteExisting: boolean;
   categories: CategoryRef[];
   onProgress?: (done: number, total: number) => void;
 }
@@ -55,8 +53,6 @@ export const executeImportPlan = async (
     mode,
     branchId,
     reason,
-    updatePricing,
-    overwriteExisting,
     onProgress,
   } = options;
 
@@ -64,7 +60,6 @@ export const executeImportPlan = async (
     created: 0,
     updated: 0,
     stocked: 0,
-    skipped: 0,
     failed: 0,
     firstError: "",
   };
@@ -130,17 +125,6 @@ export const executeImportPlan = async (
         }
 
         if (row.status === "update") {
-          if (!overwriteExisting) {
-            // The checkbox governs product master data only. Keep the resolved
-            // id so phase 2 still applies this row's stock movement — someone
-            // who declines to overwrite the sheet's prices still expects the
-            // delivery to arrive.
-            return {
-              row,
-              productId: row.matchedProduct!.id,
-              kind: "skipped" as const,
-            };
-          }
           const body: Record<string, unknown> = {};
           const f = row.fields;
           if (f.name !== undefined) body.name = f.name;
@@ -166,10 +150,8 @@ export const executeImportPlan = async (
           // phase-1 promise rejects — taking its stock movement down with it.
           if (f.categoryName !== undefined && f.categoryName.trim() !== "")
             body.categoryId = await categoryId(f.categoryName);
-          if (updatePricing) {
-            if (f.cost !== undefined) body.cost = f.cost;
-            if (f.price !== undefined) body.price = f.price;
-          }
+          if (f.cost !== undefined) body.cost = f.cost;
+          if (f.price !== undefined) body.price = f.price;
           await client.put(`/products/${row.matchedProduct!.id}`, body);
           return { row, productId: row.matchedProduct!.id, kind: "updated" as const };
         }
@@ -208,7 +190,6 @@ export const executeImportPlan = async (
       const { row, productId, kind } = s.value;
       if (kind === "created") result.created++;
       if (kind === "updated") result.updated++;
-      if (kind === "skipped") result.skipped++;
       if (productId != null) resolved.set(row.lineNumber, productId);
       tick();
     }
@@ -223,9 +204,8 @@ export const executeImportPlan = async (
     const settled = await Promise.allSettled(
       batch.map((row) => {
         const productId = resolved.get(row.lineNumber)!;
-        const unitCost = updatePricing && row.fields.cost != null ? row.fields.cost : null;
-        const sellingPrice =
-          updatePricing && row.fields.price != null ? row.fields.price : null;
+        const unitCost = row.fields.cost ?? null;
+        const sellingPrice = row.fields.price ?? null;
 
         if (mode === "delivery") {
           return client.post("/stock/add", {

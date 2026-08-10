@@ -102,7 +102,6 @@ export interface ImportResult {
   created: number;
   updated: number;
   stocked: number;
-  skipped: number;
   failed: number;
   firstError: string;
 }
