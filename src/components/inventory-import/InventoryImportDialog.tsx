@@ -171,6 +171,16 @@ const InventoryImportDialog = ({
         <div className="space-y-5">
           <div className="grid gap-5 sm:grid-cols-2">
             <div className="space-y-4">
+              {branchId != null && (
+                <div className="space-y-2">
+                  <Label>Active branch</Label>
+                  <p className="flex items-center gap-2 text-sm font-medium text-gray-800">
+                    <Building2 className="h-4 w-4 shrink-0 text-emerald-600" />
+                    <span className="truncate">{branchName}</span>
+                  </p>
+                </div>
+              )}
+
               <div className="space-y-2">
                 <Label>Mode</Label>
                 <div className="flex gap-2">
@@ -192,16 +202,6 @@ const InventoryImportDialog = ({
                   </Button>
                 </div>
               </div>
-
-              {branchId != null && (
-                <div className="space-y-2">
-                  <Label>Active branch</Label>
-                  <p className="flex items-center gap-2 text-sm font-medium text-gray-800">
-                    <Building2 className="h-4 w-4 shrink-0 text-emerald-600" />
-                    <span className="truncate">{branchName}</span>
-                  </p>
-                </div>
-              )}
             </div>
 
             {mode === "adjustment" && (
