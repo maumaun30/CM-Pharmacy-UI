@@ -168,42 +168,44 @@ const InventoryImportDialog = ({
           <DialogTitle>Import inventory CSV</DialogTitle>
         </DialogHeader>
 
-        <div className="space-y-4">
-          <div className="grid gap-4 sm:grid-cols-3">
-            <div className="space-y-1">
-              <Label>Mode</Label>
-              <div className="flex gap-2">
-                <Button
-                  type="button"
-                  variant={mode === "delivery" ? "default" : "outline"}
-                  size="sm"
-                  onClick={() => setMode("delivery")}
-                >
-                  Delivery
-                </Button>
-                <Button
-                  type="button"
-                  variant={mode === "adjustment" ? "default" : "outline"}
-                  size="sm"
-                  onClick={() => setMode("adjustment")}
-                >
-                  Adjustment
-                </Button>
+        <div className="space-y-5">
+          <div className="grid gap-5 sm:grid-cols-2">
+            <div className="space-y-4">
+              <div className="space-y-2">
+                <Label>Mode</Label>
+                <div className="flex gap-2">
+                  <Button
+                    type="button"
+                    variant={mode === "delivery" ? "default" : "outline"}
+                    size="sm"
+                    onClick={() => setMode("delivery")}
+                  >
+                    Delivery
+                  </Button>
+                  <Button
+                    type="button"
+                    variant={mode === "adjustment" ? "default" : "outline"}
+                    size="sm"
+                    onClick={() => setMode("adjustment")}
+                  >
+                    Adjustment
+                  </Button>
+                </div>
               </div>
+
+              {branchId != null && (
+                <div className="space-y-2">
+                  <Label>Active branch</Label>
+                  <p className="flex items-center gap-2 text-sm font-medium text-gray-800">
+                    <Building2 className="h-4 w-4 shrink-0 text-emerald-600" />
+                    <span className="truncate">{branchName}</span>
+                  </p>
+                </div>
+              )}
             </div>
 
-            {branchId != null && (
-              <div className="space-y-1">
-                <Label>Active branch</Label>
-                <p className="flex h-9 items-center gap-2 text-sm font-medium text-gray-800">
-                  <Building2 className="h-4 w-4 shrink-0 text-emerald-600" />
-                  <span className="truncate">{branchName}</span>
-                </p>
-              </div>
-            )}
-
             {mode === "adjustment" && (
-              <div className="space-y-1">
+              <div className="space-y-2">
                 <Label htmlFor="import-reason">Reason</Label>
                 <Input
                   id="import-reason"
