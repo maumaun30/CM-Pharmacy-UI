@@ -92,8 +92,8 @@ interface branch_stock {
 interface Product {
   id: number;
   name: string;
-  brand_name: string;
-  generic_name?: string;
+  brand_name: string | null;
+  generic_name?: string | null;
   sku: string;
   cost: number;
   price: number;
@@ -687,13 +687,18 @@ export default function ProductList() {
   }, []);
 
   const filtered = useMemo(() => {
+    const query = search.trim().toLowerCase();
+    const hits = (value?: string | null) =>
+      !!value && value.toLowerCase().includes(query);
+
     let data = products.filter((p) => {
       const matchesSearch =
-        p.name.toLowerCase().includes(search.toLowerCase()) ||
-        p.brand_name.toLowerCase().includes(search.toLowerCase()) ||
-        p.generic_name?.toLowerCase().includes(search.toLowerCase()) ||
-        p.sku.toLowerCase().includes(search.toLowerCase()) ||
-        p.category?.name.toLowerCase().includes(search.toLowerCase());
+        !query ||
+        hits(p.name) ||
+        hits(p.brand_name) ||
+        hits(p.generic_name) ||
+        hits(p.sku) ||
+        hits(p.category?.name);
 
       const matchesCategory =
         !filterCategory || p.category_id === filterCategory;
