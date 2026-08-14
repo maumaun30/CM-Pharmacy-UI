@@ -67,6 +67,7 @@ import { buildExportCsv } from "@/lib/inventory-import/export";
 import InventoryImportDialog from "@/components/inventory-import/InventoryImportDialog";
 import type { MatchableProduct } from "@/lib/inventory-import/types";
 import { generateSku } from "@/lib/sku";
+import { findDuplicateProducts } from "@/lib/duplicateProducts";
 
 interface Category {
   id: number;
@@ -685,6 +686,19 @@ export default function ProductList() {
       setBatchLoading(false);
     }
   }, []);
+
+  // Advisory only: the SKU is already unique server-side, this catches the same
+  // product being added a second time under a new SKU. Never blocks the save.
+  const duplicateMatches = useMemo(
+    () =>
+      findDuplicateProducts(
+        products,
+        formData.name,
+        null,
+        editingProduct?.id,
+      ).slice(0, 3),
+    [products, formData.name, editingProduct],
+  );
 
   const filtered = useMemo(() => {
     const query = search.trim().toLowerCase();
@@ -1618,6 +1632,33 @@ export default function ProductList() {
                       placeholder="e.g., Paracetamol"
                       className="h-11 border-emerald-200 focus:border-emerald-500 focus:ring-2 focus:ring-emerald-200"
                     />
+                    {duplicateMatches.length > 0 && (
+                      <div className="mt-2 rounded-lg border border-amber-300 bg-amber-50 p-3">
+                        <div className="flex items-start gap-2">
+                          <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber-600" />
+                          <div className="text-xs text-amber-900">
+                            <p className="font-semibold">
+                              {duplicateMatches.length === 1
+                                ? "A product with this name already exists"
+                                : `${duplicateMatches.length} products with this name already exist`}
+                            </p>
+                            <ul className="mt-1 space-y-0.5">
+                              {duplicateMatches.map((match) => (
+                                <li key={match.id}>
+                                  {match.name}
+                                  {match.brand_name ? ` — ${match.brand_name}` : ""}{" "}
+                                  <span className="font-mono">({match.sku})</span>
+                                </li>
+                              ))}
+                            </ul>
+                            <p className="mt-1 text-amber-700">
+                              Add a stock batch to the existing product instead,
+                              unless this is a different pack or supplier.
+                            </p>
+                          </div>
+                        </div>
+                      </div>
+                    )}
                   </div>
                   <div>
                     <Label className="mb-2 text-sm font-semibold text-gray-700">
