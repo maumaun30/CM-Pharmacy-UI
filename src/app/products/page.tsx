@@ -56,6 +56,7 @@ import {
   Square,
   XSquare,
   Layers,
+  Wand2,
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import Link from "next/link";
@@ -65,6 +66,7 @@ import { downloadCSV } from "@/lib/csv";
 import { buildExportCsv } from "@/lib/inventory-import/export";
 import InventoryImportDialog from "@/components/inventory-import/InventoryImportDialog";
 import type { MatchableProduct } from "@/lib/inventory-import/types";
+import { generateSku } from "@/lib/sku";
 
 interface Category {
   id: number;
@@ -203,7 +205,13 @@ export default function ProductList() {
     minimum_stock: "",
     reorder_point: "",
     maximum_stock: "",
+    // Create-only: opening quantity, posted as a PURCHASE after the product exists.
+    initial_stock: "",
+    initial_stock_branch_id: "",
   });
+  // True while the SKU field still holds a code we generated. Lets a category
+  // change re-derive the SKU without ever overwriting one typed by hand.
+  const [skuAutoFilled, setSkuAutoFilled] = useState(false);
   const [loading, setLoading] = useState(false);
   const [fetchLoading, setFetchLoading] = useState(true);
   const [importOpen, setImportOpen] = useState(false);
@@ -328,7 +336,33 @@ export default function ProductList() {
     fetchBranches();
   }, [fetchCategories, fetchBranches]);
 
+  // Next free SKU for a category, derived from the SKUs already on this page
+  // (`<CAT>-0001`). The API's unique check is still the authority — a race with
+  // another user costs a rejected save, never a duplicate row.
+  const nextSkuForCategory = useCallback(
+    (categoryId: string) => {
+      const category = categories.find((c) => String(c.id) === categoryId);
+      return generateSku(
+        category?.name,
+        products.map((p) => p.sku),
+      );
+    },
+    [categories, products],
+  );
+
+  const handleGenerateSku = useCallback(() => {
+    if (!formData.category_id) {
+      return toast.error("Select a category first — the SKU prefix comes from it");
+    }
+    setFormData((prev) => ({
+      ...prev,
+      sku: nextSkuForCategory(prev.category_id),
+    }));
+    setSkuAutoFilled(true);
+  }, [formData.category_id, nextSkuForCategory]);
+
   const handleOpenModal = useCallback((product?: Product) => {
+    setSkuAutoFilled(false);
     if (product) {
       setEditingProduct(product);
       // Prefill thresholds from the active branch's stock row (if any).
@@ -351,6 +385,8 @@ export default function ProductList() {
         minimum_stock: bs?.minimum_stock != null ? String(bs.minimum_stock) : "",
         reorder_point: bs?.reorder_point != null ? String(bs.reorder_point) : "",
         maximum_stock: bs?.maximum_stock != null ? String(bs.maximum_stock) : "",
+        initial_stock: "",
+        initial_stock_branch_id: "",
       });
     } else {
       setEditingProduct(null);
@@ -368,6 +404,8 @@ export default function ProductList() {
         minimum_stock: "",
         reorder_point: "",
         maximum_stock: "",
+        initial_stock: "",
+        initial_stock_branch_id: "",
       });
     }
     setModalOpen(true);
@@ -393,12 +431,26 @@ export default function ProductList() {
       minimum_stock,
       reorder_point,
       maximum_stock,
+      initial_stock,
+      initial_stock_branch_id,
     } = formData;
 
     if (!name || !sku || !cost || !price || !category_id) {
       return toast.error(
         "Name, SKU, Cost, Price and Category are required",
       );
+    }
+
+    // Opening stock is create-only. Validate before the product is inserted so
+    // a bad quantity doesn't leave a product behind with no stock movement.
+    const openingQty = initial_stock !== "" ? parseInt(initial_stock) : 0;
+    if (!editingProduct && initial_stock !== "") {
+      if (isNaN(openingQty) || openingQty < 0) {
+        return toast.error("Initial stock must be zero or a positive number");
+      }
+      if (openingQty > 0 && !activeBranchId && !initial_stock_branch_id) {
+        return toast.error("Select a branch to receive the initial stock");
+      }
     }
 
     try {
@@ -441,8 +493,31 @@ export default function ProductList() {
         }
         toast.success("Product updated successfully");
       } else {
-        await api.post("/products", payload);
-        toast.success("Product created successfully");
+        const res = await api.post("/products", payload);
+        // Opening stock goes through /stock/add rather than the createProduct
+        // branchStocks input, so it lands in the `stocks` ledger and shows up in
+        // stock history and the Batches modal like any other delivery.
+        if (openingQty > 0) {
+          try {
+            await api.post("/stock/add", {
+              productId: res.data.id,
+              quantity: openingQty,
+              unitCost: parseFloat(cost),
+              sellingPrice: parseFloat(price),
+              expiryDate: expiry_date || undefined,
+              branchId: initial_stock_branch_id !== ""
+                ? parseInt(initial_stock_branch_id)
+                : undefined,
+            });
+            toast.success(`Product created with ${openingQty} in stock`);
+          } catch {
+            toast.error(
+              "Product created, but the initial stock couldn't be added — use Add Stock on the row",
+            );
+          }
+        } else {
+          toast.success("Product created successfully");
+        }
       }
       handleCloseModal();
       fetchProducts();
@@ -1543,14 +1618,30 @@ export default function ProductList() {
                     <Label className="mb-2 text-sm font-semibold text-gray-700">
                       SKU *
                     </Label>
-                    <Input
-                      value={formData.sku}
-                      onChange={(e) =>
-                        setFormData({ ...formData, sku: e.target.value })
-                      }
-                      placeholder="e.g., MED001"
-                      className="h-11 border-emerald-200 focus:border-emerald-500 focus:ring-2 focus:ring-emerald-200"
-                    />
+                    <div className="flex gap-2">
+                      <Input
+                        value={formData.sku}
+                        onChange={(e) => {
+                          setSkuAutoFilled(false);
+                          setFormData({ ...formData, sku: e.target.value });
+                        }}
+                        placeholder="e.g., MED-0001"
+                        className="h-11 flex-1 border-emerald-200 focus:border-emerald-500 focus:ring-2 focus:ring-emerald-200"
+                      />
+                      <Button
+                        type="button"
+                        variant="outline"
+                        onClick={handleGenerateSku}
+                        className="h-11 shrink-0 border-emerald-300 text-emerald-700 hover:bg-emerald-50 hover:text-emerald-800"
+                      >
+                        <Wand2 className="w-4 h-4 mr-2" />
+                        Generate
+                      </Button>
+                    </div>
+                    <p className="mt-1.5 text-xs text-gray-500">
+                      Autofills as <span className="font-mono">CAT-0001</span>{" "}
+                      from the category, continuing that prefix&apos;s numbering.
+                    </p>
                   </div>
 
                   <div>
@@ -1658,12 +1749,23 @@ export default function ProductList() {
                       <select
                         className="w-full border-2 border-emerald-200 rounded-lg px-3 py-2.5 focus:border-emerald-500 focus:ring-2 focus:ring-emerald-200 outline-none"
                         value={formData.category_id}
-                        onChange={(e) =>
+                        onChange={(e) => {
+                          const category_id = e.target.value;
+                          // Autofill the SKU on create when the field is empty or
+                          // still holds a code we generated; a hand-typed SKU wins.
+                          const autofill =
+                            !editingProduct &&
+                            !!category_id &&
+                            (formData.sku === "" || skuAutoFilled);
                           setFormData({
                             ...formData,
-                            category_id: e.target.value,
-                          })
-                        }
+                            category_id,
+                            sku: autofill
+                              ? nextSkuForCategory(category_id)
+                              : formData.sku,
+                          });
+                          if (autofill) setSkuAutoFilled(true);
+                        }}
                       >
                         <option value="">Select category</option>
                         {categories.map((cat) => (
@@ -1757,6 +1859,83 @@ export default function ProductList() {
                     </div>
                   </div>
                 </div>
+
+                {/* Initial stock — create only. Posted as a PURCHASE after the
+                    product exists, so it appears in stock history / batches. */}
+                {!editingProduct && (
+                  <div className="space-y-4">
+                    <div className="flex items-center gap-2 pb-2 border-b-2 border-emerald-100">
+                      <Package className="h-5 w-5 text-emerald-600" />
+                      <h3 className="font-bold text-gray-800">
+                        Initial Stock
+                        <span className="ml-2 text-xs font-medium text-gray-500">
+                          optional
+                        </span>
+                      </h3>
+                    </div>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                      <div>
+                        <Label className="mb-2 text-sm font-semibold text-gray-700">
+                          Quantity on hand
+                        </Label>
+                        <Input
+                          type="number"
+                          min="0"
+                          value={formData.initial_stock}
+                          onChange={(e) =>
+                            setFormData({
+                              ...formData,
+                              initial_stock: e.target.value,
+                            })
+                          }
+                          placeholder="0"
+                          className="h-11 border-emerald-200 focus:border-emerald-500 focus:ring-2 focus:ring-emerald-200"
+                        />
+                      </div>
+                      {activeBranchId ? (
+                        <div className="flex items-end">
+                          <p className="text-sm text-gray-600 pb-2.5">
+                            Received at{" "}
+                            <span className="font-semibold text-gray-800">
+                              {activeBranchName}
+                            </span>
+                          </p>
+                        </div>
+                      ) : (
+                        <div>
+                          <Label className="mb-2 text-sm font-semibold text-gray-700">
+                            Receiving branch
+                            {formData.initial_stock !== "" &&
+                              parseInt(formData.initial_stock) > 0 &&
+                              " *"}
+                          </Label>
+                          <select
+                            className="w-full border-2 border-emerald-200 rounded-lg px-3 py-2.5 focus:border-emerald-500 focus:ring-2 focus:ring-emerald-200 outline-none"
+                            value={formData.initial_stock_branch_id}
+                            onChange={(e) =>
+                              setFormData({
+                                ...formData,
+                                initial_stock_branch_id: e.target.value,
+                              })
+                            }
+                          >
+                            <option value="">Select branch</option>
+                            {branches.map((b) => (
+                              <option key={b.id} value={b.id}>
+                                {b.name}
+                              </option>
+                            ))}
+                          </select>
+                        </div>
+                      )}
+                    </div>
+                    <p className="text-xs text-gray-500">
+                      Recorded as a stock delivery using the Cost, Price and
+                      Expiry Date above, so it shows in stock history and
+                      batches. Leave blank to start at zero.
+                    </p>
+                  </div>
+                )}
 
                 {/* Stock thresholds — edit only; targets the active branch's row */}
                 {editingProduct && (
