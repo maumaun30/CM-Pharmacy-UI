@@ -65,7 +65,8 @@ import { motion } from "framer-motion";
 import { downloadCSV } from "@/lib/csv";
 import { buildExportCsv } from "@/lib/inventory-import/export";
 import InventoryImportDialog from "@/components/inventory-import/InventoryImportDialog";
-import type { MatchableProduct } from "@/lib/inventory-import/types";
+import type { MatchableProduct, ImportMode } from "@/lib/inventory-import/types";
+import { validateStockEntry, parseEntryQuantity, resultingStock } from "@/lib/stock-entry";
 import { generateSku } from "@/lib/sku";
 import { findDuplicateProducts } from "@/lib/duplicateProducts";
 
@@ -231,11 +232,15 @@ export default function ProductList() {
   const [priceProduct, setPriceProduct] = useState<Product | null>(null);
   const [priceForm, setPriceForm] = useState({ cost: "", price: "" });
 
-  // Quick add-stock modal (replaces the /stock/add link in row actions)
+  // Quick stock-entry modal (replaces the /stock/add link in row actions).
+  // Carries the same two modes as the CSV importer: a delivery adds stock, an
+  // adjustment applies a signed delta with a reason.
   const [addStockOpen, setAddStockOpen] = useState(false);
   const [addStockProduct, setAddStockProduct] = useState<Product | null>(null);
   const [addStockForm, setAddStockForm] = useState({
+    mode: "delivery" as ImportMode,
     quantity: "",
+    reason: "",
     cost: "",
     price: "",
     expiry_date: "",
@@ -593,34 +598,67 @@ export default function ProductList() {
 
   const openAddStock = useCallback((product: Product) => {
     setAddStockProduct(product);
-    setAddStockForm({ quantity: "", cost: "", price: "", expiry_date: "", branch_id: "" });
+    setAddStockForm({
+      mode: "delivery",
+      quantity: "",
+      reason: "",
+      cost: "",
+      price: "",
+      expiry_date: "",
+      branch_id: "",
+    });
     setAddStockOpen(true);
   }, []);
 
   const saveAddStock = useCallback(async () => {
     if (!addStockProduct) return;
-    const quantity = parseInt(addStockForm.quantity);
-    if (isNaN(quantity) || quantity <= 0) {
-      return toast.error("Quantity must be a positive number");
-    }
-    // Admin in all-branches view has no session branch — the modal requires one.
-    if (!activeBranchId && !addStockForm.branch_id) {
-      return toast.error("Select a branch to receive the stock");
-    }
-    const targetBranchId = activeBranchId ?? parseInt(addStockForm.branch_id);
+    const { mode } = addStockForm;
+    const targetBranchId =
+      activeBranchId ??
+      (addStockForm.branch_id !== "" ? parseInt(addStockForm.branch_id) : null);
+
+    const check = validateStockEntry({
+      mode,
+      quantity: addStockForm.quantity,
+      reason: addStockForm.reason,
+      branchId: targetBranchId,
+    });
+    if (!check.ok) return toast.error(check.error);
+    const quantity = check.quantity;
+
     const newCost = addStockForm.cost !== "" ? parseFloat(addStockForm.cost) : undefined;
     const newPrice = addStockForm.price !== "" ? parseFloat(addStockForm.price) : undefined;
-    const newExpiry = addStockForm.expiry_date !== "" ? addStockForm.expiry_date : undefined;
+    // Expiry belongs to a delivery's batch; /stock/adjust has no batch to hang
+    // it on and ignores the field, so it is hidden (and unsent) in adjustments.
+    const newExpiry =
+      mode === "delivery" && addStockForm.expiry_date !== ""
+        ? addStockForm.expiry_date
+        : undefined;
     try {
       setAddStockLoading(true);
-      await api.post("/stock/add", {
-        productId: addStockProduct.id,
-        quantity,
-        unitCost: newCost,
-        sellingPrice: newPrice,
-        expiryDate: newExpiry,
-        branchId: addStockForm.branch_id !== "" ? parseInt(addStockForm.branch_id) : undefined,
-      });
+      if (mode === "delivery") {
+        await api.post("/stock/add", {
+          productId: addStockProduct.id,
+          quantity,
+          unitCost: newCost,
+          sellingPrice: newPrice,
+          expiryDate: newExpiry,
+          branchId: targetBranchId ?? undefined,
+        });
+      } else {
+        await api.post("/stock/adjust", {
+          productId: addStockProduct.id,
+          branchId: targetBranchId ?? undefined,
+          quantity,
+          reason: addStockForm.reason.trim(),
+          unitCost: newCost,
+          sellingPrice: newPrice,
+        });
+      }
+      // The server clamps a deduction at zero, so patch by the applied delta
+      // rather than the requested one or the row drifts from the server.
+      const branchBefore = getStockForBranch(addStockProduct, targetBranchId);
+      const applied = resultingStock(branchBefore, quantity) - branchBefore;
       // Patch the row in place instead of refetching the whole list — avoids
       // the full-table "Loading products..." flash for a stock top-up.
       setProducts((prev) =>
@@ -628,12 +666,12 @@ export default function ProductList() {
           if (p.id !== addStockProduct.id) return p;
           const branch_stocks = p.branch_stocks?.map((bs) =>
             bs.branch_id === targetBranchId
-              ? { ...bs, current_stock: (bs.current_stock || 0) + quantity }
+              ? { ...bs, current_stock: resultingStock(bs.current_stock || 0, quantity) }
               : bs,
           );
           return {
             ...p,
-            totalStock: (p.totalStock || 0) + quantity,
+            totalStock: Math.max(0, (p.totalStock || 0) + applied),
             cost: newCost ?? p.cost,
             price: newPrice ?? p.price,
             expiry_date: newExpiry ?? p.expiry_date,
@@ -641,18 +679,44 @@ export default function ProductList() {
           };
         }),
       );
-      toast.success(
-        newCost !== undefined || newPrice !== undefined || newExpiry !== undefined
-          ? "Stock added and product details updated"
-          : "Stock added",
-      );
+      const pricingTouched =
+        newCost !== undefined || newPrice !== undefined || newExpiry !== undefined;
+      if (mode === "delivery") {
+        toast.success(
+          pricingTouched ? "Stock added and product details updated" : "Stock added",
+        );
+      } else {
+        toast.success(
+          `Stock adjusted by ${quantity > 0 ? "+" : ""}${quantity}${
+            pricingTouched ? " and product details updated" : ""
+          }`,
+        );
+      }
       setAddStockOpen(false);
       setAddStockProduct(null);
     } catch (err: any) {
-      toast.error(err.response?.data?.message || "Error adding stock");
+      toast.error(
+        err.response?.data?.message ||
+          (mode === "delivery" ? "Error adding stock" : "Error adjusting stock"),
+      );
     } finally {
       setAddStockLoading(false);
     }
+  }, [addStockProduct, addStockForm, activeBranchId]);
+
+  // Live preview for the stock modal: what this entry leaves on the shelf.
+  // Null until the form is valid, so the user isn't shown a number derived
+  // from a half-typed quantity.
+  const addStockPreview = useMemo(() => {
+    if (!addStockProduct) return null;
+    const branchId =
+      activeBranchId ??
+      (addStockForm.branch_id !== "" ? parseInt(addStockForm.branch_id) : null);
+    if (branchId == null) return null;
+    const qty = parseEntryQuantity(addStockForm.mode, addStockForm.quantity);
+    if (qty === null) return null;
+    const current = getStockForBranch(addStockProduct, branchId);
+    return { current, resulting: resultingStock(current, qty) };
   }, [addStockProduct, addStockForm, activeBranchId]);
 
   // Batch list = the product's incoming deliveries, each carrying its own batch
@@ -2189,11 +2253,53 @@ export default function ProductList() {
               <DialogHeader>
                 <DialogTitle className="text-2xl font-bold text-gray-800 flex items-center gap-2">
                   <Package className="h-6 w-6 text-purple-600" />
-                  Add Stock - {addStockProduct?.name}
+                  Stock Entry - {addStockProduct?.name}
                 </DialogTitle>
               </DialogHeader>
 
               <div className="py-4 space-y-4">
+                {/* Same two modes as the CSV importer, so a single-product fix
+                    and a bulk file behave identically. */}
+                <div>
+                  <Label className="mb-2 text-sm font-semibold text-gray-700">
+                    Mode
+                  </Label>
+                  <div className="flex gap-2">
+                    <Button
+                      type="button"
+                      variant={addStockForm.mode === "delivery" ? "default" : "outline"}
+                      className={
+                        addStockForm.mode === "delivery"
+                          ? "bg-purple-600 hover:bg-purple-700 text-white"
+                          : "border-gray-300"
+                      }
+                      onClick={() =>
+                        setAddStockForm({ ...addStockForm, mode: "delivery" })
+                      }
+                    >
+                      Delivery
+                    </Button>
+                    <Button
+                      type="button"
+                      variant={addStockForm.mode === "adjustment" ? "default" : "outline"}
+                      className={
+                        addStockForm.mode === "adjustment"
+                          ? "bg-purple-600 hover:bg-purple-700 text-white"
+                          : "border-gray-300"
+                      }
+                      onClick={() =>
+                        setAddStockForm({ ...addStockForm, mode: "adjustment" })
+                      }
+                    >
+                      Adjustment
+                    </Button>
+                  </div>
+                  <p className="mt-1 text-xs text-gray-500">
+                    {addStockForm.mode === "delivery"
+                      ? "Received goods. Adds to stock and starts a new batch."
+                      : "Correction. Enter a signed change (-5 removes 5) and a reason."}
+                  </p>
+                </div>
                 {!activeBranchId && (
                   <div>
                     <Label className="mb-2 text-sm font-semibold text-gray-700">
@@ -2224,7 +2330,7 @@ export default function ProductList() {
                   </Label>
                   <Input
                     type="number"
-                    min="1"
+                    {...(addStockForm.mode === "delivery" ? { min: "1" } : {})}
                     value={addStockForm.quantity}
                     onChange={(e) =>
                       setAddStockForm({
@@ -2232,10 +2338,34 @@ export default function ProductList() {
                         quantity: e.target.value,
                       })
                     }
-                    placeholder="0"
+                    placeholder={addStockForm.mode === "delivery" ? "0" : "-5"}
                     className="h-11 border-emerald-200 focus:border-emerald-500 focus:ring-2 focus:ring-emerald-200"
                   />
+                  {addStockPreview && (
+                    <p className="mt-1 text-xs text-gray-600">
+                      Current {addStockPreview.current} → Resulting{" "}
+                      <span className="font-semibold">{addStockPreview.resulting}</span>
+                    </p>
+                  )}
                 </div>
+                {addStockForm.mode === "adjustment" && (
+                  <div>
+                    <Label className="mb-2 text-sm font-semibold text-gray-700">
+                      Reason *
+                    </Label>
+                    <Input
+                      value={addStockForm.reason}
+                      onChange={(e) =>
+                        setAddStockForm({
+                          ...addStockForm,
+                          reason: e.target.value,
+                        })
+                      }
+                      placeholder="Physical count correction"
+                      className="h-11 border-emerald-200 focus:border-emerald-500 focus:ring-2 focus:ring-emerald-200"
+                    />
+                  </div>
+                )}
                 <div className="grid grid-cols-2 gap-4">
                   <div>
                     <Label className="mb-2 text-sm font-semibold text-gray-700">
@@ -2274,31 +2404,35 @@ export default function ProductList() {
                     />
                   </div>
                 </div>
-                <div>
-                  <Label className="mb-2 text-sm font-semibold text-gray-700">
-                    New Expiry Date
-                  </Label>
-                  <Input
-                    type="date"
-                    value={addStockForm.expiry_date}
-                    onChange={(e) =>
-                      setAddStockForm({
-                        ...addStockForm,
-                        expiry_date: e.target.value,
-                      })
-                    }
-                    className="h-11 border-emerald-200 focus:border-emerald-500 focus:ring-2 focus:ring-emerald-200"
-                  />
-                  {addStockProduct?.expiry_date && (
-                    <p className="mt-1 text-xs text-gray-500">
-                      Current: {dayjs(addStockProduct.expiry_date).format("MMM D, YYYY")}
-                    </p>
-                  )}
-                </div>
+                {/* Expiry belongs to a delivery's batch; /stock/adjust has no
+                    batch to attach it to and ignores the field. */}
+                {addStockForm.mode === "delivery" && (
+                  <div>
+                    <Label className="mb-2 text-sm font-semibold text-gray-700">
+                      New Expiry Date
+                    </Label>
+                    <Input
+                      type="date"
+                      value={addStockForm.expiry_date}
+                      onChange={(e) =>
+                        setAddStockForm({
+                          ...addStockForm,
+                          expiry_date: e.target.value,
+                        })
+                      }
+                      className="h-11 border-emerald-200 focus:border-emerald-500 focus:ring-2 focus:ring-emerald-200"
+                    />
+                    {addStockProduct?.expiry_date && (
+                      <p className="mt-1 text-xs text-gray-500">
+                        Current: {dayjs(addStockProduct.expiry_date).format("MMM D, YYYY")}
+                      </p>
+                    )}
+                  </div>
+                )}
                 <p className="text-xs text-gray-500">
                   Leave a field blank to keep its current value. Filling
-                  cost, price, or expiry also updates the product&apos;s
-                  master record.
+                  cost{addStockForm.mode === "delivery" ? ", price, or expiry" : " or price"}{" "}
+                  also updates the product&apos;s master record.
                 </p>
               </div>
 
@@ -2318,7 +2452,7 @@ export default function ProductList() {
                   {addStockLoading && (
                     <Loader2 className="h-4 w-4 mr-2 animate-spin" />
                   )}
-                  Add Stock
+                  {addStockForm.mode === "delivery" ? "Add Stock" : "Apply Adjustment"}
                 </Button>
               </DialogFooter>
             </DialogContent>
