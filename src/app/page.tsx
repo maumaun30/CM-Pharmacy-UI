@@ -5,6 +5,7 @@ import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { toast } from "sonner";
+import { useSocket, useSocketEvent } from "@/context/SocketContext";
 import api from "@/lib/api";
 import ProtectedRoute from "@/components/ProtectedRoute";
 import SalesTrendChart from "@/components/SalesTrendChart";
@@ -33,7 +34,6 @@ import {
 import Link from "next/link";
 import { motion, AnimatePresence } from "framer-motion";
 import dayjs from "dayjs";
-import { io, Socket } from "socket.io-client";
 import { getFullName } from "@/lib/utils";
 import type { AuthUser } from "@/context/AuthContext";
 
@@ -96,7 +96,6 @@ const HomePage = () => {
     recentSales: [],
   });
   const [statsLoading, setStatsLoading] = useState(true);
-  const [isConnected, setIsConnected] = useState(false);
   const [newSaleAnimation, setNewSaleAnimation] = useState(false);
   const [latestSaleEvent, setLatestSaleEvent] = useState<{
     id: number;
@@ -105,7 +104,9 @@ const HomePage = () => {
     branchId: number;
   } | null>(null);
 
-  const socketRef = useRef<Socket | null>(null);
+  // Connection state comes from the app-wide socket (SocketProvider); this page
+  // no longer opens one of its own.
+  const { isConnected } = useSocket();
   const animationTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Background refresh — no loading spinner, called from socket handlers
@@ -119,75 +120,53 @@ const HomePage = () => {
     }
   };
 
-  const initializeSocket = (user: AuthUser) => {
-    if (socketRef.current) return;
+  useSocketEvent<{
+    id: number;
+    totalAmount: string;
+    soldAt: string;
+    branchId: number;
+    user: { fullName: string; username: string };
+  }>("new-sale", (saleData) => {
+    if (animationTimerRef.current) clearTimeout(animationTimerRef.current);
+    setNewSaleAnimation(true);
+    animationTimerRef.current = setTimeout(() => setNewSaleAnimation(false), 1000);
 
-    const socketUrl = process.env.NEXT_PUBLIC_SOCKET_URL || "http://localhost:3000";
-    let token: string | null = null;
-    try {
-      token = localStorage.getItem("token");
-    } catch {}
-    const newSocket = io(socketUrl, {
-      // Server now requires a valid JWT on the socket handshake.
-      auth: { token },
-      transports: ["websocket", "polling"],
-      reconnection: true,
-      reconnectionDelay: 1000,
-      reconnectionAttempts: 5,
+    toast.success(
+      `New sale: ₱${parseFloat(saleData.totalAmount).toLocaleString(undefined, {
+        minimumFractionDigits: 2,
+      })}`,
+      { icon: <ShoppingCart className="h-4 w-4" /> },
+    );
+
+    setLatestSaleEvent({
+      id: saleData.id,
+      totalAmount: parseFloat(saleData.totalAmount),
+      soldAt: saleData.soldAt,
+      branchId: saleData.branchId,
     });
 
-    newSocket.on("connect", () => {
-      setIsConnected(true);
-      const isViewingAllBranches = isAdminRole(user) && !user.current_branch_id;
-      if (isViewingAllBranches) {
-        newSocket.emit("join-branch", null);
-      } else {
-        const branchId = user.current_branch_id || user.branch_id;
-        newSocket.emit("join-branch", branchId);
-      }
-    });
-
-    newSocket.on("connect_error", () => setIsConnected(false));
-    newSocket.on("disconnect", () => setIsConnected(false));
-
-    newSocket.on("new-sale", (saleData) => {
-      if (animationTimerRef.current) clearTimeout(animationTimerRef.current);
-      setNewSaleAnimation(true);
-      animationTimerRef.current = setTimeout(() => setNewSaleAnimation(false), 1000);
-
-      toast.success(
-        `New sale: ₱${parseFloat(saleData.totalAmount).toLocaleString(undefined, {
-          minimumFractionDigits: 2,
-        })}`,
-        { icon: <ShoppingCart className="h-4 w-4" /> },
-      );
-
-      setLatestSaleEvent({
+    setStats((prev) => {
+      const newSale = {
         id: saleData.id,
+        createdAt: saleData.soldAt,
         totalAmount: parseFloat(saleData.totalAmount),
-        soldAt: saleData.soldAt,
-        branchId: saleData.branchId,
-      });
-
-      setStats((prev) => {
-        const newSale = {
-          id: saleData.id,
-          createdAt: saleData.soldAt,
-          totalAmount: parseFloat(saleData.totalAmount),
-          user: saleData.user,
-        };
-        const existingSales = prev.recentSales.filter((sale) => sale.id !== saleData.id);
-        return {
-          ...prev,
-          todaySales: prev.todaySales + parseFloat(saleData.totalAmount),
-          todayTransactions: prev.todayTransactions + 1,
-          recentSales: [newSale, ...existingSales].slice(0, 10),
-        };
-      });
+        user: saleData.user,
+      };
+      const existingSales = prev.recentSales.filter((sale) => sale.id !== saleData.id);
+      return {
+        ...prev,
+        todaySales: prev.todaySales + parseFloat(saleData.totalAmount),
+        todayTransactions: prev.todayTransactions + 1,
+        recentSales: [newSale, ...existingSales].slice(0, 10),
+      };
     });
+  });
 
-    newSocket.on("stock-updated", () => fetchDashboardStats());
-    newSocket.on("low-stock-alert", (productData) => {
+  useSocketEvent("stock-updated", () => fetchDashboardStats());
+
+  useSocketEvent<{ name: string; current_stock?: number; minimum_stock?: number | null }>(
+    "low-stock-alert",
+    (productData) => {
       // Payload is snake_case (see emitLowStockAlert). Critical = at/below the
       // minimum threshold; otherwise it's a (less urgent) low-stock warning.
       const remaining = productData.current_stock ?? 0;
@@ -201,11 +180,10 @@ const HomePage = () => {
         toast.warning(message, { icon: <AlertTriangle className="h-4 w-4" />, duration: 5000 });
       }
       fetchDashboardStats();
-    });
-    newSocket.on("dashboard-refresh", () => fetchDashboardStats());
+    },
+  );
 
-    socketRef.current = newSocket;
-  };
+  useSocketEvent("dashboard-refresh", () => fetchDashboardStats());
 
   // Fetch dashboard stats as soon as the component mounts — runs in parallel with auth
   useEffect(() => {
@@ -226,17 +204,8 @@ const HomePage = () => {
 
     return () => {
       if (animationTimerRef.current) clearTimeout(animationTimerRef.current);
-      if (socketRef.current) {
-        socketRef.current.disconnect();
-        socketRef.current = null;
-      }
     };
   }, []);
-
-  // Initialize socket once auth resolves and user is available
-  useEffect(() => {
-    if (currentUser) initializeSocket(currentUser);
-  }, [currentUser]);
 
   const isViewingAllBranches =
     isAdminRole(currentUser) && !currentUser?.current_branch_id;

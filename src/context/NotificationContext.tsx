@@ -1,8 +1,8 @@
 "use client";
 
-// Global notification state + the app-wide realtime socket for notification
-// delivery. Mounted inside AuthProvider (layout.tsx). Owns ONE Socket.IO
-// connection; pages with their own sockets (dashboard) are unaffected.
+// Global notification state. Mounted inside SocketProvider (layout.tsx) and
+// listens on the app's single shared socket -- it no longer opens one of its
+// own. See SocketContext for why the tab holds exactly one connection.
 //
 // Events consumed:
 //   notification:new         → prepend to list, bump unread, sonner toast
@@ -16,12 +16,11 @@ import React, {
   useCallback,
   useContext,
   useEffect,
-  useRef,
   useState,
 } from "react";
-import { io, Socket } from "socket.io-client";
 import { toast } from "sonner";
 import { useAuth } from "@/hooks/useAuth";
+import { useSocketEvent } from "@/context/SocketContext";
 import {
   AppNotification,
   listNotifications,
@@ -52,7 +51,6 @@ export function NotificationProvider({ children }: { children: React.ReactNode }
   const [notifications, setNotifications] = useState<AppNotification[]>([]);
   const [unreadCount, setUnreadCount] = useState(0);
   const [loading, setLoading] = useState(false);
-  const socketRef = useRef<Socket | null>(null);
 
   const refresh = useCallback(async () => {
     if (!user) return;
@@ -94,48 +92,24 @@ export function NotificationProvider({ children }: { children: React.ReactNode }
     refresh();
   }, [refresh]);
 
-  useEffect(() => {
-    if (!user || socketRef.current) return;
+  useSocketEvent<AppNotification>("notification:new", (n) => {
+    setNotifications((prev) => [n, ...prev].slice(0, 50));
+    setUnreadCount((c) => c + 1);
+    const show =
+      n.type === "low_stock"
+        ? toast.warning
+        : n.type === "refund_declined"
+          ? toast.error
+          : toast.info;
+    show(n.title, { description: n.body });
+  });
 
-    let token: string | null = null;
-    try {
-      token = window.localStorage?.getItem?.("token") ?? null;
-    } catch {
-      return;
-    }
-    if (!token) return;
-
-    const socketUrl = process.env.NEXT_PUBLIC_SOCKET_URL || "http://localhost:3000";
-    const socket = io(socketUrl, {
-      auth: { token },
-      transports: ["websocket", "polling"],
-    });
-
-    socket.on("notification:new", (n: AppNotification) => {
-      setNotifications((prev) => [n, ...prev].slice(0, 50));
-      setUnreadCount((c) => c + 1);
-      const show =
-        n.type === "low_stock"
-          ? toast.warning
-          : n.type === "refund_declined"
-            ? toast.error
-            : toast.info;
-      show(n.title, { description: n.body });
-    });
-
-    const queueChanged = () => {
-      window.dispatchEvent(new CustomEvent("refund-requests:changed"));
-    };
-    socket.on("refund-request:new", queueChanged);
-    socket.on("refund-request:resolved", queueChanged);
-
-    socketRef.current = socket;
-
-    return () => {
-      socket.disconnect();
-      socketRef.current = null;
-    };
-  }, [user]);
+  // Refund queue pages listen for this window event and refetch.
+  const queueChanged = useCallback(() => {
+    window.dispatchEvent(new CustomEvent("refund-requests:changed"));
+  }, []);
+  useSocketEvent("refund-request:new", queueChanged);
+  useSocketEvent("refund-request:resolved", queueChanged);
 
   return (
     <NotificationContext.Provider

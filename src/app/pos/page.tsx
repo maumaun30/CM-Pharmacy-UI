@@ -12,6 +12,7 @@ import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import ProtectedRoute from "@/components/ProtectedRoute";
 import { toast } from "sonner";
+import { useSocketEvent } from "@/context/SocketContext";
 import api from "@/lib/api";
 import {
   Loader2,
@@ -42,7 +43,6 @@ import {
 } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
-import { io, Socket } from "socket.io-client";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { useAuth } from "@/hooks/useAuth";
 
@@ -698,7 +698,6 @@ const POSPage = () => {
   const [searchQuery, setSearchQuery] = useState("");
   const [viewMode, setViewMode] = useState<ViewMode>("grid");
 
-  const socketRef = useRef<Socket | null>(null);
   const barcodeInputRef = useRef("");
   const barcodeTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
@@ -804,74 +803,46 @@ const POSPage = () => {
   }, [user?.branch_id, user?.current_branch_id]);
 
   // ── Socket.io ────────────────────────────────────────────────────────────────
+  // Listeners hang off the app-wide socket (SocketProvider). This page used to
+  // open its own connection and emit leave-branch on unmount -- on a shared
+  // socket that would have dropped the whole tab out of the branch room.
 
-  useEffect(() => {
-    if (!user || !activeBranch) return;
-
-    const baseURL =
-      api.defaults.baseURL?.replace("/api", "") ?? "http://localhost:5000";
-    let token: string | null = null;
-    try {
-      token = localStorage.getItem("token");
-    } catch {}
-
-    const socket = io(baseURL, {
-      auth: { token },
-      reconnection: true,
-      reconnectionDelay: 1000,
-      reconnectionAttempts: 5,
-    });
-    socketRef.current = socket;
-
-    socket.on("connect", () => socket.emit("join-branch", activeBranch.id));
-    socket.on("connect_error", console.error);
-
-    socket.on(
-      "stock-updated",
-      (data: { productId: number; newStock: number }) => {
-        // Single setProducts call — show toast and update in one pass
-        setProducts((prev) => {
-          const product = prev.find((p) => p.id === data.productId);
-          if (product) {
-            toast.info(`${product.name} stock updated: ${data.newStock}`, {
-              icon: <RefreshCw className="h-4 w-4" />,
-              duration: 3000,
-            });
-          }
-          return prev.map((p) =>
-            p.id === data.productId ? { ...p, current_stock: data.newStock } : p,
-          );
+  useSocketEvent<{ productId: number; newStock: number }>("stock-updated", (data) => {
+    // Single setProducts call — show toast and update in one pass
+    setProducts((prev) => {
+      const product = prev.find((p) => p.id === data.productId);
+      if (product) {
+        toast.info(`${product.name} stock updated: ${data.newStock}`, {
+          icon: <RefreshCw className="h-4 w-4" />,
+          duration: 3000,
         });
+      }
+      return prev.map((p) =>
+        p.id === data.productId ? { ...p, current_stock: data.newStock } : p,
+      );
+    });
 
-        setCart((prev) =>
-          prev.map((item) => {
-            if (item.product.id !== data.productId) return item;
-            const newQty = Math.min(item.quantity, Math.max(0, data.newStock));
-            if (newQty < item.quantity) {
-              toast.warning(
-                `${item.product.name} stock updated. Quantity adjusted.`,
-                { duration: 4000 },
-              );
-            }
-            return {
-              ...item,
-              quantity: newQty,
-              product: { ...item.product, current_stock: data.newStock },
-            };
-          }),
-        );
-      },
+    setCart((prev) =>
+      prev.map((item) => {
+        if (item.product.id !== data.productId) return item;
+        const newQty = Math.min(item.quantity, Math.max(0, data.newStock));
+        if (newQty < item.quantity) {
+          toast.warning(
+            `${item.product.name} stock updated. Quantity adjusted.`,
+            { duration: 4000 },
+          );
+        }
+        return {
+          ...item,
+          quantity: newQty,
+          product: { ...item.product, current_stock: data.newStock },
+        };
+      }),
     );
+  });
 
-    socket.on("new-sale", () => fetchProducts());
-    socket.on("dashboard-refresh", () => fetchProducts());
-
-    return () => {
-      socket.emit("leave-branch", activeBranch.id);
-      socket.disconnect();
-      socketRef.current = null;
-    };
-  }, [user?.id, activeBranch?.id, fetchProducts]);
+  useSocketEvent("new-sale", () => fetchProducts());
+  useSocketEvent("dashboard-refresh", () => fetchProducts());
 
   // ── Barcode scanner ──────────────────────────────────────────────────────────
 
