@@ -26,6 +26,7 @@ import {
   Home,
   BarChart3,
   RotateCcw,
+  Clock,
 } from "lucide-react";
 import {
   DropdownMenu,
@@ -54,6 +55,8 @@ export default function Navbar() {
   const canInventory = can(user, "stock.read");
   const canLogs = can(user, "logs.read");
   const canReviewRefunds = can(user, "refund_requests.review");
+  // Supervisors only: staff clock in from the phone, not the console.
+  const canTimeConsole = can(user, "time.view_all");
 
   return (
     <nav className="border-t-2 border-emerald-200 bg-white shadow-lg fixed bottom-0 left-0 w-full h-auto z-50">
@@ -125,6 +128,18 @@ export default function Navbar() {
                     >
                       <RotateCcw className="w-4 h-4 mr-2" />
                       Refunds
+                    </Button>
+                  </Link>
+                )}
+                {canTimeConsole && (
+                  <Link href="/time">
+                    <Button
+                      className="cursor-pointer border-emerald-300 hover:bg-emerald-50 hover:border-emerald-400 font-medium"
+                      variant="outline"
+                      size="sm"
+                    >
+                      <Clock className="w-4 h-4 mr-2" />
+                      Time
                     </Button>
                   </Link>
                 )}
@@ -378,6 +393,13 @@ export default function Navbar() {
                         </Link>
                       </DropdownMenuItem>
                     )}
+                    {canTimeConsole && (
+                      <DropdownMenuItem asChild>
+                        <Link href="/time" className="cursor-pointer flex items-center py-2">
+                          <Clock className="w-4 h-4 mr-3 text-emerald-600" />Time Console
+                        </Link>
+                      </DropdownMenuItem>
+                    )}
 
                     {canManage && (
                       <>
@@ -545,6 +567,13 @@ export default function Navbar() {
                     <DropdownMenuItem asChild>
                       <Link href="/refunds" className="cursor-pointer flex items-center py-2">
                         <RotateCcw className="w-4 h-4 mr-3 text-emerald-600" />Refund Requests
+                      </Link>
+                    </DropdownMenuItem>
+                  )}
+                  {canTimeConsole && (
+                    <DropdownMenuItem asChild>
+                      <Link href="/time" className="cursor-pointer flex items-center py-2">
+                        <Clock className="w-4 h-4 mr-3 text-emerald-600" />Time Console
                       </Link>
                     </DropdownMenuItem>
                   )}
