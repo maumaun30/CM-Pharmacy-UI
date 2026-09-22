@@ -808,6 +808,16 @@ const POSPage = () => {
   // socket that would have dropped the whole tab out of the branch room.
 
   useSocketEvent<{ productId: number; newStock: number }>("stock-updated", (data) => {
+    // A product this till has never seen — the first delivery for a newly
+    // created item — can't be patched into a list that doesn't contain it.
+    // Pull the catalogue once for that rare case; every other stock event is
+    // handled in place below. (The handler lives in a ref, so `products` here
+    // is the current render's value, not a stale closure.)
+    if (!products.some((p) => p.id === data.productId)) {
+      fetchProducts();
+      return;
+    }
+
     // Single setProducts call — show toast and update in one pass
     setProducts((prev) => {
       const product = prev.find((p) => p.id === data.productId);
@@ -841,8 +851,12 @@ const POSPage = () => {
     );
   });
 
-  useSocketEvent("new-sale", () => fetchProducts());
-  useSocketEvent("dashboard-refresh", () => fetchProducts());
+  // No "new-sale" or "dashboard-refresh" listener here on purpose. Both used
+  // to call fetchProducts(), which re-pulls the entire branch catalogue — so a
+  // single admin stock edit cost every open till a full catalogue fetch, and a
+  // bulk edit cost one per product. "stock-updated" above carries productId +
+  // newStock, which is all this page needs, and a till's own sale already calls
+  // fetchProducts() explicitly after checkout.
 
   // ── Barcode scanner ──────────────────────────────────────────────────────────
 

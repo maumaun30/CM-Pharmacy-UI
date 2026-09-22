@@ -179,7 +179,9 @@ const HomePage = () => {
       } else {
         toast.warning(message, { icon: <AlertTriangle className="h-4 w-4" />, duration: 5000 });
       }
-      fetchDashboardStats();
+      // No refetch: the server always emits "stock-updated" for this product
+      // immediately before the alert (see saleController / stockController), and
+      // that listener above already refreshes the stats. Toast only.
     },
   );
 
