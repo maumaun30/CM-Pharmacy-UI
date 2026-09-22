@@ -297,7 +297,10 @@ export default function ProductList() {
     try {
       setFetchLoading(true);
       const params: any = {};
-      if (activeBranchId) params.branch_id = activeBranchId;
+      // camelCase: the API reads `branchId`. This used to send `branch_id`,
+      // which the API ignored, so every branch's stock rows came back even in a
+      // single-branch view. The page only reads the active branch's row there.
+      if (activeBranchId) params.branchId = activeBranchId;
       const res = await api.get("/products", { params });
       const parsed = res.data.map((p: any) => ({
         ...p,

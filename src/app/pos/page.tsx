@@ -765,7 +765,9 @@ const POSPage = () => {
   const fetchProducts = useCallback(async () => {
     try {
       const branchId = user?.current_branch_id || user?.branch_id;
-      const res = await api.get(`/products?branchId=${branchId}`);
+      // fields=pos: slim catalog (no descriptions, timestamps or joins) with
+      // just the fields this page reads.
+      const res = await api.get("/products", { params: { branchId, fields: "pos" } });
       const parsed = res.data.map((p: any) => ({
         ...p,
         price: parseFloat(p.price) || 0,
